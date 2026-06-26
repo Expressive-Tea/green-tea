@@ -1,11 +1,13 @@
 import http from 'http';
-import type { ResponseShape } from './pipeline';
 import { errorToResponse } from './transformers';
+import type { ResponseShape } from './pipeline';
 
 export type RouteHandler = (req: {
   method: string; url: string;
   headers: Record<string, string | string[] | undefined>;
   params: Record<string, string>;
+  query: Record<string, string>;
+  body: unknown;
 }) => Promise<ResponseShape>;
 
 export interface RouteDef { method: string; pattern: string; handler: RouteHandler }
@@ -28,19 +30,47 @@ export function matchRoute(routes: RouteDef[], method: string, path: string): Ma
   return undefined;
 }
 
+export function parseQuery(url: string): Record<string, string> {
+  const qs = url.split('?')[1] ?? '';
+  const out: Record<string, string> = {};
+  for (const [k, v] of new URLSearchParams(qs)) out[k] = v;
+  return out;
+}
+
+async function readBody(req: http.IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  if (chunks.length === 0) return undefined;
+  const raw = Buffer.concat(chunks).toString('utf8');
+  if (!raw) return undefined;
+  const ct = String(req.headers['content-type'] ?? '');
+  if (ct.includes('application/json')) return JSON.parse(raw); // throws → caller maps to 400
+  return raw;
+}
+
 export function createHttpServer(routes: RouteDef[]): http.Server {
   return http.createServer(async (req, res) => {
-    const path = (req.url ?? '/').split('?')[0];
+    const url = req.url ?? '/';
+    const path = url.split('?')[0];
     const matched = matchRoute(routes, req.method ?? 'GET', path);
     if (!matched) {
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'Not Found' }));
       return;
     }
+    let body: unknown;
+    try {
+      body = await readBody(req);
+    } catch {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+      return;
+    }
     let result: ResponseShape;
     try {
       result = await matched.handler({
-        method: req.method ?? 'GET', url: req.url ?? '/', headers: req.headers, params: matched.params,
+        method: req.method ?? 'GET', url, headers: req.headers,
+        params: matched.params, query: parseQuery(url), body,
       });
     } catch (error) {
       result = errorToResponse(error);
