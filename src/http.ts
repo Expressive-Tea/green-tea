@@ -37,15 +37,12 @@ export function parseQuery(url: string): Record<string, string> {
   return out;
 }
 
-async function readBody(req: http.IncomingMessage): Promise<unknown> {
+async function readBody(req: http.IncomingMessage): Promise<string | undefined> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
   if (chunks.length === 0) return undefined;
   const raw = Buffer.concat(chunks).toString('utf8');
-  if (!raw) return undefined;
-  const ct = String(req.headers['content-type'] ?? '');
-  if (ct.includes('application/json')) return JSON.parse(raw); // throws → caller maps to 400
-  return raw;
+  return raw === '' ? undefined : raw;
 }
 
 export function createHttpServer(routes: RouteDef[]): http.Server {
@@ -58,13 +55,25 @@ export function createHttpServer(routes: RouteDef[]): http.Server {
       res.end(JSON.stringify({ error: 'Not Found' }));
       return;
     }
-    let body: unknown;
+    let raw: string | undefined;
     try {
-      body = await readBody(req);
+      raw = await readBody(req);
     } catch {
-      res.writeHead(400, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+      // stream/network failure — not the client's JSON fault
+      res.writeHead(500, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal Server Error' }));
       return;
+    }
+    let body: unknown = raw;
+    const ct = String(req.headers['content-type'] ?? '');
+    if (raw !== undefined && ct.includes('application/json')) {
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+        return;
+      }
     }
     let result: ResponseShape;
     try {

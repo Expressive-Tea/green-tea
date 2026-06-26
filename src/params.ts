@@ -65,12 +65,14 @@ export function resolveArgs(specs: ArgSpec[], context: Context): unknown[] {
 function resolveOne(s: ArgSpec, context: Context): unknown {
   if (s.source === 'ctx') return context;
   if (s.source === 'needs') return context[s.key as string];
-  const bag = (context[s.source] ?? {}) as Record<string, unknown>;
+  const bag = context[s.source];
+  if (typeof bag !== 'object' || bag === null) return bag; // can't pick from a non-object; return as-is
+  const record = bag as Record<string, unknown>;
   if (s.keys) {
     const out: Record<string, unknown> = {};
-    for (const k of s.keys) out[k] = bag[k];
+    for (const k of s.keys) out[k] = record[k];
     return out;
   }
-  if (s.key !== undefined) return bag[s.key];
-  return bag;
+  if (s.key !== undefined) return record[s.key];
+  return record;
 }

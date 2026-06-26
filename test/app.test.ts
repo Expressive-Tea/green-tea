@@ -4,7 +4,7 @@ import { Provider, Step, Route, Get, Module, Transformer } from '../src/metadata
 import { JsonTransformer } from '../src/transformers';
 import { Unauthorized } from '../src/signals';
 import { createApp } from '../src/app';
-import { needs, param } from '../src/params';
+import { needs, param, query } from '../src/params';
 
 @Provider({ provides: 'db' })
 class Db { provide() { return { db: { find: (t: string) => (t === 'good' ? { id: 'u1' } : null) } }; } }
@@ -76,6 +76,23 @@ test('optional provider failure warns but does not abort boot', async () => {
   expect(warn).toHaveBeenCalledWith(expect.stringContaining("optional provider 'cache' failed"));
   server.close();
   warn.mockRestore();
+});
+
+test('handler receives @query value through a live request', async () => {
+  @Route('/search')
+  class SearchCtl {
+    @Get('/')
+    run(@query('q') q: string) { return { q }; }
+  }
+  @Module({ mountpoint: '/s', providers: [], steps: [], controllers: [SearchCtl] })
+  class SearchModule {}
+
+  const app = createApp({ modules: [SearchModule] });
+  const server = await app.listen(0);
+  const port = (server.address() as any).port;
+  const res = await fetch(`http://127.0.0.1:${port}/s/search/?q=hello`);
+  expect(await res.json()).toEqual({ q: 'hello' });
+  server.close();
 });
 
 test('boot fails when a handler needs something nothing provides', () => {
