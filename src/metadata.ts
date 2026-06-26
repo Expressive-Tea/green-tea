@@ -74,6 +74,6 @@ export function getRoutes(cls: Ctor): RouteMeta[] {
   return routes.map((r) => ({ ...r, path: joinPath(prefix, r.path) }));
 }
 
-function joinPath(a: string, b: string): string {
+export function joinPath(a: string, b: string): string {
   return `${a.replace(/\/$/, '')}/${b.replace(/^\//, '')}`.replace(/\/+/g, '/');
 }

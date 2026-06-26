@@ -7,7 +7,7 @@ import { createHttpServer, RouteDef } from './http';
 import { JsonTransformer } from './transformers';
 import { mountPlugin, Plugin, ScopeApi, ScopeNode } from './plugin';
 import {
-  Ctor, getModuleMeta, getProviderMeta, getStepMeta, getRoutes, getTransformer,
+  Ctor, getModuleMeta, getProviderMeta, getStepMeta, getRoutes, getTransformer, joinPath,
 } from './metadata';
 
 export interface InspectLine { name: string; kind: 'provider' | 'step' | 'handler'; origin: string }
@@ -62,7 +62,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[] }): App {
       for (const route of getRoutes(C)) {
         const inst: any = new C();
         routePlans.push({
-          pattern: joinMount(m.mountpoint, route.path),
+          pattern: joinPath(m.mountpoint, route.path),
           origin,
           providers: [],
           steps: [],
@@ -133,9 +133,11 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[] }): App {
             Object.assign(provided, resolved);
           }
         }
-        const steps: PipelineStep[] = plan.steps.map((s) => ({
-          name: s.name, origin: s.origin, run: runners.get(s.name)!,
-        }));
+        const steps: PipelineStep[] = plan.steps.map((s) => {
+          const fn = runners.get(s.name);
+          if (!fn) throw new Error(`no runner registered for step '${s.name}'`);
+          return { name: s.name, origin: s.origin, run: fn };
+        });
         return runPipeline({
           steps, handler: plan.run, transformer: plan.transformer, bus,
           seed: { ...provided, req, params: req.params },
@@ -153,10 +155,6 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[] }): App {
 
 async function snapshot(c: Container, needs: string[]): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {};
-  for (const key of needs) if (c.has(key)) out[key] = await c.resolve(key);
+  for (const key of needs) if (c.has(key)) Object.assign(out, (await c.resolve(key)) as Record<string, unknown>);
   return out;
-}
-
-function joinMount(mount: string, path: string): string {
-  return `${mount.replace(/\/$/, '')}/${path.replace(/^\//, '')}`.replace(/\/+/g, '/');
 }
