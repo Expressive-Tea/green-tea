@@ -94,6 +94,7 @@ npm run build     # emit dist/
 
 - **streams** — native WebSocket/SSE + reactive streams (steps that open an observed channel).
 - **mesh** — `teapot`/`teacup`: distributed scopes over a persistent channel with auto-registration. Model: a BEAM/OTP-style cluster, *not* microservices. The core's `resolve()` is already async + transport-agnostic to allow this without a rewrite.
+- **runtime adapters** — factor the transport behind an adapter so the core stays runtime-agnostic; Node / Deno / Bun / edge become thin adapters over web-standard `Request`/`Response`. Only `src/http.ts` is runtime-specific today.
 - official plugins (cors, body parsers, auth) — structurally unable to sabotage the global pipeline.
 
 ## License
