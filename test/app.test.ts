@@ -60,3 +60,19 @@ test('required provider failure aborts boot', () => {
   const app = createApp({ modules: [BrokenModule] });
   return expect(app.listen(0)).rejects.toThrow(/provider 'broken' failed/);
 });
+
+test('optional provider failure warns but does not abort boot', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  @Provider({ provides: 'cache', optional: true })
+  class FlakyCache { provide() { throw new Error('cache down'); } }
+  @Route('/ping')
+  class PingCtl { @Get('/') ping() { return { ok: true }; } }
+  @Module({ mountpoint: '/sys', providers: [FlakyCache], steps: [], controllers: [PingCtl] })
+  class SysModule {}
+
+  const app = createApp({ modules: [SysModule] });
+  const server = await app.listen(0);            // must NOT throw
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining("optional provider 'cache' failed"));
+  server.close();
+  warn.mockRestore();
+});

@@ -1,5 +1,6 @@
 import http from 'http';
 import type { ResponseShape } from './pipeline';
+import { errorToResponse } from './transformers';
 
 export type RouteHandler = (req: {
   method: string; url: string;
@@ -36,9 +37,14 @@ export function createHttpServer(routes: RouteDef[]): http.Server {
       res.end(JSON.stringify({ error: 'Not Found' }));
       return;
     }
-    const result = await matched.handler({
-      method: req.method ?? 'GET', url: req.url ?? '/', headers: req.headers, params: matched.params,
-    });
+    let result: ResponseShape;
+    try {
+      result = await matched.handler({
+        method: req.method ?? 'GET', url: req.url ?? '/', headers: req.headers, params: matched.params,
+      });
+    } catch (error) {
+      result = errorToResponse(error);
+    }
     res.writeHead(result.status, result.headers);
     res.end(result.body);
   });

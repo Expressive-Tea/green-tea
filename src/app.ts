@@ -37,6 +37,10 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[] }): App {
   const providerNodes: GraphNode[] = [];
   const stepNodes: GraphNode[] = [];
   const runners = new Map<string, (ctx: any) => any>();      // node name -> runtime fn
+  const setRunner = (name: string, fn: (ctx: any) => any) => {
+    if (runners.has(name)) throw new Error(`duplicate provider/step name '${name}' — names must be unique across modules and plugins`);
+    runners.set(name, fn);
+  };
   const providerMeta = new Map<string, { optional: boolean }>();
   const routePlans: RoutePlan[] = [];
 
@@ -50,13 +54,13 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[] }): App {
       providerNodes.push({ name: meta.provides, needs: meta.needs, provides: [meta.provides], origin });
       providerMeta.set(meta.provides, { optional: meta.optional });
       const inst: any = new P();
-      runners.set(meta.provides, (ctx) => inst.provide(ctx));
+      setRunner(meta.provides, (ctx) => inst.provide(ctx));
     }
     for (const S of m.steps ?? []) {
       const meta = getStepMeta(S)!;
       stepNodes.push({ name: meta.provides, needs: meta.needs, provides: [meta.provides], origin });
       const inst: any = new S();
-      runners.set(meta.provides, (ctx) => inst.run(ctx));
+      setRunner(meta.provides, (ctx) => inst.run(ctx));
     }
     for (const C of m.controllers ?? []) {
       for (const route of getRoutes(C)) {
@@ -79,7 +83,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[] }): App {
   for (const n of extraSteps) {
     const node = { name: n.name, needs: n.needs, provides: n.provides, origin: 'plugin' };
     if (n.kind === 'provider') providerNodes.push(node); else stepNodes.push(node);
-    runners.set(n.name, n.run);
+    setRunner(n.name, n.run);
   }
 
   // For each route, resolve which providers/steps feed it via topo order.
