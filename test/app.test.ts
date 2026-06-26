@@ -1,0 +1,62 @@
+import 'reflect-metadata';
+import { expect, test, vi } from 'vitest';
+import { Provider, Step, Route, Get, Module, Transformer } from '../src/metadata';
+import { JsonTransformer } from '../src/transformers';
+import { Unauthorized } from '../src/signals';
+import { createApp } from '../src/app';
+
+@Provider({ provides: 'db' })
+class Db { provide() { return { db: { find: (t: string) => (t === 'good' ? { id: 'u1' } : null) } }; } }
+
+@Step({ provides: 'user', needs: ['db', 'req'] })
+class Auth {
+  run(ctx: any) {
+    const user = ctx.db.find(ctx.req.headers['x-token']);
+    if (!user) throw new Unauthorized('bad token');
+    return { user };
+  }
+}
+
+@Route('/users')
+class UserCtl {
+  @Get('/:id')
+  @Transformer(JsonTransformer)
+  getUser(ctx: any) { return { id: ctx.params.id, user: ctx.user }; }
+}
+
+@Module({ mountpoint: '/api', providers: [Db], steps: [Auth], controllers: [UserCtl] })
+class ApiModule {}
+
+test('inspect lists the ordered chain with origins', () => {
+  const app = createApp({ modules: [ApiModule] });
+  const lines = app.inspect('/api/users/:id');
+  expect(lines.map((l) => `${l.kind}:${l.name}`)).toEqual(['provider:db', 'step:user', 'handler:getUser']);
+});
+
+test('a logger plugin observes step:enter without mutating the chain', async () => {
+  const seen: string[] = [];
+  const logger = (api: any) => api.bus.on('request:step:enter', (p: any) => seen.push(p.name));
+  const app = createApp({ modules: [ApiModule], plugins: [logger] });
+  const server = await app.listen(0);
+  const port = (server.address() as any).port;
+
+  const ok = await fetch(`http://127.0.0.1:${port}/api/users/7`, { headers: { 'x-token': 'good' } });
+  expect(ok.status).toBe(200);
+  expect(await ok.json()).toEqual({ id: '7', user: { id: 'u1' } });
+  expect(seen).toContain('user');
+
+  const bad = await fetch(`http://127.0.0.1:${port}/api/users/7`, { headers: { 'x-token': 'nope' } });
+  expect(bad.status).toBe(401);
+
+  server.close();
+});
+
+test('required provider failure aborts boot', () => {
+  @Provider({ provides: 'broken' })
+  class Broken { provide() { throw new Error('cannot connect'); } }
+  @Module({ mountpoint: '/x', providers: [Broken], steps: [], controllers: [] })
+  class BrokenModule {}
+
+  const app = createApp({ modules: [BrokenModule] });
+  return expect(app.listen(0)).rejects.toThrow(/provider 'broken' failed/);
+});
