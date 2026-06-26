@@ -10,3 +10,5 @@ export { HttpError, Unauthorized, NotFound, Redirect, NotModified } from './sign
 export { Bus } from './bus';
 export { flow, Flow } from './flow';
 export type { StepFn, CompiledFlow } from './flow';
+export { needs, ctx, param, query, body, headers } from './params';
+export type { Query, Headers, Context, ArgSpec } from './params';

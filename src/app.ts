@@ -9,6 +9,7 @@ import { mountPlugin, Plugin, ScopeApi, ScopeNode } from './plugin';
 import {
   Ctor, getModuleMeta, getProviderMeta, getStepMeta, getRoutes, getTransformer, joinPath,
 } from './metadata';
+import { getArgs, getHandlerNeeds, resolveArgs } from './params';
 
 export interface InspectLine { name: string; kind: 'provider' | 'step' | 'handler'; origin: string }
 export interface App {
@@ -23,6 +24,7 @@ interface RoutePlan {
   providers: GraphNode[];
   steps: GraphNode[];
   handlerName: string;
+  needs: string[];
   run: (ctx: any) => unknown;
   transformer: typeof JsonTransformer;
 }
@@ -65,13 +67,15 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[] }): App {
     for (const C of m.controllers ?? []) {
       for (const route of getRoutes(C)) {
         const inst: any = new C();
+        const argSpecs = getArgs(C, route.handlerName);
         routePlans.push({
           pattern: joinPath(m.mountpoint, route.path),
           origin,
           providers: [],
           steps: [],
           handlerName: route.handlerName,
-          run: (ctx) => inst[route.handlerName](ctx),
+          needs: getHandlerNeeds(argSpecs),
+          run: (c: any) => inst[route.handlerName](...resolveArgs(argSpecs, c)),
           transformer: getTransformer(C, route.handlerName) ?? JsonTransformer,
         });
       }
@@ -93,6 +97,19 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[] }): App {
   const orderedProviders = ordered.filter((n) => providerNodes.includes(n));
   const orderedSteps = ordered.filter((n) => stepNodes.includes(n));
   for (const plan of routePlans) { plan.providers = orderedProviders; plan.steps = orderedSteps; }
+
+  const producedKeys = new Set<string>([
+    ...providerNodes.flatMap((n) => n.provides),
+    ...stepNodes.flatMap((n) => n.provides),
+  ]);
+  const allowed = new Set<string>([...producedKeys, 'req', 'params', 'query', 'body', 'headers']);
+  for (const plan of routePlans) {
+    for (const need of plan.needs) {
+      if (!allowed.has(need)) {
+        throw new Error(`handler '${plan.handlerName}' needs '${need}' but nothing provides it`);
+      }
+    }
+  }
 
   const inspect = (routePath: string): InspectLine[] => {
     const plan = routePlans.find((p) => p.pattern === routePath);
@@ -144,7 +161,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[] }): App {
         });
         return runPipeline({
           steps, handler: plan.run, transformer: plan.transformer, bus,
-          seed: { ...provided, req, params: req.params },
+          seed: { ...provided, req, params: req.params, query: req.query, body: req.body, headers: req.headers },
         });
       },
     }));

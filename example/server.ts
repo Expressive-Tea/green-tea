@@ -1,4 +1,4 @@
-import { createApp, Provider, Step, Route, Get, Module, Transformer, JsonTransformer, Unauthorized, Plugin } from '../src/index';
+import { createApp, Provider, Step, Route, Get, Module, Transformer, JsonTransformer, Unauthorized, Plugin, needs, param } from '../src/index';
 
 interface User { id: string; name: string }
 
@@ -23,8 +23,8 @@ class Authenticate {
 class UserController {
   @Get('/:id')
   @Transformer(JsonTransformer)
-  getUser(ctx: { user: User; params: { id: string } }) {
-    return { requested: ctx.params.id, you: ctx.user };
+  getUser(@needs('user') user: User, @param('id') id: string) {
+    return { requested: id, you: user };
   }
 }
 

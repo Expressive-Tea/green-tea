@@ -4,6 +4,7 @@ import { Provider, Step, Route, Get, Module, Transformer } from '../src/metadata
 import { JsonTransformer } from '../src/transformers';
 import { Unauthorized } from '../src/signals';
 import { createApp } from '../src/app';
+import { needs, param } from '../src/params';
 
 @Provider({ provides: 'db' })
 class Db { provide() { return { db: { find: (t: string) => (t === 'good' ? { id: 'u1' } : null) } }; } }
@@ -21,7 +22,7 @@ class Auth {
 class UserCtl {
   @Get('/:id')
   @Transformer(JsonTransformer)
-  getUser(ctx: any) { return { id: ctx.params.id, user: ctx.user }; }
+  getUser(@needs('user') user: any, @param('id') id: string) { return { id, user }; }
 }
 
 @Module({ mountpoint: '/api', providers: [Db], steps: [Auth], controllers: [UserCtl] })
@@ -75,4 +76,17 @@ test('optional provider failure warns but does not abort boot', async () => {
   expect(warn).toHaveBeenCalledWith(expect.stringContaining("optional provider 'cache' failed"));
   server.close();
   warn.mockRestore();
+});
+
+test('boot fails when a handler needs something nothing provides', () => {
+  @Route('/things')
+  class ThingCtl {
+    @Get('/')
+    list(@needs('missing') _m: any) { return []; }
+  }
+  @Module({ mountpoint: '/t', providers: [], steps: [], controllers: [ThingCtl] })
+  class ThingModule {}
+
+  expect(() => createApp({ modules: [ThingModule] }))
+    .toThrow(/handler 'list' needs 'missing'/);
 });
