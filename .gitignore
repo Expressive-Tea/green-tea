@@ -1,0 +1,12 @@
+# Local specs & plans — not committed
+.specs/
+
+# Node
+node_modules/
+dist/
+coverage/
+*.log
+
+# Env
+.env
+.env.*

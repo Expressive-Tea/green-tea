@@ -1,0 +1,23 @@
+{
+  "name": "@green-tea/core",
+  "version": "0.0.0",
+  "description": "Declarative, type-safe HTTP framework. The pipeline is a graph, not a middleware chain.",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:dev": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "reflect-metadata": "0.2.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0",
+    "@types/node": "^18.19.0"
+  }
+}
