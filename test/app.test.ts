@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { expect, test, vi } from 'vitest';
+import { describe, expect, it, test, vi } from 'vitest';
 import { Provider, Step, Route, Get, Module, Transformer } from '../src/metadata';
 import { JsonTransformer } from '../src/transformers';
 import { Unauthorized } from '../src/signals';
@@ -106,4 +106,50 @@ test('boot fails when a handler needs something nothing provides', () => {
 
   expect(() => createApp({ modules: [ThingModule] }))
     .toThrow(/handler 'list' needs 'missing'/);
+});
+
+import { Sse, Ws } from '../src/metadata';
+import { inbound } from '../src/params';
+import { channel } from '../src/channel';
+
+describe('app streaming wiring', () => {
+  it('serves an SSE route declared with @Sse', async () => {
+    @Route('/')
+    class Ctl {
+      @Sse('/ticks') ticks() {
+        return (async function* () { yield { t: 1 }; yield { t: 2 }; })();
+      }
+    }
+    @Module({ mountpoint: '/', controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M] });
+    const server = await app.listen(0);
+    const addr = server.address() as import('net').AddressInfo;
+    const res = await fetch(`http://127.0.0.1:${addr.port}/ticks`, { headers: { accept: 'text/event-stream' } });
+    expect(res.headers.get('content-type')).toBe('text/event-stream');
+    const text = await res.text();
+    expect(text).toContain('data: {"t":1}');
+    server.close();
+  });
+
+  it('serves a @Ws route receiving @inbound and returning a channel', async () => {
+    @Route('/')
+    class Ctl {
+      @Ws('/echo') echo(@inbound() inc: AsyncIterable<string>) {
+        const out = channel<string>();
+        (async () => { for await (const m of inc) out.push(`re:${m}`); out.close(); })();
+        return out;
+      }
+    }
+    @Module({ mountpoint: '/', controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M] });
+    const server = await app.listen(0);
+    const addr = server.address() as import('net').AddressInfo;
+    const WebSocket = (await import('ws')).default;
+    const client = new WebSocket(`ws://127.0.0.1:${addr.port}/echo`);
+    await new Promise((r) => client.on('open', r));
+    const got = new Promise<string>((r) => client.on('message', (d: Buffer) => r(d.toString())));
+    client.send('yo');
+    expect(await got).toBe('re:yo');
+    client.close(); server.close();
+  });
 });

@@ -3,11 +3,12 @@ import { Bus } from './bus';
 import { Container } from './container';
 import { topoSort, GraphNode } from './graph';
 import { runPipeline, PipelineStep } from './pipeline';
-import { createHttpServer, RouteDef } from './http';
+import { createHttpServer, parseQuery, RouteDef, WsRouteDef } from './http';
+import { isAsyncIterable } from './channel';
 import { JsonTransformer } from './transformers';
 import { mountPlugin, Plugin, ScopeApi, ScopeNode } from './plugin';
 import {
-  Ctor, getModuleMeta, getProviderMeta, getStepMeta, getRoutes, getTransformer, joinPath,
+  Ctor, HttpMethod, Transport, getModuleMeta, getProviderMeta, getStepMeta, getRoutes, getTransformer, joinPath,
 } from './metadata';
 import { getArgs, getHandlerNeeds, resolveArgs } from './params';
 
@@ -20,6 +21,8 @@ export interface App {
 
 interface RoutePlan {
   pattern: string;
+  method: HttpMethod;
+  transport: Transport;
   origin: string;
   providers: GraphNode[];
   steps: GraphNode[];
@@ -70,6 +73,8 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[] }): App {
         const argSpecs = getArgs(C, route.handlerName);
         routePlans.push({
           pattern: joinPath(m.mountpoint, route.path),
+          method: route.method,
+          transport: route.transport,
           origin,
           providers: [],
           steps: [],
@@ -102,7 +107,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[] }): App {
     ...providerNodes.flatMap((n) => n.provides),
     ...stepNodes.flatMap((n) => n.provides),
   ]);
-  const allowed = new Set<string>([...producedKeys, 'req', 'params', 'query', 'body', 'headers']);
+  const allowed = new Set<string>([...producedKeys, 'req', 'params', 'query', 'body', 'headers', 'inbound', 'abort']);
   for (const plan of routePlans) {
     for (const need of plan.needs) {
       if (!allowed.has(need)) {
@@ -120,6 +125,19 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[] }): App {
       { name: plan.handlerName, kind: 'handler' as const, origin: plan.origin },
     ];
   };
+
+  const providedSeed = async (plan: RoutePlan): Promise<Record<string, unknown>> => {
+    const provided: Record<string, unknown> = {};
+    for (const p of plan.providers) {
+      if (container.has(p.name)) Object.assign(provided, (await container.resolve(p.name)) as Record<string, unknown>);
+    }
+    return provided;
+  };
+  const planSteps = (plan: RoutePlan): PipelineStep[] => plan.steps.map((s) => {
+    const fn = runners.get(s.name);
+    if (!fn) throw new Error(`no runner registered for step '${s.name}'`);
+    return { name: s.name, origin: s.origin, run: fn };
+  });
 
   const listen = async (port: number): Promise<http.Server> => {
     // run app-scoped providers in order (fail-fast for required)
@@ -141,32 +159,37 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[] }): App {
       }
     }
 
-    const routeDefs: RouteDef[] = routePlans.map((plan) => ({
-      method: 'GET',
-      pattern: plan.pattern,
-      handler: async (req) => {
-        // build app-scoped seed by spreading each provider's resolved value into context
-        // providers follow the same merge convention as steps: return { token: value }
-        const provided: Record<string, unknown> = {};
-        for (const p of plan.providers) {
-          if (container.has(p.name)) {
-            const resolved = (await container.resolve(p.name)) as Record<string, unknown>;
-            Object.assign(provided, resolved);
-          }
-        }
-        const steps: PipelineStep[] = plan.steps.map((s) => {
-          const fn = runners.get(s.name);
-          if (!fn) throw new Error(`no runner registered for step '${s.name}'`);
-          return { name: s.name, origin: s.origin, run: fn };
-        });
-        return runPipeline({
-          steps, handler: plan.run, transformer: plan.transformer, bus,
-          seed: { ...provided, req, params: req.params, query: req.query, body: req.body, headers: req.headers },
-        });
-      },
-    }));
+    const httpRoutes: RouteDef[] = routePlans
+      .filter((plan) => plan.transport !== 'ws')   // buffer | sse | ndjson | negotiate
+      .map((plan) => ({
+        method: plan.method, pattern: plan.pattern, transport: plan.transport,
+        handler: async (req) => {
+          const provided = await providedSeed(plan);
+          return runPipeline({
+            steps: planSteps(plan), handler: plan.run, transformer: plan.transformer, bus,
+            seed: { ...provided, req, params: req.params, query: req.query, body: req.body, headers: req.headers },
+          });
+        },
+      }));
 
-    const server = createHttpServer(routeDefs);
+    const wsRoutes: WsRouteDef[] = routePlans
+      .filter((plan) => plan.transport === 'ws' || plan.transport === 'negotiate')
+      .map((plan) => ({
+        pattern: plan.pattern,
+        open: async ({ params, inbound, abort, req }) => {
+          bus.emit('stream:open', { name: plan.pattern });
+          const provided = await providedSeed(plan);
+          let ctx: any = { ...provided, req, params, query: parseQuery(req.url ?? ''), body: undefined,
+                           headers: req.headers, inbound, abort };
+          for (const s of planSteps(plan)) { ctx = { ...ctx, ...(await s.run(ctx)) }; }
+          const out = plan.run(ctx);
+          abort.addEventListener('abort', () => bus.emit('stream:close', { name: plan.pattern }));
+          if (!isAsyncIterable(out)) throw new Error(`@Ws handler '${plan.handlerName}' must return an AsyncIterable`);
+          return out as AsyncIterable<unknown>;
+        },
+      }));
+
+    const server = createHttpServer(httpRoutes, wsRoutes, bus);
     await new Promise<void>((resolve) => server.listen(port, resolve));
     return server;
   };
