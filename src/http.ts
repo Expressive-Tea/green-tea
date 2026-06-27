@@ -78,13 +78,16 @@ async function pipeStream(
   const it = stream[Symbol.asyncIterator]();
   let ping: ReturnType<typeof setInterval> | undefined;
   if (encoder.ping) { ping = setInterval(() => res.write(encoder.ping!()), PING_MS); ping.unref?.(); }
-  const stop = () => { if (ping) clearInterval(ping); void it.return?.(); };
+  const stop = () => { if (ping) clearInterval(ping); void Promise.resolve(it.return?.()).catch(() => {}); };
   res.on('close', stop);
   try {
     while (true) {
       const { value, done } = await it.next();
       if (done) break;
-      if (!res.write(encoder.encode(value))) await once(res, 'drain');
+      if (!res.write(encoder.encode(value))) {
+        await Promise.race([once(res, 'drain'), once(res, 'close')]);
+        if (res.destroyed) break;   // let finally clean up
+      }
     }
   } catch (err) {
     bus?.emit('stream:error', { name, error: err });
@@ -92,7 +95,7 @@ async function pipeStream(
     if (frame && !res.writableEnded) res.write(frame);
   } finally {
     if (ping) clearInterval(ping);
-    if (!res.writableEnded) res.end();
+    if (!res.writableEnded && !res.destroyed) res.end();
     bus?.emit('stream:close', { name });
   }
 }
