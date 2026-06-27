@@ -177,13 +177,11 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[] }): App {
       .map((plan) => ({
         pattern: plan.pattern,
         open: async ({ params, inbound, abort, req }) => {
-          bus.emit('stream:open', { name: plan.pattern });
           const provided = await providedSeed(plan);
           let ctx: any = { ...provided, req, params, query: parseQuery(req.url ?? ''), body: undefined,
                            headers: req.headers, inbound, abort };
           for (const s of planSteps(plan)) { ctx = { ...ctx, ...(await s.run(ctx)) }; }
           const out = plan.run(ctx);
-          abort.addEventListener('abort', () => bus.emit('stream:close', { name: plan.pattern }));
           if (!isAsyncIterable(out)) throw new Error(`@Ws handler '${plan.handlerName}' must return an AsyncIterable`);
           return out as AsyncIterable<unknown>;
         },

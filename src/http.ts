@@ -81,12 +81,13 @@ async function pipeStream(
   if (encoder.ping) { ping = setInterval(() => res.write(encoder.ping!()), PING_MS); ping.unref?.(); }
   const stop = () => { if (ping) clearInterval(ping); void Promise.resolve(it.return?.()).catch(() => {}); };
   res.on('close', stop);
+  const onClose = once(res, 'close');
   try {
     while (true) {
       const { value, done } = await it.next();
       if (done) break;
       if (!res.write(encoder.encode(value))) {
-        await Promise.race([once(res, 'drain'), once(res, 'close')]);
+        await Promise.race([once(res, 'drain'), onClose]);
         if (res.destroyed) break;   // let finally clean up
       }
     }
@@ -105,7 +106,7 @@ function loadWss(): any | null {
   try { return require('ws').WebSocketServer; } catch { return null; }
 }
 
-function attachWs(server: http.Server, wsRoutes: WsRouteDef[]): void {
+function attachWs(server: http.Server, wsRoutes: WsRouteDef[], bus?: Bus): void {
   if (wsRoutes.length === 0) return;
   const WSS = loadWss();
   const wss = WSS ? new WSS({ noServer: true }) : null;
@@ -120,13 +121,27 @@ function attachWs(server: http.Server, wsRoutes: WsRouteDef[]): void {
       ws.on('message', (d: Buffer) => inbound.push(d.toString()));
       ws.on('close', () => { inbound.close(); ac.abort(); });
       ws.on('error', (e: unknown) => inbound.fail(e));
+
+      const name = route.r.pattern;
+      let it: AsyncIterator<unknown> | undefined;
+      ws.on('close', () => { void Promise.resolve(it?.return?.()).catch(() => {}); }); // force-cancel outbound
+      bus?.emit('stream:open', { name });
       try {
         const out = await route.r.open({ params: route.params!, inbound, abort: ac.signal, req });
-        for await (const m of out) ws.send(typeof m === 'string' ? m : JSON.stringify(m));
-        ws.close();
-      } catch {
+        it = out[Symbol.asyncIterator]();
+        while (true) {
+          const { value, done } = await it.next();
+          if (done) break;
+          if (ws.readyState !== 1) break;   // 1 = OPEN; stop if socket gone
+          ws.send(typeof value === 'string' ? value : JSON.stringify(value));
+        }
+        try { ws.close(); } catch { /* already closed */ }
+      } catch (err) {
+        bus?.emit('stream:error', { name, error: err });
         try { ws.close(1011); } catch { /* already closed */ }
+      } finally {
         ac.abort();
+        bus?.emit('stream:close', { name });
       }
     });
   });
@@ -178,6 +193,6 @@ export function createHttpServer(routes: RouteDef[], wsRoutes: WsRouteDef[] = []
     res.writeHead(r.status, r.headers);
     res.end(r.body);
   });
-  attachWs(server, wsRoutes);
+  attachWs(server, wsRoutes, bus);
   return server;
 }
