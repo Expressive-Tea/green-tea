@@ -1,5 +1,6 @@
 import http from 'http';
 import { once } from 'events';
+import { channel } from './channel';
 import { errorToResponse } from './transformers';
 import { sseEncoder, ndjsonEncoder, StreamEncoder } from './encoders';
 import { isStreamResult, type PipelineResult, type ResponseShape } from './pipeline';
@@ -100,6 +101,37 @@ async function pipeStream(
   }
 }
 
+function loadWss(): any | null {
+  try { return require('ws').WebSocketServer; } catch { return null; }
+}
+
+function attachWs(server: http.Server, wsRoutes: WsRouteDef[]): void {
+  if (wsRoutes.length === 0) return;
+  const WSS = loadWss();
+  const wss = WSS ? new WSS({ noServer: true }) : null;
+  server.on('upgrade', (req, socket, head) => {
+    const path = (req.url ?? '/').split('?')[0];
+    const route = wsRoutes.map((r) => ({ r, params: matchPattern(r.pattern, path) })).find((x) => x.params);
+    if (!route) { socket.destroy(); return; }
+    if (!wss) { socket.write('HTTP/1.1 501 Not Implemented\r\n\r\n'); socket.destroy(); return; }
+    wss.handleUpgrade(req, socket, head, async (ws: any) => {
+      const inbound = channel<unknown>();
+      const ac = new AbortController();
+      ws.on('message', (d: Buffer) => inbound.push(d.toString()));
+      ws.on('close', () => { inbound.close(); ac.abort(); });
+      ws.on('error', (e: unknown) => inbound.fail(e));
+      try {
+        const out = await route.r.open({ params: route.params!, inbound, abort: ac.signal, req });
+        for await (const m of out) ws.send(typeof m === 'string' ? m : JSON.stringify(m));
+        ws.close();
+      } catch {
+        try { ws.close(1011); } catch { /* already closed */ }
+        ac.abort();
+      }
+    });
+  });
+}
+
 export function createHttpServer(routes: RouteDef[], wsRoutes: WsRouteDef[] = [], bus?: Bus): http.Server {
   const server = http.createServer(async (req, res) => {
     const url = req.url ?? '/';
@@ -146,5 +178,6 @@ export function createHttpServer(routes: RouteDef[], wsRoutes: WsRouteDef[] = []
     res.writeHead(r.status, r.headers);
     res.end(r.body);
   });
-  return server;   // Task 7 will insert `attachWs(server, wsRoutes);` before this line
+  attachWs(server, wsRoutes);
+  return server;
 }
