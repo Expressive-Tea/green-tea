@@ -5,7 +5,9 @@ export type TransformerFn = (value: unknown) => { status?: number; headers?: Rec
 
 export interface ProviderMeta { provides: string; needs: string[]; optional: boolean }
 export interface StepMeta { provides: string; needs: string[]; optional: boolean }
-export interface RouteMeta { method: 'GET'; path: string; handlerName: string }
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+export type Transport = 'buffer' | 'sse' | 'ndjson' | 'negotiate' | 'ws';
+export interface RouteMeta { method: HttpMethod; path: string; handlerName: string; transport: Transport }
 export interface ModuleOptions {
   mountpoint: string; providers?: Ctor[]; steps?: Ctor[]; controllers?: Ctor[];
 }
@@ -37,14 +39,24 @@ export function Route(prefix: string): ClassDecorator {
   return (target) => { Reflect.defineMetadata(K.routePrefix, prefix, target); };
 }
 
-export function Get(path: string): MethodDecorator {
-  return (target, propertyKey) => {
-    const ctor = target.constructor;
-    const routes = (Reflect.getMetadata(K.routes, ctor) as RouteMeta[]) ?? [];
-    routes.push({ method: 'GET', path, handlerName: String(propertyKey) });
-    Reflect.defineMetadata(K.routes, routes, ctor);
-  };
+function routeDecorator(method: HttpMethod, transport: Transport) {
+  return (path: string): MethodDecorator =>
+    (target, propertyKey) => {
+      const ctor = target.constructor;
+      const routes = (Reflect.getMetadata(K.routes, ctor) as RouteMeta[]) ?? [];
+      routes.push({ method, path, handlerName: String(propertyKey), transport });
+      Reflect.defineMetadata(K.routes, routes, ctor);
+    };
 }
+
+export const Get = routeDecorator('GET', 'buffer');
+export const Post = routeDecorator('POST', 'buffer');
+export const Put = routeDecorator('PUT', 'buffer');
+export const Patch = routeDecorator('PATCH', 'buffer');
+export const Delete = routeDecorator('DELETE', 'buffer');
+export const Sse = routeDecorator('GET', 'sse');
+export const Stream = routeDecorator('GET', 'negotiate');
+export const Ws = routeDecorator('GET', 'ws');
 
 export function Transformer(fn: TransformerFn): MethodDecorator {
   return (target, propertyKey) => {

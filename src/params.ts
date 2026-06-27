@@ -5,7 +5,7 @@ export type Query = Record<string, string>;
 export type Headers = Record<string, string | string[] | undefined>;
 export type Context = Record<string, unknown>;
 
-type ArgSource = 'ctx' | 'needs' | 'params' | 'query' | 'body' | 'headers';
+type ArgSource = 'ctx' | 'needs' | 'params' | 'query' | 'body' | 'headers' | 'inbound' | 'abort';
 export interface ArgSpec { index: number; source: ArgSource; key?: string; keys?: string[] }
 
 const ARGS = Symbol('gt:args');
@@ -45,6 +45,14 @@ export function ctx(): ParameterDecorator {
   return (target, methodKey, index) => record(target, methodKey, { index, source: 'ctx' });
 }
 
+export function inbound(): ParameterDecorator {
+  return (target, methodKey, index) => record(target, methodKey, { index, source: 'inbound' });
+}
+
+export function abort(): ParameterDecorator {
+  return (target, methodKey, index) => record(target, methodKey, { index, source: 'abort' });
+}
+
 export function getArgs(cls: Ctor, methodName: string): ArgSpec[] {
   const map: Record<string, ArgSpec[]> = Reflect.getMetadata(ARGS, cls) ?? {};
   return [...(map[methodName] ?? [])].sort((a, b) => a.index - b.index);
@@ -65,6 +73,8 @@ export function resolveArgs(specs: ArgSpec[], context: Context): unknown[] {
 function resolveOne(s: ArgSpec, context: Context): unknown {
   if (s.source === 'ctx') return context;
   if (s.source === 'needs') return context[s.key as string];
+  if (s.source === 'inbound') return context.inbound;
+  if (s.source === 'abort') return context.abort;
   const bag = context[s.source];
   if (typeof bag !== 'object' || bag === null) return bag; // can't pick from a non-object; return as-is
   const record = bag as Record<string, unknown>;

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
-import { expect, test } from 'vitest';
-import { needs, ctx, param, query, getArgs, getHandlerNeeds, resolveArgs } from '../src/params';
+import { expect, test, describe, it } from 'vitest';
+import { needs, ctx, param, query, inbound, abort, getArgs, getHandlerNeeds, resolveArgs } from '../src/params';
 
 class Ctl {
   handler(
@@ -44,4 +44,21 @@ test('resolveArgs builds positional args from context', () => {
 test('a handler with no arg decorators resolves to no args', () => {
   class Bare { ping() { return 1; } }
   expect(resolveArgs(getArgs(Bare, 'ping'), {})).toEqual([]);
+});
+
+describe('@inbound / @abort', () => {
+  it('resolves inbound and abort from reserved context keys, not as bags', () => {
+    class Ctl { handle(@inbound() inc: AsyncIterable<unknown>, @abort() sig: AbortSignal) { return [inc, sig]; } }
+    const specs = getArgs(Ctl, 'handle');
+    const ac = new AbortController();
+    const inc = (async function* () {})();
+    const args = resolveArgs(specs, { inbound: inc, abort: ac.signal });
+    expect(args[0]).toBe(inc);
+    expect(args[1]).toBe(ac.signal);
+  });
+
+  it('inbound/abort do not count as graph needs', () => {
+    class Ctl { handle(@inbound() _i: AsyncIterable<unknown>, @abort() _a: AbortSignal) {} }
+    expect(getHandlerNeeds(getArgs(Ctl, 'handle'))).toEqual([]);
+  });
 });
