@@ -26,6 +26,8 @@ export interface WsOpenCtx {
 }
 export interface WsRouteDef { pattern: string; open: (ctx: WsOpenCtx) => Promise<AsyncIterable<unknown>> }
 
+export interface MeshControl { path: string; handle(ws: any, req: http.IncomingMessage): void }
+
 const PING_MS = 15_000;
 
 export function matchPattern(pattern: string, path: string): Record<string, string> | undefined {
@@ -106,12 +108,17 @@ function loadWss(): any | null {
   try { return require('ws').WebSocketServer; } catch { return null; }
 }
 
-function attachWs(server: http.Server, wsRoutes: WsRouteDef[], bus?: Bus): void {
-  if (wsRoutes.length === 0) return;
+function attachWs(server: http.Server, wsRoutes: WsRouteDef[], bus?: Bus, meshControl?: MeshControl): void {
+  if (wsRoutes.length === 0 && !meshControl) return;
   const WSS = loadWss();
   const wss = WSS ? new WSS({ noServer: true }) : null;
   server.on('upgrade', (req, socket, head) => {
     const path = (req.url ?? '/').split('?')[0];
+    if (meshControl && path === meshControl.path) {
+      if (!wss) { socket.write('HTTP/1.1 501 Not Implemented\r\n\r\n'); socket.destroy(); return; }
+      wss.handleUpgrade(req, socket, head, (ws: any) => meshControl.handle(ws, req));
+      return;
+    }
     const route = wsRoutes.map((r) => ({ r, params: matchPattern(r.pattern, path) })).find((x) => x.params);
     if (!route) { socket.destroy(); return; }
     if (!wss) { socket.write('HTTP/1.1 501 Not Implemented\r\n\r\n'); socket.destroy(); return; }
@@ -147,7 +154,7 @@ function attachWs(server: http.Server, wsRoutes: WsRouteDef[], bus?: Bus): void 
   });
 }
 
-export function createHttpServer(routes: RouteDef[], wsRoutes: WsRouteDef[] = [], bus?: Bus): http.Server {
+export function createHttpServer(routes: RouteDef[], wsRoutes: WsRouteDef[] = [], bus?: Bus, meshControl?: MeshControl): http.Server {
   const server = http.createServer(async (req, res) => {
     const url = req.url ?? '/';
     const path = url.split('?')[0];
@@ -193,6 +200,6 @@ export function createHttpServer(routes: RouteDef[], wsRoutes: WsRouteDef[] = []
     res.writeHead(r.status, r.headers);
     res.end(r.body);
   });
-  attachWs(server, wsRoutes, bus);
+  attachWs(server, wsRoutes, bus, meshControl);
   return server;
 }
