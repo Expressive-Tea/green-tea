@@ -2,7 +2,7 @@ import http from 'http';
 import { once } from 'events';
 import { channel } from './channel';
 import { errorToResponse } from './transformers';
-import { HttpError } from './signals';
+import { HttpError, isHttpError } from './signals';
 import { sseEncoder, ndjsonEncoder, StreamEncoder } from './encoders';
 import { isStreamResult, type PipelineResult, type ResponseShape } from './pipeline';
 import type { Transport } from './metadata';
@@ -91,6 +91,7 @@ async function pipeStream(
   bus?: Bus, name = '', streams?: Set<() => void>,
 ): Promise<void> {
   res.writeHead(200, encoder.headers);
+  res.flushHeaders();   // establish the stream immediately so idle-until-event sources (e.g. subscriptions) don't deadlock clients awaiting headers
   bus?.emit('stream:open', { name });
   const it = stream[Symbol.asyncIterator]();
   let ping: ReturnType<typeof setInterval> | undefined;
@@ -167,7 +168,12 @@ function attachWs(
         try { ws.close(); } catch { /* already closed */ }
       } catch (err) {
         bus?.emit('stream:error', { name, error: err });
-        try { ws.close(1011); } catch { /* already closed */ }
+        if (isHttpError(err)) {
+          const reason = Buffer.from(String(err.message)).subarray(0, 120).toString();
+          try { ws.close(4000 + err.status, reason); } catch { /* already closed */ }
+        } else {
+          try { ws.close(1011); } catch { /* already closed */ }
+        }
       } finally {
         ac.abort();
         bus?.emit('stream:close', { name });
@@ -207,6 +213,8 @@ export function createHttpServer(
         res.end(JSON.stringify({ error: 'Invalid JSON body' }));
         return;
       }
+    } else if (raw !== undefined && ct.includes('application/x-www-form-urlencoded')) {
+      body = Object.fromEntries(new URLSearchParams(raw));
     }
     let result: PipelineResult;
     try {

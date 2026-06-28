@@ -13,6 +13,7 @@ import {
 } from './metadata';
 import { getArgs, getHandlerNeeds, resolveArgs } from './params';
 import { connectLink, type Link } from './mesh/link';
+import { Rooms } from './rooms';
 import { buildRemote } from './mesh/teacup';
 import { buildManifest, createMeshControl } from './mesh/teapot';
 import type { MeshControl } from './http';
@@ -124,6 +125,14 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
     const node = { name: n.name, needs: n.needs, provides: n.provides, origin: 'plugin' };
     if (n.kind === 'provider') providerNodes.push(node); else stepNodes.push(node);
     setRunner(n.name, n.run);
+  }
+
+  // built-in: auto-provide a shared Rooms instance (unless the user declares one)
+  if (!runners.has('rooms')) {
+    const roomsInstance = new Rooms();
+    providerNodes.push({ name: 'rooms', needs: [], provides: ['rooms'], origin: 'builtin' });
+    providerMeta.set('rooms', { optional: false });
+    setRunner('rooms', () => ({ rooms: roomsInstance }));   // merge object -> ctx.rooms
   }
 
   // For each route, resolve which providers/steps feed it via topo order.
