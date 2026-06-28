@@ -11,7 +11,7 @@ import {
   Ctor, HttpMethod, Transport, getModuleMeta, getProviderMeta, getStepMeta, getRoutes, getTransformer, joinPath,
 } from './metadata';
 import { getArgs, getHandlerNeeds, resolveArgs } from './params';
-import { connectLink } from './mesh/link';
+import { connectLink, type Link } from './mesh/link';
 import { buildRemote } from './mesh/teacup';
 import { buildManifest, createMeshControl } from './mesh/teapot';
 import type { MeshControl } from './http';
@@ -171,28 +171,35 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
   const listen = async (port: number): Promise<http.Server> => {
     // mesh teacup: connect remote teapots, splice their scopes/routes into the graph, then finalize
     const remoteRoutes: RouteDef[] = [];
+    const meshLinks: Link[] = [];
     let meshControl: MeshControl | undefined;
     if (opts.mesh && !booted) {
-      for (const t of opts.mesh.teapots ?? []) {
-        const link = await connectLink({ url: t.url, secret: t.secret, timeoutMs: opts.mesh.timeoutMs, bus });
-        const { providers, steps, routes } = buildRemote(link, t.url);
-        for (const p of providers) {
-          providerNodes.push({ name: p.name, needs: [], provides: [p.name], origin: `mesh:${t.url}` });
-          providerMeta.set(p.name, { optional: false });
-          setRunner(p.name, p.run);
+      try {
+        for (const t of opts.mesh.teapots ?? []) {
+          const link = await connectLink({ url: t.url, secret: t.secret, timeoutMs: opts.mesh.timeoutMs, bus });
+          meshLinks.push(link);
+          const { providers, steps, routes } = buildRemote(link, t.url);
+          for (const p of providers) {
+            providerNodes.push({ name: p.name, needs: [], provides: [p.name], origin: `mesh:${t.url}` });
+            providerMeta.set(p.name, { optional: false });
+            setRunner(p.name, p.run);
+          }
+          for (const s of steps) {
+            stepNodes.push({ name: s.name, needs: [], provides: [s.name], origin: `mesh:${t.url}` });
+            setRunner(s.name, s.run);
+          }
+          for (const r of routes) {
+            remoteRoutes.push({
+              method: r.method, pattern: r.pattern, transport: 'buffer',
+              handler: async (req) => r.handler(req as RequestEnvelope),
+            });
+          }
         }
-        for (const s of steps) {
-          stepNodes.push({ name: s.name, needs: [], provides: [s.name], origin: `mesh:${t.url}` });
-          setRunner(s.name, s.run);
-        }
-        for (const r of routes) {
-          remoteRoutes.push({
-            method: r.method, pattern: r.pattern, transport: 'buffer',
-            handler: async (req) => r.handler(req as RequestEnvelope),
-          });
-        }
+        finalizeGraph();
+      } catch (err) {
+        for (const l of meshLinks) { try { l.close(); } catch { /* */ } }
+        throw err;
       }
-      finalizeGraph();
     }
 
     // run app-scoped providers in order (fail-fast for required)
@@ -228,7 +235,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
         return ctx[name];
       };
       const resolveRoute = async (name: string, env: RequestEnvelope) => {
-        const plan = routePlans.find((p) => p.pattern === name);
+        const plan = routePlans.find((p) => p.pattern === name && p.method === env.method);
         if (!plan) { const e: any = new Error(`no route ${name}`); e.status = 404; throw e; }
         const provided = await providedSeed(plan);
         const result = await runPipeline({
@@ -273,6 +280,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
       }));
 
     const server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl);
+    server.on('close', () => { for (const l of meshLinks) { try { l.close(); } catch { /* */ } } });
     await new Promise<void>((resolve) => server.listen(port, resolve));
     return server;
   };
