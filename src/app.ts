@@ -1,7 +1,7 @@
 import http from 'http';
 import { Bus } from './bus';
 import { Container } from './container';
-import { topoSort, subgraphFor, GraphNode } from './graph';
+import { topoSort, subgraphFor, GraphNode, nearest } from './graph';
 import { toMermaid, toDOT, graphHtml, type GraphView } from './graph-viz';
 import { runPipeline, PipelineStep } from './pipeline';
 import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from './http';
@@ -153,7 +153,8 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
     for (const plan of routePlans) {
       for (const need of plan.needs) {
         if (!allowed.has(need)) {
-          throw new Error(`handler '${plan.handlerName}' needs '${need}' but nothing (local or mesh) provides it`);
+          const hint = nearest(need, allowed);
+          throw new Error(`handler '${plan.handlerName}' needs '${need}' but nothing (local or mesh) provides it${hint ? ` — did you mean '${hint}'?` : ''}`);
         }
       }
     }

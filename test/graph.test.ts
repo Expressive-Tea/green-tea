@@ -1,5 +1,5 @@
 import { describe, expect, it, test } from 'vitest';
-import { topoSort, GraphNode, subgraphFor } from '../src/graph';
+import { topoSort, GraphNode, subgraphFor, nearest } from '../src/graph';
 
 const node = (name: string, needs: string[], provides: string[]): GraphNode =>
   ({ name, needs, provides, origin: 'test' });
@@ -39,5 +39,15 @@ describe('subgraphFor', () => {
   });
   it('does not pull in unrelated nodes', () => {
     expect(subgraphFor(['user'], ordered).map((n) => n.name)).not.toContain('audit');
+  });
+});
+
+describe('nearest', () => {
+  it('suggests a close candidate (edit distance <= 2)', () => {
+    expect(nearest('usr', ['user', 'config', 'db'])).toBe('user');
+    expect(nearest('confgi', ['user', 'config'])).toBe('config');
+  });
+  it('returns undefined when nothing is close', () => {
+    expect(nearest('zzzzzz', ['user', 'db'])).toBeUndefined();
   });
 });

@@ -108,6 +108,13 @@ test('boot fails when a handler needs something nothing provides', () => {
     .toThrow(/handler 'list' needs 'missing'/);
 });
 
+it('boot error for a misspelled @needs suggests the closest token', () => {
+  @Step({ provides: 'user', needs: [] }) class Auth { run() { return { user: 1 }; } }
+  @Route('/u') class Ctl { @Get('/x') x(@needs('usr') u: any) { return { u }; } }
+  @Module({ mountpoint: '/api', steps: [Auth], controllers: [Ctl] }) class M {}
+  expect(() => createApp({ modules: [M] })).toThrow(/did you mean 'user'\?/);
+});
+
 import { Sse, Ws } from '../src/metadata';
 import { inbound } from '../src/params';
 import { channel } from '../src/channel';

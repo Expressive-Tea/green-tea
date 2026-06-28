@@ -1,3 +1,21 @@
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const d: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) d[i][0] = i;
+  for (let j = 0; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) {
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  }
+  return d[m][n];
+}
+
+export function nearest(token: string, candidates: Iterable<string>): string | undefined {
+  let best: string | undefined;
+  let bestD = 3;   // only suggest edit distance <= 2
+  for (const c of candidates) { const dist = levenshtein(token, c); if (dist < bestD) { bestD = dist; best = c; } }
+  return best;
+}
+
 export interface GraphNode {
   name: string;
   needs: string[];
