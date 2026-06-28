@@ -2,7 +2,7 @@ import http from 'http';
 import { Bus } from './bus';
 import { Container } from './container';
 import { topoSort, subgraphFor, GraphNode } from './graph';
-import { toMermaid, toDOT, type GraphView } from './graph-viz';
+import { toMermaid, toDOT, graphHtml, type GraphView } from './graph-viz';
 import { runPipeline, PipelineStep } from './pipeline';
 import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from './http';
 import { isAsyncIterable } from './channel';
@@ -51,7 +51,7 @@ export interface MeshConfig {
   timeoutMs?: number;
 }
 
-export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits }): App {
+export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits; devGraph?: boolean }): App {
   const bus = new Bus();
   const container = new Container();
   let server: http.Server | undefined;
@@ -309,6 +309,19 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
         })),
       ...remoteRoutes,
     ];
+
+    if (opts.devGraph) {
+      httpRoutes.push({
+        method: 'GET', pattern: '/__graph__', transport: 'buffer',
+        handler: async (req) => {
+          const mermaid = toMermaid(graph());
+          const accept = String(req.headers['accept'] ?? '');
+          return accept.includes('text/plain')
+            ? { status: 200, headers: { 'content-type': 'text/plain' }, body: mermaid }
+            : { status: 200, headers: { 'content-type': 'text/html' }, body: graphHtml(mermaid) };
+        },
+      });
+    }
 
     const wsRoutes: WsRouteDef[] = routePlans
       .filter((plan) => plan.transport === 'ws' || plan.transport === 'negotiate')

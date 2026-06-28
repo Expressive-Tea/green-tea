@@ -238,6 +238,32 @@ describe('app.graph / explain', () => {
   });
 });
 
+describe('devGraph endpoint', () => {
+  const portOf = (s: any) => (s.address() as any).port;
+  it('serves /__graph__ as HTML when devGraph:true', async () => {
+    @Route('/u') class Ctl { @Get('/me') me() { return { ok: 1 }; } }
+    @Module({ mountpoint: '/api', controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M], devGraph: true });
+    const s = await app.listen(0);
+    const html = await fetch(`http://127.0.0.1:${portOf(s)}/__graph__`).then((r) => r.text());
+    expect(html).toContain('class="mermaid"');
+    expect(html).toContain('flowchart');
+    const mmd = await fetch(`http://127.0.0.1:${portOf(s)}/__graph__`, { headers: { accept: 'text/plain' } });
+    expect(mmd.headers.get('content-type')).toContain('text/plain');
+    expect(await mmd.text()).toContain('flowchart');
+    s.close();
+  });
+  it('does NOT mount /__graph__ without devGraph', async () => {
+    @Route('/u') class Ctl { @Get('/me') me() { return { ok: 1 }; } }
+    @Module({ mountpoint: '/api', controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M] });
+    const s = await app.listen(0);
+    const res = await fetch(`http://127.0.0.1:${portOf(s)}/__graph__`);
+    expect(res.status).toBe(404);
+    s.close();
+  });
+});
+
 describe('graceful shutdown', () => {
   it('app.close() stops accepting and resolves, even with an SSE stream open', async () => {
     @Route('/')
