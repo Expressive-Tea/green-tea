@@ -2,7 +2,12 @@
 
 > A declarative, type-safe HTTP framework for Node. The request pipeline is an explicit **dependency graph**, not a mutable middleware chain.
 
-`@green-tea/core` — **alpha**. Zero runtime dependencies beyond `reflect-metadata`.
+`@green-tea/core` — **alpha**. Zero runtime dependencies beyond `reflect-metadata` (`ws` is an optional peer dep, only for WebSocket/mesh on Node).
+
+## Documentation
+
+- **[Quickstart](./docs/quickstart.md)** — install + concrete examples (routes/DI, `flow`, SSE, WebSocket, mesh, plugins).
+- **[Architecture](./docs/architecture.md)** — the mental map (layers, request lifecycle, mesh) as diagrams.
 
 ## Why
 
@@ -92,8 +97,9 @@ npm run build     # emit dist/
 
 ## Roadmap
 
-- **streams** — native WebSocket/SSE + reactive streams (steps that open an observed channel).
-- **mesh** — `teapot`/`teacup`: distributed scopes over a persistent channel with auto-registration. Model: a BEAM/OTP-style cluster, *not* microservices. The core's `resolve()` is already async + transport-agnostic to allow this without a rewrite.
+- ✅ **streams** — SSE / ndjson / WebSocket duplex over a multicast `AsyncIterable` channel. Return an `AsyncIterable` and the transport streams it (backpressure + cleanup). See the [quickstart](./docs/quickstart.md#3-streaming--sse).
+- ✅ **mesh (walking skeleton)** — `teapot`/`teacup`: a consumer resolves a scope/step or proxies a route living on another node, over a secret-gated WS control channel, via one id-correlated RPC. Remote tokens become synthetic graph nodes. Model: a BEAM/OTP-style cluster, *not* microservices. See the [quickstart](./docs/quickstart.md#5-mesh--distributed-dependency-injection).
+- **mesh sub-specs (next)** — discovery/auto-registration, 2-way load-balancing, failover/health.
 - **runtime adapters** — factor the transport behind an adapter so the core stays runtime-agnostic; Node / Deno / Bun / edge become thin adapters over web-standard `Request`/`Response`. Only `src/http.ts` is runtime-specific today.
 - official plugins (cors, body parsers, auth) — structurally unable to sabotage the global pipeline.
 
