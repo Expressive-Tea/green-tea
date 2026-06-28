@@ -37,3 +37,18 @@ export function topoSort(nodes: GraphNode[], seedKeys: string[]): GraphNode[] {
   for (const n of nodes) visit(n, []);
   return ordered;
 }
+
+export function subgraphFor(needs: string[], ordered: GraphNode[]): GraphNode[] {
+  const producedBy = new Map<string, GraphNode>();
+  for (const n of ordered) for (const k of n.provides) producedBy.set(k, n);
+  const inClosure = new Set<GraphNode>();
+  const work = [...needs];
+  while (work.length) {
+    const token = work.pop() as string;
+    const node = producedBy.get(token);
+    if (!node || inClosure.has(node)) continue; // no producer = seed/envelope; already-seen = skip
+    inClosure.add(node);
+    work.push(...node.needs);
+  }
+  return ordered.filter((n) => inClosure.has(n));
+}

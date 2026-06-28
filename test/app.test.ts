@@ -153,3 +153,77 @@ describe('app streaming wiring', () => {
     client.close(); server.close();
   });
 });
+
+describe('per-route subgraph slicing', () => {
+  it('a route that does not @needs a step does not run it', async () => {
+    const ran: string[] = [];
+    @Step({ provides: 'tracked', needs: [] })
+    class Tracked { run() { ran.push('tracked'); return { tracked: true }; } }
+    @Route('/')
+    class Ctl {
+      @Get('/needs') needs(@needs('tracked') t: any) { return { t }; }
+      @Get('/free') free() { return { ok: true }; }
+    }
+    @Module({ mountpoint: '/', steps: [Tracked], controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M] });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+
+    await fetch(`http://127.0.0.1:${port}/free`).then((r) => r.json());
+    expect(ran).toEqual([]);                       // step did NOT run for /free
+    await fetch(`http://127.0.0.1:${port}/needs`).then((r) => r.json());
+    expect(ran).toEqual(['tracked']);              // step ran for /needs
+    expect(app.inspect('/free').map((l) => l.kind)).toEqual(['handler']);   // no step in the chain
+    server.close();
+  });
+
+  it('a side-effect step (provides: []) added by a plugin runs unconditionally', async () => {
+    // NB: @Step always provides exactly one token (always sliceable). provides:[] only arises via a plugin's scope.add.
+    const ran: string[] = [];
+    const observer = (api: any) => api.scope.add({ kind: 'step', name: 'obs', needs: [], provides: [], run: () => { ran.push('obs'); return {}; } });
+    @Route('/')
+    class Ctl { @Get('/free') free() { return { ok: true }; } }
+    @Module({ mountpoint: '/', controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M], plugins: [observer] });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    await fetch(`http://127.0.0.1:${port}/free`).then((r) => r.json());
+    expect(ran).toEqual(['obs']);                  // ran despite the route @needs-ing nothing
+    server.close();
+  });
+
+  it('an always-run observer step receives its declared needs even when the route does not need them', async () => {
+    let seen: any;
+    const observer = (api: any) => api.scope.add({ kind: 'step', name: 'audit', needs: ['user'], provides: [], run: (ctx: any) => { seen = ctx.user; return {}; } });
+    @Step({ provides: 'user', needs: [] })
+    class Auth { run() { return { user: { id: 'u1' } }; } }
+    @Route('/')
+    class Ctl { @Get('/free') free() { return { ok: true }; } }   // does NOT @needs('user')
+    @Module({ mountpoint: '/', steps: [Auth], controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M], plugins: [observer] });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    await fetch(`http://127.0.0.1:${port}/free`).then((r) => r.json());
+    expect(seen).toEqual({ id: 'u1' });   // observer got user, not undefined
+    server.close();
+  });
+});
+
+describe('graceful shutdown', () => {
+  it('app.close() stops accepting and resolves, even with an SSE stream open', async () => {
+    @Route('/')
+    class Ctl { @Sse('/ticks') ticks() { return (async function* () { yield { t: 1 }; await new Promise((r) => setTimeout(r, 1000)); yield { t: 2 }; })(); } }
+    @Module({ mountpoint: '/', controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M] });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+
+    const res = await fetch(`http://127.0.0.1:${port}/ticks`, { headers: { accept: 'text/event-stream' } });
+    const reader = res.body!.getReader();
+    await reader.read();                       // first event; stream still open
+
+    await app.close();                         // must NOT hang despite the open stream
+    await expect(fetch(`http://127.0.0.1:${port}/ticks`).then((r) => r.text())).rejects.toThrow();
+    reader.cancel().catch(() => {});
+  });
+});

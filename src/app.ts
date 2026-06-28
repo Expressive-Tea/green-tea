@@ -1,9 +1,9 @@
 import http from 'http';
 import { Bus } from './bus';
 import { Container } from './container';
-import { topoSort, GraphNode } from './graph';
+import { topoSort, subgraphFor, GraphNode } from './graph';
 import { runPipeline, PipelineStep } from './pipeline';
-import { createHttpServer, parseQuery, RouteDef, WsRouteDef } from './http';
+import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from './http';
 import { isAsyncIterable } from './channel';
 import { JsonTransformer } from './transformers';
 import { mountPlugin, Plugin, ScopeApi, ScopeNode } from './plugin';
@@ -20,6 +20,7 @@ import type { RequestEnvelope, RouteEntry } from './mesh/protocol';
 export interface InspectLine { name: string; kind: 'provider' | 'step' | 'handler'; origin: string }
 export interface App {
   listen(port: number): Promise<http.Server>;
+  close(): Promise<void>;
   inspect(routePath: string): InspectLine[];
   bus: Bus;
 }
@@ -43,9 +44,11 @@ export interface MeshConfig {
   timeoutMs?: number;
 }
 
-export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig }): App {
+export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits }): App {
   const bus = new Bus();
   const container = new Container();
+  let server: http.Server | undefined;
+  const streams = new Set<() => void>();
   const extraSteps: ScopeNode[] = [];
   const scope: ScopeApi = { add: (n) => extraSteps.push(n) };
 
@@ -126,7 +129,14 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
     const ordered = topoSort([...providerNodes, ...stepNodes], ['req', 'params']);
     orderedProviders = ordered.filter((n) => providerNodes.includes(n));
     orderedSteps = ordered.filter((n) => stepNodes.includes(n));
-    for (const plan of routePlans) { plan.providers = orderedProviders; plan.steps = orderedSteps; }
+    const alwaysSteps = stepNodes.filter((n) => n.provides.length === 0);   // side-effect/observer steps (plugins)
+    const alwaysNeeds = alwaysSteps.flatMap((n) => n.needs);                // pull observers' deps into every route
+    for (const plan of routePlans) {
+      const closure = subgraphFor([...plan.needs, ...alwaysNeeds], ordered);
+      plan.providers = closure.filter((n) => providerNodes.includes(n));
+      const sliced = new Set<GraphNode>([...closure.filter((n) => stepNodes.includes(n)), ...alwaysSteps]);
+      plan.steps = ordered.filter((n) => stepNodes.includes(n) && sliced.has(n));   // topo order, deduped
+    }
 
     const producedKeys = new Set<string>([
       ...providerNodes.flatMap((n) => n.provides),
@@ -279,13 +289,20 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
         },
       }));
 
-    const server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl);
+    server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, { limits: opts.limits, streams });
     server.on('close', () => { for (const l of meshLinks) { try { l.close(); } catch { /* */ } } });
-    await new Promise<void>((resolve) => server.listen(port, resolve));
+    await new Promise<void>((resolve) => server!.listen(port, resolve));
     return server;
   };
 
-  return { listen, inspect, bus };
+  const close = (): Promise<void> => new Promise<void>((resolve) => {
+    if (!server) return resolve();
+    server.close(() => resolve());            // waits for in-flight buffered to drain
+    for (const closeStream of streams) closeStream();  // force-close long-lived SSE/WS so close() resolves
+    server.closeIdleConnections();            // Node >=18.2: drop idle keep-alive
+  });
+
+  return { listen, close, inspect, bus };
 }
 
 async function snapshot(c: Container, needs: string[]): Promise<Record<string, unknown>> {

@@ -2,10 +2,19 @@ import http from 'http';
 import { once } from 'events';
 import { channel } from './channel';
 import { errorToResponse } from './transformers';
+import { HttpError } from './signals';
 import { sseEncoder, ndjsonEncoder, StreamEncoder } from './encoders';
 import { isStreamResult, type PipelineResult, type ResponseShape } from './pipeline';
 import type { Transport } from './metadata';
 import type { Bus } from './bus';
+
+export interface RequestLimits {
+  maxBodyBytes?: number;       // default 1_000_000
+  requestTimeoutMs?: number;   // default 30_000
+  headersTimeoutMs?: number;   // default 10_000
+  keepAliveTimeoutMs?: number; // default 5_000
+}
+export interface HttpOptions { limits?: RequestLimits; streams?: Set<() => void> }
 
 export type RouteHandler = (req: {
   method: string; url: string;
@@ -58,9 +67,14 @@ export function parseQuery(url: string): Record<string, string> {
   return out;
 }
 
-async function readBody(req: http.IncomingMessage): Promise<string | undefined> {
+async function readBody(req: http.IncomingMessage, maxBodyBytes: number): Promise<string | undefined> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let total = 0;
+  for await (const chunk of req) {
+    total += (chunk as Buffer).length;
+    if (total > maxBodyBytes) throw new HttpError(413, 'Payload Too Large');
+    chunks.push(chunk as Buffer);
+  }
   if (chunks.length === 0) return undefined;
   const raw = Buffer.concat(chunks).toString('utf8');
   return raw === '' ? undefined : raw;
@@ -74,7 +88,7 @@ function pickEncoder(transport: Transport, accept: string): StreamEncoder {
 
 async function pipeStream(
   res: http.ServerResponse, stream: AsyncIterable<unknown>, encoder: StreamEncoder,
-  bus?: Bus, name = '',
+  bus?: Bus, name = '', streams?: Set<() => void>,
 ): Promise<void> {
   res.writeHead(200, encoder.headers);
   bus?.emit('stream:open', { name });
@@ -83,6 +97,8 @@ async function pipeStream(
   if (encoder.ping) { ping = setInterval(() => res.write(encoder.ping!()), PING_MS); ping.unref?.(); }
   const stop = () => { if (ping) clearInterval(ping); void Promise.resolve(it.return?.()).catch(() => {}); };
   res.on('close', stop);
+  const closer = () => { try { res.destroy(); } catch { /* */ } };
+  streams?.add(closer);
   const onClose = once(res, 'close');
   try {
     while (true) {
@@ -99,6 +115,7 @@ async function pipeStream(
     if (frame && !res.writableEnded) res.write(frame);
   } finally {
     if (ping) clearInterval(ping);
+    streams?.delete(closer);
     if (!res.writableEnded && !res.destroyed) res.end();
     bus?.emit('stream:close', { name });
   }
@@ -108,7 +125,9 @@ function loadWss(): any | null {
   try { return require('ws').WebSocketServer; } catch { return null; }
 }
 
-function attachWs(server: http.Server, wsRoutes: WsRouteDef[], bus?: Bus, meshControl?: MeshControl): void {
+function attachWs(
+  server: http.Server, wsRoutes: WsRouteDef[], bus?: Bus, meshControl?: MeshControl, streams?: Set<() => void>,
+): void {
   if (wsRoutes.length === 0 && !meshControl) return;
   const WSS = loadWss();
   const wss = WSS ? new WSS({ noServer: true }) : null;
@@ -123,6 +142,9 @@ function attachWs(server: http.Server, wsRoutes: WsRouteDef[], bus?: Bus, meshCo
     if (!route) { socket.destroy(); return; }
     if (!wss) { socket.write('HTTP/1.1 501 Not Implemented\r\n\r\n'); socket.destroy(); return; }
     wss.handleUpgrade(req, socket, head, async (ws: any) => {
+      const closer = () => { try { (ws.terminate ?? ws.close).call(ws); } catch { /* */ } };
+      streams?.add(closer);
+      ws.on('close', () => streams?.delete(closer));
       const inbound = channel<unknown>();
       const ac = new AbortController();
       ws.on('message', (d: Buffer) => inbound.push(d.toString()));
@@ -154,7 +176,10 @@ function attachWs(server: http.Server, wsRoutes: WsRouteDef[], bus?: Bus, meshCo
   });
 }
 
-export function createHttpServer(routes: RouteDef[], wsRoutes: WsRouteDef[] = [], bus?: Bus, meshControl?: MeshControl): http.Server {
+export function createHttpServer(
+  routes: RouteDef[], wsRoutes: WsRouteDef[] = [], bus?: Bus, meshControl?: MeshControl, opts?: HttpOptions,
+): http.Server {
+  const maxBody = opts?.limits?.maxBodyBytes ?? 1_000_000;
   const server = http.createServer(async (req, res) => {
     const url = req.url ?? '/';
     const path = url.split('?')[0];
@@ -166,10 +191,11 @@ export function createHttpServer(routes: RouteDef[], wsRoutes: WsRouteDef[] = []
     }
     let raw: string | undefined;
     try {
-      raw = await readBody(req);
-    } catch {
-      res.writeHead(500, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Internal Server Error' }));
+      raw = await readBody(req, maxBody);
+    } catch (error) {
+      const r = errorToResponse(error);
+      res.writeHead(r.status, { ...r.headers, connection: 'close' });
+      res.end(r.body);
       return;
     }
     let body: unknown = raw;
@@ -193,13 +219,16 @@ export function createHttpServer(routes: RouteDef[], wsRoutes: WsRouteDef[] = []
     }
     if (isStreamResult(result)) {
       const encoder = pickEncoder(matched.def.transport, String(req.headers.accept ?? ''));
-      await pipeStream(res, result.stream, encoder, bus, matched.def.pattern);
+      await pipeStream(res, result.stream, encoder, bus, matched.def.pattern, opts?.streams);
       return;
     }
     const r: ResponseShape = result;
     res.writeHead(r.status, r.headers);
     res.end(r.body);
   });
-  attachWs(server, wsRoutes, bus, meshControl);
+  server.requestTimeout = opts?.limits?.requestTimeoutMs ?? 30_000;
+  server.headersTimeout = opts?.limits?.headersTimeoutMs ?? 10_000;
+  server.keepAliveTimeout = opts?.limits?.keepAliveTimeoutMs ?? 5_000;
+  attachWs(server, wsRoutes, bus, meshControl, opts?.streams);
   return server;
 }
