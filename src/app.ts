@@ -2,6 +2,7 @@ import http from 'http';
 import { Bus } from './bus';
 import { Container } from './container';
 import { topoSort, subgraphFor, GraphNode } from './graph';
+import { toMermaid, toDOT, type GraphView } from './graph-viz';
 import { runPipeline, PipelineStep } from './pipeline';
 import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from './http';
 import { isAsyncIterable } from './channel';
@@ -18,10 +19,16 @@ import type { MeshControl } from './http';
 import type { RequestEnvelope, RouteEntry } from './mesh/protocol';
 
 export interface InspectLine { name: string; kind: 'provider' | 'step' | 'handler'; origin: string }
+export interface ExplainNode { name: string; kind: 'provider' | 'step' | 'handler'; origin: string; needs: string[]; provides: string[] }
+export interface Explain { pattern: string; method: HttpMethod; transport: Transport; chain: ExplainNode[] }
 export interface App {
   listen(port: number): Promise<http.Server>;
   close(): Promise<void>;
   inspect(routePath: string): InspectLine[];
+  graph(): GraphView;
+  toMermaid(): string;
+  toDOT(): string;
+  explain(routePath: string): Explain;
   bus: Bus;
 }
 
@@ -165,6 +172,35 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
     ];
   };
 
+  const graph = (): GraphView => {
+    if (!booted) throw new Error('graph() unavailable before listen() for mesh apps');
+    return {
+      nodes: [
+        ...providerNodes.map((n) => ({ name: n.name, kind: 'provider' as const, origin: n.origin, needs: n.needs, provides: n.provides })),
+        ...stepNodes.map((n) => ({ name: n.name, kind: 'step' as const, origin: n.origin, needs: n.needs, provides: n.provides })),
+      ],
+      routes: routePlans.map((p) => ({
+        pattern: p.pattern, method: p.method, transport: p.transport,
+        chain: [...p.providers.map((n) => n.name), ...p.steps.map((n) => n.name), p.handlerName],
+      })),
+    };
+  };
+
+  const explain = (routePath: string): Explain => {
+    if (!booted) throw new Error('explain() unavailable before listen() for mesh apps');
+    const plan = routePlans.find((p) => p.pattern === routePath);
+    if (!plan) throw new Error(`no route: ${routePath}`);
+    const nv = (n: GraphNode, kind: 'provider' | 'step'): ExplainNode => ({ name: n.name, kind, origin: n.origin, needs: n.needs, provides: n.provides });
+    return {
+      pattern: plan.pattern, method: plan.method, transport: plan.transport,
+      chain: [
+        ...plan.providers.map((n) => nv(n, 'provider')),
+        ...plan.steps.map((n) => nv(n, 'step')),
+        { name: plan.handlerName, kind: 'handler', origin: plan.origin, needs: plan.needs, provides: [] },
+      ],
+    };
+  };
+
   const providedSeed = async (plan: RoutePlan): Promise<Record<string, unknown>> => {
     const provided: Record<string, unknown> = {};
     for (const p of plan.providers) {
@@ -302,7 +338,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
     server.closeIdleConnections();            // Node >=18.2: drop idle keep-alive
   });
 
-  return { listen, close, inspect, bus };
+  return { listen, close, inspect, graph, toMermaid: () => toMermaid(graph()), toDOT: () => toDOT(graph()), explain, bus };
 }
 
 async function snapshot(c: Container, needs: string[]): Promise<Record<string, unknown>> {

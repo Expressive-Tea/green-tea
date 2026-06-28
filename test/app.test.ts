@@ -209,6 +209,35 @@ describe('per-route subgraph slicing', () => {
   });
 });
 
+import { toMermaid as renderMermaid } from '../src/graph-viz';
+
+describe('app.graph / explain', () => {
+  it('graph() returns nodes (with origin/needs/provides) and routes with their sliced chain', async () => {
+    @Provider({ provides: 'db' }) class Db { provide() { return { db: 1 }; } }
+    @Step({ provides: 'user', needs: ['db'] }) class Auth { run() { return { user: 1 }; } }
+    @Route('/u') class Ctl { @Get('/:id') get(@needs('user') u: any) { return { u }; } }
+    @Module({ mountpoint: '/api', providers: [Db], steps: [Auth], controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M] });
+    const g = app.graph();
+    expect(g.nodes.find((n) => n.name === 'db')).toMatchObject({ kind: 'provider', origin: 'module:M' });
+    expect(g.nodes.find((n) => n.name === 'user')).toMatchObject({ kind: 'step', needs: ['db'] });
+    const route = g.routes.find((r) => r.pattern === '/api/u/:id')!;
+    expect(route.chain).toEqual(['db', 'user', 'get']);
+    expect(app.toMermaid()).toContain('flowchart');
+  });
+
+  it('explain() returns the rich chain with origin and a handler entry', async () => {
+    @Step({ provides: 'user', needs: [] }) class Auth { run() { return { user: 1 }; } }
+    @Route('/u') class Ctl { @Get('/me') me(@needs('user') u: any) { return { u }; } }
+    @Module({ mountpoint: '/api', steps: [Auth], controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M] });
+    const e = app.explain('/api/u/me');
+    expect(e).toMatchObject({ pattern: '/api/u/me', method: 'GET', transport: 'buffer' });
+    expect(e.chain.map((c) => `${c.kind}:${c.name}`)).toEqual(['step:user', 'handler:me']);
+    expect(e.chain[0]).toMatchObject({ origin: 'module:M', provides: ['user'] });
+  });
+});
+
 describe('graceful shutdown', () => {
   it('app.close() stops accepting and resolves, even with an SSE stream open', async () => {
     @Route('/')
