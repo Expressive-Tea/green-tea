@@ -16,6 +16,7 @@ export { needs, ctx, param, query, body, headers } from './params';
 export type { Query, Headers, Context, ArgSpec } from './params';
 export { channel, isAsyncIterable } from './channel';
 export type { Channel } from './channel';
+export { Rooms } from './rooms';
 export { Sse, Ws, Stream, Post, Put, Patch, Delete } from './metadata';
 export type { Transport, HttpMethod } from './metadata';
 export { inbound, abort } from './params';

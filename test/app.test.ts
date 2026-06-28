@@ -216,6 +216,7 @@ describe('per-route subgraph slicing', () => {
   });
 });
 
+import { Rooms } from '../src/rooms';
 import { toMermaid as renderMermaid } from '../src/graph-viz';
 
 describe('app.graph / explain', () => {
@@ -315,5 +316,23 @@ describe('overrides', () => {
     @Module({ mountpoint: '/api', controllers: [Ctl] }) class M {}
     const app = createApp({ modules: [M], overrides: { nope: 1 } });
     await expect(app.listen(0)).rejects.toThrow(/unknown token 'nope'/);
+  });
+});
+
+describe('rooms auto-provide', () => {
+  it('injects a built-in rooms instance resolvable via @needs("rooms")', async () => {
+    @Route('/r') class Ctl { @Get('/x') x(@needs('rooms') rooms: Rooms) { return { ok: rooms instanceof Rooms }; } }
+    @Module({ mountpoint: '/api', controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M] });
+    const s = await app.listen(0);
+    const port = (s.address() as any).port;
+    expect(await fetch(`http://127.0.0.1:${port}/api/r/x`).then((r) => r.json())).toEqual({ ok: true });
+    s.close();
+  });
+  it('a user-declared rooms provider wins (no duplicate-name throw)', () => {
+    @Provider({ provides: 'rooms' }) class MyRooms { provide() { return { rooms: { custom: true } }; } }
+    @Route('/r') class Ctl { @Get('/x') x(@needs('rooms') rooms: any) { return rooms; } }
+    @Module({ mountpoint: '/api', providers: [MyRooms], controllers: [Ctl] }) class M {}
+    expect(() => createApp({ modules: [M] })).not.toThrow();
   });
 });
