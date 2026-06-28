@@ -91,6 +91,7 @@ async function pipeStream(
   bus?: Bus, name = '', streams?: Set<() => void>,
 ): Promise<void> {
   res.writeHead(200, encoder.headers);
+  res.flushHeaders();   // establish the stream immediately so idle-until-event sources (e.g. subscriptions) don't deadlock clients awaiting headers
   bus?.emit('stream:open', { name });
   const it = stream[Symbol.asyncIterator]();
   let ping: ReturnType<typeof setInterval> | undefined;
