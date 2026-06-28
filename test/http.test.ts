@@ -137,4 +137,18 @@ describe('request hardening', () => {
     expect(text).toContain('data: {"n":3}');
     server.close();
   });
+
+  it('parses application/x-www-form-urlencoded into an object body', async () => {
+    const getUrl = (s: import('http').Server) => `http://127.0.0.1:${(s.address() as any).port}`;
+    const server = createHttpServer([{
+      method: 'POST', pattern: '/form', transport: 'buffer',
+      handler: async (req) => ({ status: 200, headers: { 'content-type': 'application/json' }, body: JSON.stringify(req.body) }),
+    }]);
+    await new Promise<void>((r) => server.listen(0, r));
+    const res = await fetch(`${getUrl(server)}/form`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'a=1&b=two',
+    });
+    expect(await res.json()).toEqual({ a: '1', b: 'two' });
+    server.close();
+  });
 });

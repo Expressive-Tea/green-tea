@@ -207,6 +207,8 @@ export function createHttpServer(
         res.end(JSON.stringify({ error: 'Invalid JSON body' }));
         return;
       }
+    } else if (raw !== undefined && ct.includes('application/x-www-form-urlencoded')) {
+      body = Object.fromEntries(new URLSearchParams(raw));
     }
     let result: PipelineResult;
     try {
