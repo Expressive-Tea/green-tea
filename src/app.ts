@@ -1,7 +1,8 @@
 import http from 'http';
 import { Bus } from './bus';
 import { Container } from './container';
-import { topoSort, subgraphFor, GraphNode } from './graph';
+import { topoSort, subgraphFor, GraphNode, nearest } from './graph';
+import { toMermaid, toDOT, graphHtml, type GraphView } from './graph-viz';
 import { runPipeline, PipelineStep } from './pipeline';
 import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from './http';
 import { isAsyncIterable } from './channel';
@@ -18,10 +19,16 @@ import type { MeshControl } from './http';
 import type { RequestEnvelope, RouteEntry } from './mesh/protocol';
 
 export interface InspectLine { name: string; kind: 'provider' | 'step' | 'handler'; origin: string }
+export interface ExplainNode { name: string; kind: 'provider' | 'step' | 'handler'; origin: string; needs: string[]; provides: string[] }
+export interface Explain { pattern: string; method: HttpMethod; transport: Transport; chain: ExplainNode[] }
 export interface App {
   listen(port: number): Promise<http.Server>;
   close(): Promise<void>;
   inspect(routePath: string): InspectLine[];
+  graph(): GraphView;
+  toMermaid(): string;
+  toDOT(): string;
+  explain(routePath: string): Explain;
   bus: Bus;
 }
 
@@ -44,7 +51,7 @@ export interface MeshConfig {
   timeoutMs?: number;
 }
 
-export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits }): App {
+export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits; devGraph?: boolean; overrides?: Record<string, unknown> }): App {
   const bus = new Bus();
   const container = new Container();
   let server: http.Server | undefined;
@@ -146,7 +153,8 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
     for (const plan of routePlans) {
       for (const need of plan.needs) {
         if (!allowed.has(need)) {
-          throw new Error(`handler '${plan.handlerName}' needs '${need}' but nothing (local or mesh) provides it`);
+          const hint = nearest(need, allowed);
+          throw new Error(`handler '${plan.handlerName}' needs '${need}' but nothing (local or mesh) provides it${hint ? ` — did you mean '${hint}'?` : ''}`);
         }
       }
     }
@@ -163,6 +171,35 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
       ...plan.steps.map((s) => ({ name: s.name, kind: 'step' as const, origin: s.origin })),
       { name: plan.handlerName, kind: 'handler' as const, origin: plan.origin },
     ];
+  };
+
+  const graph = (): GraphView => {
+    if (!booted) throw new Error('graph() unavailable before listen() for mesh apps');
+    return {
+      nodes: [
+        ...providerNodes.map((n) => ({ name: n.name, kind: 'provider' as const, origin: n.origin, needs: n.needs, provides: n.provides })),
+        ...stepNodes.map((n) => ({ name: n.name, kind: 'step' as const, origin: n.origin, needs: n.needs, provides: n.provides })),
+      ],
+      routes: routePlans.map((p) => ({
+        pattern: p.pattern, method: p.method, transport: p.transport,
+        chain: [...p.providers.map((n) => n.name), ...p.steps.map((n) => n.name), p.handlerName],
+      })),
+    };
+  };
+
+  const explain = (routePath: string): Explain => {
+    if (!booted) throw new Error('explain() unavailable before listen() for mesh apps');
+    const plan = routePlans.find((p) => p.pattern === routePath);
+    if (!plan) throw new Error(`no route: ${routePath}`);
+    const nv = (n: GraphNode, kind: 'provider' | 'step'): ExplainNode => ({ name: n.name, kind, origin: n.origin, needs: n.needs, provides: n.provides });
+    return {
+      pattern: plan.pattern, method: plan.method, transport: plan.transport,
+      chain: [
+        ...plan.providers.map((n) => nv(n, 'provider')),
+        ...plan.steps.map((n) => nv(n, 'step')),
+        { name: plan.handlerName, kind: 'handler', origin: plan.origin, needs: plan.needs, provides: [] },
+      ],
+    };
   };
 
   const providedSeed = async (plan: RoutePlan): Promise<Record<string, unknown>> => {
@@ -209,6 +246,16 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
       } catch (err) {
         for (const l of meshLinks) { try { l.close(); } catch { /* */ } }
         throw err;
+      }
+    }
+
+    // apply overrides: swap any provider/step runner by token in one line
+    if (opts.overrides) {
+      const produced = new Set([...providerNodes, ...stepNodes].flatMap((n) => n.provides));
+      for (const [token, val] of Object.entries(opts.overrides)) {
+        if (!produced.has(token)) throw new Error(`override for unknown token '${token}'`);
+        const fn = typeof val === 'function' ? (val as (ctx: any) => any) : () => ({ [token]: val });
+        runners.set(token, fn);   // direct set (setRunner throws on dup); replaces the real runner
       }
     }
 
@@ -274,6 +321,19 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
       ...remoteRoutes,
     ];
 
+    if (opts.devGraph) {
+      httpRoutes.push({
+        method: 'GET', pattern: '/__graph__', transport: 'buffer',
+        handler: async (req) => {
+          const mermaid = toMermaid(graph());
+          const accept = String(req.headers['accept'] ?? '');
+          return accept.includes('text/plain')
+            ? { status: 200, headers: { 'content-type': 'text/plain' }, body: mermaid }
+            : { status: 200, headers: { 'content-type': 'text/html' }, body: graphHtml(mermaid) };
+        },
+      });
+    }
+
     const wsRoutes: WsRouteDef[] = routePlans
       .filter((plan) => plan.transport === 'ws' || plan.transport === 'negotiate')
       .map((plan) => ({
@@ -302,7 +362,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
     server.closeIdleConnections();            // Node >=18.2: drop idle keep-alive
   });
 
-  return { listen, close, inspect, bus };
+  return { listen, close, inspect, graph, toMermaid: () => toMermaid(graph()), toDOT: () => toDOT(graph()), explain, bus };
 }
 
 async function snapshot(c: Container, needs: string[]): Promise<Record<string, unknown>> {

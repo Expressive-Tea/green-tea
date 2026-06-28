@@ -67,6 +67,8 @@ export const streamApp = createApp({ modules: [StreamModule] });
 
 if (require.main === module) {
   console.log('chain for /api/users/:id ->', app.inspect('/api/users/:id'));
+  console.log('graph:\n' + app.toMermaid());
+  console.log('explain /api/users/:id:', app.explain('/api/users/:id'));
   app.listen(3000).then(() => console.log('green-tea on http://localhost:3000'));
   streamApp.listen(3001).then(() => console.log('green-tea streams on http://localhost:3001'));
 }

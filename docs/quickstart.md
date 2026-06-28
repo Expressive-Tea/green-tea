@@ -228,6 +228,47 @@ const app = createApp({ modules: [ApiModule], plugins: [logger] });
 Lifecycle events: `boot:provider:*`, `request:step:*`, `stream:open|close|error`,
 `mesh:connect|disconnect|rpc:error`, `plugin:mounted`.
 
+## Inspect & test the graph
+
+### Visualize with Mermaid
+
+```typescript
+console.log(app.toMermaid());  // flowchart diagram of all nodes and routes
+```
+
+Enable a live `GET /__graph__` endpoint (renders HTML with Mermaid, or plain-text with `Accept: text/plain`):
+
+```typescript
+const app = createApp({ modules: [ApiModule], devGraph: true });
+// GET /__graph__            → HTML viewer
+// GET /__graph__ (text/plain) → raw Mermaid source
+```
+
+### Explain a route
+
+```typescript
+const e = app.explain('/api/users/:id');
+// { pattern, method, transport, chain: [{ name, kind, origin, needs, provides }, ...] }
+console.log(e.chain.map((n) => `${n.kind}:${n.name}`));
+// → ['provider:db', 'step:user', 'handler:getUser']
+```
+
+### Override tokens in tests
+
+Swap any provider or step token with a test double at construction time — no monkey-patching:
+
+```typescript
+const app = createApp({
+  modules: [ApiModule],
+  overrides: {
+    db: { find: () => ({ id: 'test-user' }) },   // plain object — wrapped as { db: value }
+    user: () => ({ user: { id: 'stub' } }),       // function runner
+  },
+});
+```
+
+Overrides replace only the named token's runner; the rest of the graph is untouched.
+
 ## The one rule to remember
 
 ```

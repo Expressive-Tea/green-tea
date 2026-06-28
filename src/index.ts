@@ -2,7 +2,9 @@ import 'reflect-metadata';
 
 export const VERSION = '0.0.0';
 export { createApp } from './app';
-export type { App, InspectLine } from './app';
+export type { App, InspectLine, Explain } from './app';
+export { toMermaid, toDOT } from './graph-viz';
+export type { GraphView } from './graph-viz';
 export { Provider, Step, Route, Get, Module, Transformer } from './metadata';
 export type { Plugin } from './plugin';
 export { JsonTransformer } from './transformers';
