@@ -269,6 +269,40 @@ const app = createApp({
 
 Overrides replace only the named token's runner; the rest of the graph is untouched.
 
+## Runnable examples
+
+The `example/` directory holds end-to-end apps you can `node`-run and read top to bottom.
+
+### CRUD — methods, query, JSON & urlencoded body
+
+`@Get/@Post/@Put/@Patch/@Delete` over a provider-backed store. Filter via `@query('done')`,
+read the payload via `@body()` — the same handler accepts both `application/json` and
+`application/x-www-form-urlencoded` (the transport parses each into a plain object). Missing
+rows throw `NotFound` (→ 404).
+
+See [`example/crud.ts`](../example/crud.ts).
+
+### Chat — rooms + handshake auth
+
+A `@Step` reads `?token=` and `provides: 'user'`, throwing `Unauthorized` on a missing token —
+which closes the socket with code **4401** (`4000 + status`). The `@Ws` handler pumps the
+`@inbound()` channel into `rooms.room(name)` and returns that same room as its outbound channel,
+so every joined socket multicasts to the others. `rooms` is the built-in shared `Rooms`
+primitive (one instance app-wide).
+
+See [`example/chat.ts`](../example/chat.ts).
+
+### GraphQL — query/mutation over POST, subscription over SSE
+
+A schema built programmatically with `graphql` (a dev/example dependency — the core has no
+runtime dep on it). `POST /graphql` runs queries and mutations through `graphql()`. The
+`mutation` pushes each new message into `rooms.room('messages')`; the `@Sse('/stream')` route
+calls `subscribe()` whose source **is** that room, guards the result with `isAsyncIterable`,
+and returns it — the framework streams each `ExecutionResult` as an SSE `data:` frame. This is
+the tie between GraphQL, green-tea streams, and the `rooms` primitive.
+
+See [`example/graphql.ts`](../example/graphql.ts) — `npm install graphql` first.
+
 ## The one rule to remember
 
 ```
