@@ -19,6 +19,51 @@ Express/Fastify middleware is positional, untyped, and globally mutable: order d
 - **Response = return value.** No `Response.json()`. Return data; a `@Transformer` serializes it in a leave phase. Cut a request by `throw`ing a typed signal.
 - **Fail-fast boot.** A required provider that can't initialize (e.g. the DB) stops the server from serving — no 500s because a resource wasn't ready.
 
+## How it compares
+
+Every framework here can serve `/users/:id`. The difference is what happens when the app
+grows: more dependencies, real-time, and more than one machine.
+
+| | Express | Fastify | NestJS | expressive-tea | **green-tea** |
+|---|---|---|---|---|---|
+| **Pipeline model** | positional `app.use()` | hooks + encapsulated plugins | DI + interceptors/guards | decorators on Express + boot stages | **explicit dependency graph (topo-sorted)** |
+| **Order is decided by** | the line you wrote it on | hook phase + registration order | module/provider wiring | boot-stage order | **what each step *needs/produces*** |
+| **`req.user` exists?** | hope so | hope so | if the guard ran | if the middleware ran | **boot fails if nothing provides it** |
+| **Type safety** | none | schemas (runtime) | decorator types (runtime DI) | runtime | **compile-time in `flow`** + boot-validated decorators |
+| **Response** | `res.send()` (mutate) | `reply.send()` | return value | return value | **return value → `@Transformer`** |
+| **Real-time** | bolt on `ws`/`sse` libs | plugins | separate Gateway + adapter | separate engine | **return an `AsyncIterable`** — same primitive |
+| **Cross-service calls** | HTTP client / gRPC by hand | HTTP client / gRPC | Microservices transport + message patterns | — | **`@needs('x')` resolves on another node** |
+| **Plugin can break your pipeline?** | yes (deletes your body parser) | encapsulated, but hooks are global | interceptor order matters | yes | **no** — plugins only `bus.on` + `scope.add` |
+| **Runtime deps** | minimal | minimal | heavy (rxjs, reflect-metadata, …) | Express + InversifyJS | **`reflect-metadata` only** (`ws` optional) |
+
+### Read it as a story
+
+- **Express / Fastify** — fast and battle-tested, but the request is a *mutable bag* threaded
+  through positional middleware. Order is implicit, `req.x` is a leap of faith, and a careless
+  plugin can delete another's work. You wire types and DI yourself.
+- **NestJS** — brings DI, decorators, and structure, but the DI is *runtime token resolution*,
+  it's a large opinionated dependency tree, and every new capability (WebSockets, gRPC,
+  microservices) is a **separate subsystem** with its own abstraction (Gateways, transports,
+  message patterns) to learn and glue.
+- **expressive-tea** — the sibling this project grew from: decorators + InversifyJS DI + boot
+  stages on top of Express. green-tea keeps the ideas, drops Express and Inversify, and makes
+  the graph — not the middleware chain — the core.
+- **green-tea** — one model answers three questions other stacks answer with three subsystems:
+  - *"what does this handler depend on?"* → the graph (boot-validated, `flow` checks it at compile time)
+  - *"how do I push data over time?"* → return an `AsyncIterable` (SSE / WebSocket, one primitive)
+  - *"how do I call another service?"* → `@needs` a token that lives on another node (mesh)
+
+  A remote dependency looks **identical** to a local one. There is no gRPC layer, no
+  message-pattern DSL, no separate WebSocket gateway — there is the graph, and some of its
+  nodes happen to live on another machine.
+
+### Honest scope
+
+green-tea is **alpha**. Express/Fastify have a decade of ecosystem; NestJS has enterprise
+tooling and a huge plugin catalog. Mesh discovery, load-balancing, and failover are not built
+yet (the [walking skeleton](./docs/quickstart.md#5-mesh--distributed-dependency-injection) is).
+Pick green-tea for the model, not the ecosystem — *yet*.
+
 ## Quick look
 
 ```typescript
