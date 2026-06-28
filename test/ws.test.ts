@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import WebSocket from 'ws';
 import { channel } from '../src/channel';
 import { createHttpServer, type WsRouteDef } from '../src/http';
+import { Unauthorized } from '../src/signals';
 
 const url = (server: import('http').Server, path: string) => {
   const a = server.address();
@@ -32,6 +33,21 @@ describe('ws upgrade', () => {
     client.close();
     await new Promise((r) => setTimeout(r, 50));
     expect(aborted).toBe(true);
+    server.close();
+  });
+
+  it('closes with a 4000+status code when the WS open() throws an HttpError', async () => {
+    const wsRoutes = [{ pattern: '/secure', open: async () => { throw new Unauthorized('no token'); } }];
+    const server = createHttpServer([], wsRoutes as any);
+    await new Promise<void>((r) => server.listen(0, r));
+    const port = (server.address() as any).port;
+    const WebSocket = (await import('ws')).default;
+    const client = new WebSocket(`ws://127.0.0.1:${port}/secure`);
+    const { code, reason } = await new Promise<{ code: number; reason: string }>((res) => {
+      client.on('close', (code: number, reason: Buffer) => res({ code, reason: reason.toString() }));
+    });
+    expect(code).toBe(4401);
+    expect(reason).toContain('no token');
     server.close();
   });
 });
