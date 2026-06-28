@@ -68,7 +68,17 @@ class ApiModule {}
 const app = createApp({ modules: [ApiModule] });
 await app.listen(3000);
 // GET /api/users/9  (header x-token) → { "requested": "9", "you": { "id": "...", "name": "Diego" } }
+
+await app.close();   // graceful shutdown: drains in-flight requests, closes streams + mesh links
 ```
+
+> **Per-route execution (important).** Each route runs **only the providers/steps in the transitive
+> closure of its handler's `@needs`** — nothing else. A route that doesn't `@needs('user')` does **not**
+> run the `Authenticate` step. This means a cross-cutting *enforcement* step (e.g. auth that throws 401)
+> only protects routes that actually `@needs` its token. To run something on **every** route regardless
+> of needs (logging, audit, a global guard), add it as a **plugin step** via `scope.add({ ..., provides: [] })` —
+> steps that produce nothing run unconditionally. Don't rely on a token-providing step to guard routes
+> that don't declare it.
 
 ### Argument decorators
 
