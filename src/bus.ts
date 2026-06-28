@@ -2,6 +2,7 @@ export type LifecycleEvent =
   | 'boot:provider:start' | 'boot:provider:ok' | 'boot:provider:fail'
   | 'request:step:enter' | 'request:step:leave' | 'request:step:error'
   | 'stream:open' | 'stream:close' | 'stream:error'
+  | 'mesh:connect' | 'mesh:disconnect' | 'mesh:rpc:error'
   | 'plugin:mounted';
 
 export interface EventPayload {
