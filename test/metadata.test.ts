@@ -19,15 +19,15 @@ class Ctl { @Get('/:id') getUser() { return 1; } }
 class ApiModule {}
 
 test('provider metadata is readable', () => {
-  expect(getProviderMeta(Db)).toEqual({ provides: 'db', needs: ['config'], optional: false });
+  expect(getProviderMeta(Db)).toEqual({ provides: 'db', needs: ['config'], optional: false, export: false });
 });
 
 test('step metadata is readable', () => {
-  expect(getStepMeta(Auth)).toEqual({ provides: 'user', needs: ['db', 'req'], optional: false });
+  expect(getStepMeta(Auth)).toEqual({ provides: 'user', needs: ['db', 'req'], optional: false, export: false });
 });
 
 test('routes carry method, path and handler name', () => {
-  expect(getRoutes(Ctl)).toEqual([{ method: 'GET', path: '/users/:id', handlerName: 'getUser', transport: 'buffer' }]);
+  expect(getRoutes(Ctl)).toEqual([{ method: 'GET', path: '/users/:id', handlerName: 'getUser', transport: 'buffer', export: false }]);
 });
 
 test('module metadata lists members', () => {
@@ -51,5 +51,26 @@ describe('stream route decorators', () => {
     expect(byName.chat).toMatchObject({ method: 'GET', transport: 'ws', path: '/chat' });
     expect(byName.either).toMatchObject({ method: 'GET', transport: 'negotiate', path: '/either' });
     expect(byName.make).toMatchObject({ method: 'POST', transport: 'buffer', path: '/make' });
+  });
+});
+
+describe('mesh export flags', () => {
+  it('providers/steps carry export (default false)', () => {
+    @Provider({ provides: 'config', export: true }) class C { provide() { return {}; } }
+    @Step({ provides: 'auth', export: true }) class A { run() { return {}; } }
+    @Provider({ provides: 'priv' }) class P { provide() { return {}; } }
+    expect(getProviderMeta(C)!.export).toBe(true);
+    expect(getStepMeta(A)!.export).toBe(true);
+    expect(getProviderMeta(P)!.export).toBe(false);
+  });
+
+  it('routes carry export via decorator option (default false)', () => {
+    class Ctl2 {
+      @Get('/pub', { export: true }) pub() {}
+      @Get('/priv') priv() {}
+    }
+    const byName = Object.fromEntries(getRoutes(Ctl2).map((r) => [r.handlerName, r]));
+    expect(byName.pub.export).toBe(true);
+    expect(byName.priv.export).toBe(false);
   });
 });
