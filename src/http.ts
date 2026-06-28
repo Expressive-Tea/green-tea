@@ -2,10 +2,19 @@ import http from 'http';
 import { once } from 'events';
 import { channel } from './channel';
 import { errorToResponse } from './transformers';
+import { HttpError } from './signals';
 import { sseEncoder, ndjsonEncoder, StreamEncoder } from './encoders';
 import { isStreamResult, type PipelineResult, type ResponseShape } from './pipeline';
 import type { Transport } from './metadata';
 import type { Bus } from './bus';
+
+export interface RequestLimits {
+  maxBodyBytes?: number;       // default 1_000_000
+  requestTimeoutMs?: number;   // default 30_000
+  headersTimeoutMs?: number;   // default 10_000
+  keepAliveTimeoutMs?: number; // default 5_000
+}
+export interface HttpOptions { limits?: RequestLimits }
 
 export type RouteHandler = (req: {
   method: string; url: string;
@@ -58,9 +67,14 @@ export function parseQuery(url: string): Record<string, string> {
   return out;
 }
 
-async function readBody(req: http.IncomingMessage): Promise<string | undefined> {
+async function readBody(req: http.IncomingMessage, maxBodyBytes: number): Promise<string | undefined> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let total = 0;
+  for await (const chunk of req) {
+    total += (chunk as Buffer).length;
+    if (total > maxBodyBytes) throw new HttpError(413, 'Payload Too Large');
+    chunks.push(chunk as Buffer);
+  }
   if (chunks.length === 0) return undefined;
   const raw = Buffer.concat(chunks).toString('utf8');
   return raw === '' ? undefined : raw;
@@ -154,7 +168,10 @@ function attachWs(server: http.Server, wsRoutes: WsRouteDef[], bus?: Bus, meshCo
   });
 }
 
-export function createHttpServer(routes: RouteDef[], wsRoutes: WsRouteDef[] = [], bus?: Bus, meshControl?: MeshControl): http.Server {
+export function createHttpServer(
+  routes: RouteDef[], wsRoutes: WsRouteDef[] = [], bus?: Bus, meshControl?: MeshControl, opts?: HttpOptions,
+): http.Server {
+  const maxBody = opts?.limits?.maxBodyBytes ?? 1_000_000;
   const server = http.createServer(async (req, res) => {
     const url = req.url ?? '/';
     const path = url.split('?')[0];
@@ -166,10 +183,11 @@ export function createHttpServer(routes: RouteDef[], wsRoutes: WsRouteDef[] = []
     }
     let raw: string | undefined;
     try {
-      raw = await readBody(req);
-    } catch {
-      res.writeHead(500, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Internal Server Error' }));
+      raw = await readBody(req, maxBody);
+    } catch (error) {
+      const r = errorToResponse(error);
+      res.writeHead(r.status, { ...r.headers, connection: 'close' });
+      res.end(r.body);
       return;
     }
     let body: unknown = raw;
@@ -200,6 +218,9 @@ export function createHttpServer(routes: RouteDef[], wsRoutes: WsRouteDef[] = []
     res.writeHead(r.status, r.headers);
     res.end(r.body);
   });
+  server.requestTimeout = opts?.limits?.requestTimeoutMs ?? 30_000;
+  server.headersTimeout = opts?.limits?.headersTimeoutMs ?? 10_000;
+  server.keepAliveTimeout = opts?.limits?.keepAliveTimeoutMs ?? 5_000;
   attachWs(server, wsRoutes, bus, meshControl);
   return server;
 }

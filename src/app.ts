@@ -3,7 +3,7 @@ import { Bus } from './bus';
 import { Container } from './container';
 import { topoSort, GraphNode } from './graph';
 import { runPipeline, PipelineStep } from './pipeline';
-import { createHttpServer, parseQuery, RouteDef, WsRouteDef } from './http';
+import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from './http';
 import { isAsyncIterable } from './channel';
 import { JsonTransformer } from './transformers';
 import { mountPlugin, Plugin, ScopeApi, ScopeNode } from './plugin';
@@ -43,7 +43,7 @@ export interface MeshConfig {
   timeoutMs?: number;
 }
 
-export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig }): App {
+export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits }): App {
   const bus = new Bus();
   const container = new Container();
   const extraSteps: ScopeNode[] = [];
@@ -279,7 +279,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
         },
       }));
 
-    const server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl);
+    const server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, { limits: opts.limits });
     server.on('close', () => { for (const l of meshLinks) { try { l.close(); } catch { /* */ } } });
     await new Promise<void>((resolve) => server.listen(port, resolve));
     return server;

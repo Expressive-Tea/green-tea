@@ -97,3 +97,44 @@ describe('http streaming', () => {
     server.close();
   });
 });
+
+describe('request hardening', () => {
+  const getUrl = (s: import('http').Server) => `http://127.0.0.1:${(s.address() as any).port}`;
+
+  it('rejects an over-size body with 413 and does not run the handler', async () => {
+    let ran = false;
+    const server = createHttpServer(
+      [{ method: 'POST', pattern: '/echo', transport: 'buffer',
+         handler: async () => { ran = true; return { status: 200, headers: {}, body: 'ok' }; } }],
+      [], undefined, undefined, { limits: { maxBodyBytes: 16 } },
+    );
+    await new Promise<void>((r) => server.listen(0, r));
+    const res = await fetch(`${getUrl(server)}/echo`, { method: 'POST', body: 'x'.repeat(1000) });
+    expect(res.status).toBe(413);
+    expect(ran).toBe(false);
+    server.close();
+  });
+
+  it('sets the configured server timeouts', async () => {
+    const server = createHttpServer([], [], undefined, undefined,
+      { limits: { requestTimeoutMs: 12345, headersTimeoutMs: 6789, keepAliveTimeoutMs: 4321 } });
+    expect(server.requestTimeout).toBe(12345);
+    expect(server.headersTimeout).toBe(6789);
+    expect(server.keepAliveTimeout).toBe(4321);
+    server.close();
+  });
+
+  it('requestTimeout does NOT kill an in-flight SSE stream (streaming regression)', async () => {
+    async function* feed() { for (let n = 1; n <= 3; n++) { yield { n }; await new Promise((r) => setTimeout(r, 80)); } }
+    const server = createHttpServer(
+      [{ method: 'GET', pattern: '/feed', transport: 'sse', handler: async () => ({ stream: feed() }) }],
+      [], undefined, undefined, { limits: { requestTimeoutMs: 100 } },
+    );
+    await new Promise<void>((r) => server.listen(0, r));
+    const res = await fetch(`${getUrl(server)}/feed`, { headers: { accept: 'text/event-stream' } });
+    const text = await res.text();
+    expect(text).toContain('data: {"n":1}');
+    expect(text).toContain('data: {"n":3}');
+    server.close();
+  });
+});
