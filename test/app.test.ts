@@ -191,6 +191,22 @@ describe('per-route subgraph slicing', () => {
     expect(ran).toEqual(['obs']);                  // ran despite the route @needs-ing nothing
     server.close();
   });
+
+  it('an always-run observer step receives its declared needs even when the route does not need them', async () => {
+    let seen: any;
+    const observer = (api: any) => api.scope.add({ kind: 'step', name: 'audit', needs: ['user'], provides: [], run: (ctx: any) => { seen = ctx.user; return {}; } });
+    @Step({ provides: 'user', needs: [] })
+    class Auth { run() { return { user: { id: 'u1' } }; } }
+    @Route('/')
+    class Ctl { @Get('/free') free() { return { ok: true }; } }   // does NOT @needs('user')
+    @Module({ mountpoint: '/', steps: [Auth], controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M], plugins: [observer] });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    await fetch(`http://127.0.0.1:${port}/free`).then((r) => r.json());
+    expect(seen).toEqual({ id: 'u1' });   // observer got user, not undefined
+    server.close();
+  });
 });
 
 describe('graceful shutdown', () => {

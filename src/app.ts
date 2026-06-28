@@ -130,8 +130,9 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
     orderedProviders = ordered.filter((n) => providerNodes.includes(n));
     orderedSteps = ordered.filter((n) => stepNodes.includes(n));
     const alwaysSteps = stepNodes.filter((n) => n.provides.length === 0);   // side-effect/observer steps (plugins)
+    const alwaysNeeds = alwaysSteps.flatMap((n) => n.needs);                // pull observers' deps into every route
     for (const plan of routePlans) {
-      const closure = subgraphFor(plan.needs, ordered);
+      const closure = subgraphFor([...plan.needs, ...alwaysNeeds], ordered);
       plan.providers = closure.filter((n) => providerNodes.includes(n));
       const sliced = new Set<GraphNode>([...closure.filter((n) => stepNodes.includes(n)), ...alwaysSteps]);
       plan.steps = ordered.filter((n) => stepNodes.includes(n) && sliced.has(n));   // topo order, deduped
