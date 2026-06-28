@@ -20,6 +20,7 @@ import type { RequestEnvelope, RouteEntry } from './mesh/protocol';
 export interface InspectLine { name: string; kind: 'provider' | 'step' | 'handler'; origin: string }
 export interface App {
   listen(port: number): Promise<http.Server>;
+  close(): Promise<void>;
   inspect(routePath: string): InspectLine[];
   bus: Bus;
 }
@@ -46,6 +47,8 @@ export interface MeshConfig {
 export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits }): App {
   const bus = new Bus();
   const container = new Container();
+  let server: http.Server | undefined;
+  const streams = new Set<() => void>();
   const extraSteps: ScopeNode[] = [];
   const scope: ScopeApi = { add: (n) => extraSteps.push(n) };
 
@@ -279,13 +282,20 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
         },
       }));
 
-    const server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, { limits: opts.limits });
+    server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, { limits: opts.limits, streams });
     server.on('close', () => { for (const l of meshLinks) { try { l.close(); } catch { /* */ } } });
-    await new Promise<void>((resolve) => server.listen(port, resolve));
+    await new Promise<void>((resolve) => server!.listen(port, resolve));
     return server;
   };
 
-  return { listen, inspect, bus };
+  const close = (): Promise<void> => new Promise<void>((resolve) => {
+    if (!server) return resolve();
+    server.close(() => resolve());            // waits for in-flight buffered to drain
+    for (const closeStream of streams) closeStream();  // force-close long-lived SSE/WS so close() resolves
+    server.closeIdleConnections();            // Node >=18.2: drop idle keep-alive
+  });
+
+  return { listen, close, inspect, bus };
 }
 
 async function snapshot(c: Container, needs: string[]): Promise<Record<string, unknown>> {

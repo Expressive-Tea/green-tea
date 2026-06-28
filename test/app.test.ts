@@ -153,3 +153,22 @@ describe('app streaming wiring', () => {
     client.close(); server.close();
   });
 });
+
+describe('graceful shutdown', () => {
+  it('app.close() stops accepting and resolves, even with an SSE stream open', async () => {
+    @Route('/')
+    class Ctl { @Sse('/ticks') ticks() { return (async function* () { yield { t: 1 }; await new Promise((r) => setTimeout(r, 1000)); yield { t: 2 }; })(); } }
+    @Module({ mountpoint: '/', controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M] });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+
+    const res = await fetch(`http://127.0.0.1:${port}/ticks`, { headers: { accept: 'text/event-stream' } });
+    const reader = res.body!.getReader();
+    await reader.read();                       // first event; stream still open
+
+    await app.close();                         // must NOT hang despite the open stream
+    await expect(fetch(`http://127.0.0.1:${port}/ticks`).then((r) => r.text())).rejects.toThrow();
+    reader.cancel().catch(() => {});
+  });
+});

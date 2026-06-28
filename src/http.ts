@@ -14,7 +14,7 @@ export interface RequestLimits {
   headersTimeoutMs?: number;   // default 10_000
   keepAliveTimeoutMs?: number; // default 5_000
 }
-export interface HttpOptions { limits?: RequestLimits }
+export interface HttpOptions { limits?: RequestLimits; streams?: Set<() => void> }
 
 export type RouteHandler = (req: {
   method: string; url: string;
@@ -88,7 +88,7 @@ function pickEncoder(transport: Transport, accept: string): StreamEncoder {
 
 async function pipeStream(
   res: http.ServerResponse, stream: AsyncIterable<unknown>, encoder: StreamEncoder,
-  bus?: Bus, name = '',
+  bus?: Bus, name = '', streams?: Set<() => void>,
 ): Promise<void> {
   res.writeHead(200, encoder.headers);
   bus?.emit('stream:open', { name });
@@ -97,6 +97,8 @@ async function pipeStream(
   if (encoder.ping) { ping = setInterval(() => res.write(encoder.ping!()), PING_MS); ping.unref?.(); }
   const stop = () => { if (ping) clearInterval(ping); void Promise.resolve(it.return?.()).catch(() => {}); };
   res.on('close', stop);
+  const closer = () => { try { res.destroy(); } catch { /* */ } };
+  streams?.add(closer);
   const onClose = once(res, 'close');
   try {
     while (true) {
@@ -113,6 +115,7 @@ async function pipeStream(
     if (frame && !res.writableEnded) res.write(frame);
   } finally {
     if (ping) clearInterval(ping);
+    streams?.delete(closer);
     if (!res.writableEnded && !res.destroyed) res.end();
     bus?.emit('stream:close', { name });
   }
@@ -122,7 +125,9 @@ function loadWss(): any | null {
   try { return require('ws').WebSocketServer; } catch { return null; }
 }
 
-function attachWs(server: http.Server, wsRoutes: WsRouteDef[], bus?: Bus, meshControl?: MeshControl): void {
+function attachWs(
+  server: http.Server, wsRoutes: WsRouteDef[], bus?: Bus, meshControl?: MeshControl, streams?: Set<() => void>,
+): void {
   if (wsRoutes.length === 0 && !meshControl) return;
   const WSS = loadWss();
   const wss = WSS ? new WSS({ noServer: true }) : null;
@@ -137,6 +142,9 @@ function attachWs(server: http.Server, wsRoutes: WsRouteDef[], bus?: Bus, meshCo
     if (!route) { socket.destroy(); return; }
     if (!wss) { socket.write('HTTP/1.1 501 Not Implemented\r\n\r\n'); socket.destroy(); return; }
     wss.handleUpgrade(req, socket, head, async (ws: any) => {
+      const closer = () => { try { (ws.terminate ?? ws.close).call(ws); } catch { /* */ } };
+      streams?.add(closer);
+      ws.on('close', () => streams?.delete(closer));
       const inbound = channel<unknown>();
       const ac = new AbortController();
       ws.on('message', (d: Buffer) => inbound.push(d.toString()));
@@ -211,7 +219,7 @@ export function createHttpServer(
     }
     if (isStreamResult(result)) {
       const encoder = pickEncoder(matched.def.transport, String(req.headers.accept ?? ''));
-      await pipeStream(res, result.stream, encoder, bus, matched.def.pattern);
+      await pipeStream(res, result.stream, encoder, bus, matched.def.pattern, opts?.streams);
       return;
     }
     const r: ResponseShape = result;
@@ -221,6 +229,6 @@ export function createHttpServer(
   server.requestTimeout = opts?.limits?.requestTimeoutMs ?? 30_000;
   server.headersTimeout = opts?.limits?.headersTimeoutMs ?? 10_000;
   server.keepAliveTimeout = opts?.limits?.keepAliveTimeoutMs ?? 5_000;
-  attachWs(server, wsRoutes, bus, meshControl);
+  attachWs(server, wsRoutes, bus, meshControl, opts?.streams);
   return server;
 }
