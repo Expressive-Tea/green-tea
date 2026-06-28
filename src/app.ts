@@ -1,7 +1,7 @@
 import http from 'http';
 import { Bus } from './bus';
 import { Container } from './container';
-import { topoSort, GraphNode } from './graph';
+import { topoSort, subgraphFor, GraphNode } from './graph';
 import { runPipeline, PipelineStep } from './pipeline';
 import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from './http';
 import { isAsyncIterable } from './channel';
@@ -129,7 +129,13 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
     const ordered = topoSort([...providerNodes, ...stepNodes], ['req', 'params']);
     orderedProviders = ordered.filter((n) => providerNodes.includes(n));
     orderedSteps = ordered.filter((n) => stepNodes.includes(n));
-    for (const plan of routePlans) { plan.providers = orderedProviders; plan.steps = orderedSteps; }
+    const alwaysSteps = stepNodes.filter((n) => n.provides.length === 0);   // side-effect/observer steps (plugins)
+    for (const plan of routePlans) {
+      const closure = subgraphFor(plan.needs, ordered);
+      plan.providers = closure.filter((n) => providerNodes.includes(n));
+      const sliced = new Set<GraphNode>([...closure.filter((n) => stepNodes.includes(n)), ...alwaysSteps]);
+      plan.steps = ordered.filter((n) => stepNodes.includes(n) && sliced.has(n));   // topo order, deduped
+    }
 
     const producedKeys = new Set<string>([
       ...providerNodes.flatMap((n) => n.provides),
