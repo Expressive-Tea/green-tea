@@ -19,3 +19,8 @@ export type { Transport, HttpMethod } from './metadata';
 export { inbound, abort } from './params';
 export { sseEncoder, ndjsonEncoder } from './encoders';
 export type { StreamEncoder } from './encoders';
+export type { MeshConfig } from './app';
+export { connectLink } from './mesh/link';
+export { buildRemote, envelopeFrom } from './mesh/teacup';
+export { buildManifest, createMeshControl, MESH_CONTROL_PATH } from './mesh/teapot';
+export type { Manifest, RequestEnvelope, Frame } from './mesh/protocol';
