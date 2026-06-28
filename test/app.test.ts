@@ -282,3 +282,31 @@ describe('graceful shutdown', () => {
     reader.cancel().catch(() => {});
   });
 });
+
+describe('overrides', () => {
+  const portOf = (s: any) => (s.address() as any).port;
+  it('overrides a provider token with a plain value (wrapped as a merge object)', async () => {
+    @Provider({ provides: 'db' }) class Db { provide() { return { db: { real: true } }; } }
+    @Route('/u') class Ctl { @Get('/x') x(@needs('db') db: any) { return { db }; } }
+    @Module({ mountpoint: '/api', providers: [Db], controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M], overrides: { db: { fake: true } } });
+    const s = await app.listen(0);
+    expect(await fetch(`http://127.0.0.1:${portOf(s)}/api/u/x`).then((r) => r.json())).toEqual({ db: { fake: true } });
+    s.close();
+  });
+  it('overrides with a function runner', async () => {
+    @Provider({ provides: 'db' }) class Db { provide() { return { db: 'real' }; } }
+    @Route('/u') class Ctl { @Get('/x') x(@needs('db') db: any) { return { db }; } }
+    @Module({ mountpoint: '/api', providers: [Db], controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M], overrides: { db: () => ({ db: 'fn' }) } });
+    const s = await app.listen(0);
+    expect(await fetch(`http://127.0.0.1:${portOf(s)}/api/u/x`).then((r) => r.json())).toEqual({ db: 'fn' });
+    s.close();
+  });
+  it('rejects an override for an unknown token', async () => {
+    @Route('/u') class Ctl { @Get('/x') x() { return { ok: 1 }; } }
+    @Module({ mountpoint: '/api', controllers: [Ctl] }) class M {}
+    const app = createApp({ modules: [M], overrides: { nope: 1 } });
+    await expect(app.listen(0)).rejects.toThrow(/unknown token 'nope'/);
+  });
+});

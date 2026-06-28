@@ -51,7 +51,7 @@ export interface MeshConfig {
   timeoutMs?: number;
 }
 
-export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits; devGraph?: boolean }): App {
+export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits; devGraph?: boolean; overrides?: Record<string, unknown> }): App {
   const bus = new Bus();
   const container = new Container();
   let server: http.Server | undefined;
@@ -245,6 +245,16 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
       } catch (err) {
         for (const l of meshLinks) { try { l.close(); } catch { /* */ } }
         throw err;
+      }
+    }
+
+    // apply overrides: swap any provider/step runner by token in one line
+    if (opts.overrides) {
+      const produced = new Set([...providerNodes, ...stepNodes].flatMap((n) => n.provides));
+      for (const [token, val] of Object.entries(opts.overrides)) {
+        if (!produced.has(token)) throw new Error(`override for unknown token '${token}'`);
+        const fn = typeof val === 'function' ? (val as (ctx: any) => any) : () => ({ [token]: val });
+        runners.set(token, fn);   // direct set (setRunner throws on dup); replaces the real runner
       }
     }
 
