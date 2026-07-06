@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSecurityHeaders, resolveCors, mergeVary } from '../src/security';
+import { buildSecurityHeaders, resolveCors, mergeVary, isValidOrigin } from '../src/security';
 
 describe('buildSecurityHeaders', () => {
   it('default set (security:true), no HSTS over insecure', () => {
@@ -50,6 +50,19 @@ describe('resolveCors', () => {
   it('rejects malformed Origin (control char) even if predicate allows', () => {
     const r = resolveCors({ origins: () => true }, req('https://a.com\r\nX: y') as any);
     expect(r['access-control-allow-origin']).toBeUndefined();
+  });
+});
+
+describe('isValidOrigin', () => {
+  it('accepts valid origins and literal null', () => {
+    expect(isValidOrigin('https://a.com')).toBe(true);
+    expect(isValidOrigin('http://localhost:3000')).toBe(true);
+    expect(isValidOrigin('null')).toBe(true);
+  });
+  it('rejects CRLF and other control bytes', () => {
+    expect(isValidOrigin('https://a.com\r\nX: y')).toBe(false);
+    expect(isValidOrigin('https://a.com\x00evil')).toBe(false);
+    expect(isValidOrigin('https://a.com\x1bevil')).toBe(false);
   });
 });
 

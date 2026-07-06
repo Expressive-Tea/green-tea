@@ -23,7 +23,7 @@ type Headers = Record<string, string>;
 const HSTS_DEFAULT_MAXAGE = 15552000; // 180 days
 
 // scheme "://" host [":" port], or literal "null". Rejects control chars/whitespace.
-const ORIGIN_RE = /^(?:null|[a-z][a-z0-9+.-]*:\/\/[^\s/?#]+)$/i;
+const ORIGIN_RE = /^(?:null|[a-z][a-z0-9+.-]*:\/\/[^\s/?#\x00-\x1f\x7f]+)$/i;
 export function isValidOrigin(o: string): boolean { return ORIGIN_RE.test(o); }
 
 export function mergeVary(existing: string | undefined, add: string): string {
