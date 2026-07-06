@@ -1,4 +1,5 @@
 import http from 'http';
+import https from 'https';
 import { once } from 'events';
 import { channel } from './channel';
 import { errorToResponse } from './transformers';
@@ -7,6 +8,7 @@ import { sseEncoder, ndjsonEncoder, StreamEncoder } from './encoders';
 import { isStreamResult, type PipelineResult, type ResponseShape } from './pipeline';
 import type { Transport } from './metadata';
 import type { Bus } from './bus';
+import type { TlsOptions } from './security';
 
 export interface RequestLimits {
   maxBodyBytes?: number;       // default 1_000_000
@@ -14,7 +16,7 @@ export interface RequestLimits {
   headersTimeoutMs?: number;   // default 10_000
   keepAliveTimeoutMs?: number; // default 5_000
 }
-export interface HttpOptions { limits?: RequestLimits; streams?: Set<() => void> }
+export interface HttpOptions { limits?: RequestLimits; streams?: Set<() => void>; tls?: TlsOptions }
 
 export type RouteHandler = (req: {
   method: string; url: string;
@@ -186,7 +188,7 @@ export function createHttpServer(
   routes: RouteDef[], wsRoutes: WsRouteDef[] = [], bus?: Bus, meshControl?: MeshControl, opts?: HttpOptions,
 ): http.Server {
   const maxBody = opts?.limits?.maxBodyBytes ?? 1_000_000;
-  const server = http.createServer(async (req, res) => {
+  const handler = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     const url = req.url ?? '/';
     const path = url.split('?')[0];
     const matched = matchRoute(routes, req.method ?? 'GET', path);
@@ -233,7 +235,11 @@ export function createHttpServer(
     const r: ResponseShape = result;
     res.writeHead(r.status, r.headers);
     res.end(r.body);
-  });
+  };
+  // runtime-compatible; only @types differ (https.Server lacks the http-only timeout props)
+  const server: http.Server = (opts?.tls
+    ? https.createServer(opts.tls as https.ServerOptions, handler)
+    : http.createServer(handler)) as unknown as http.Server;
   server.requestTimeout = opts?.limits?.requestTimeoutMs ?? 30_000;
   server.headersTimeout = opts?.limits?.headersTimeoutMs ?? 10_000;
   server.keepAliveTimeout = opts?.limits?.keepAliveTimeoutMs ?? 5_000;
