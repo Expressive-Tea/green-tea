@@ -147,6 +147,10 @@ function renderSecureCost(secureCost: RenderData['secureCost']): string {
     '',
     deltaNote,
     '',
+    '> Scope: this micro-bench currently measures the security-**headers** cost only (`security:false` vs',
+    '> `security:true` on `/hello`). The incremental cost of `@body` validation and CORS is not separately',
+    '> measured yet (deferred) — so this table is narrower than the design spec\'s 4-point plan.',
+    '',
   ].join('\n');
 }
 
@@ -167,6 +171,9 @@ function renderMethodology(): string {
     '  `JSON.stringify` in these benchmarks. Fastify\'s `fast-json-stringify` response serializer is',
     '  deliberately **not** engaged — only its input `schema.body` validation is used — so no framework',
     '  gets a serialization fast path the others lack.',
+    '- **Content-type charset asymmetry (disclosed, not controlled)**: green-tea and raw-http send',
+    '  `Content-Type: application/json` while Express and Fastify send `application/json; charset=utf-8`.',
+    '  This is a minor header-byte asymmetry that is disclosed here rather than normalized away.',
     '',
   ].join('\n');
 }

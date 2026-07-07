@@ -5,7 +5,7 @@
 ## Environment
 
 - **Date**: 2026-07-07
-- **Commit**: 926ca39
+- **Commit**: daa13f6
 - **Node**: v22.22.2
 - **OS**: darwin
 - **CPU**: Apple M4 Max (16 cores)
@@ -29,56 +29,60 @@
 
 | Framework | req/s (median) | p50 (ms) | p99 (ms) | p999 (ms) | CV | min–max req/s |
 | --- | --- | --- | --- | --- | --- | --- |
-| raw-http | 115,398 | 0.00 | 1.00 | 1.00 | 0.4% | 115,078–116,077 |
-| green-tea | 98,912 | 0.00 | 1.00 | 2.00 | 0.5% | 98,835–99,962 |
-| fastify | 85,882 | 1.00 | 2.00 | 2.00 | 0.3% | 85,382–86,074 |
-| express | 24,126 | 3.00 | 5.00 | 8.00 | 0.1% | 24,072–24,158 |
+| raw-http | 116,166 | 0.00 | 1.00 | 1.00 | 0.6% | 115,590–117,242 |
+| green-tea | 97,760 | 0.00 | 1.00 | 2.00 | 0.3% | 97,094–97,837 |
+| fastify | 86,470 | 1.00 | 2.00 | 2.00 | 0.3% | 86,202–86,829 |
+| express | 24,005 | 3.00 | 6.00 | 9.00 | 0.3% | 23,989–24,136 |
 
 ### Route param
 
 | Framework | req/s (median) | p50 (ms) | p99 (ms) | p999 (ms) | CV | min–max req/s |
 | --- | --- | --- | --- | --- | --- | --- |
-| raw-http | 115,437 | 0.00 | 1.00 | 1.00 | 0.3% | 115,245–116,013 |
-| green-tea | 93,114 | 1.00 | 2.00 | 2.00 | 0.1% | 92,947–93,126 |
-| fastify | 85,805 | 1.00 | 2.00 | 2.00 | 0.2% | 85,498–85,856 |
-| express | 23,739 | 4.00 | 5.00 | 8.00 | 0.1% | 23,694–23,778 |
+| raw-http | 117,024 | 0.00 | 1.00 | 1.00 | 0.3% | 116,538–117,242 |
+| green-tea | 92,384 | 1.00 | 2.00 | 2.00 | 0.5% | 91,795–92,998 |
+| fastify | 85,754 | 1.00 | 2.00 | 2.00 | 0.3% | 85,651–86,317 |
+| express | 23,666 | 4.00 | 5.00 | 8.00 | 0.1% | 23,666–23,720 |
 
 ### Pipeline (3 steps) (approximation)
 
 | Framework | req/s (median) | p50 (ms) | p99 (ms) | p999 (ms) | CV | min–max req/s |
 | --- | --- | --- | --- | --- | --- | --- |
-| raw-http | 114,016 | 0.00 | 1.00 | 1.00 | 0.1% | 114,003–114,157 |
-| green-tea | 84,230 | 1.00 | 2.00 | 2.00 | 0.5% | 84,179–85,050 |
-| fastify | 83,808 | 1.00 | 2.00 | 2.00 | 0.1% | 83,770–83,898 |
-| express | 23,758 | 4.00 | 5.00 | 8.00 | 0.1% | 23,720–23,778 |
+| raw-http | 114,157 | 0.00 | 1.00 | 1.00 | 0.2% | 113,862–114,554 |
+| fastify | 84,320 | 1.00 | 2.00 | 2.00 | 0.1% | 84,269–84,422 |
+| green-tea | 83,962 | 1.00 | 2.00 | 2.00 | 0.4% | 83,590–84,358 |
+| express | 23,829 | 4.00 | 5.00 | 8.00 | 0.1% | 23,768–23,851 |
 
 ### POST JSON + validation
 
 | Framework | req/s (median) | p50 (ms) | p99 (ms) | p999 (ms) | CV | min–max req/s |
 | --- | --- | --- | --- | --- | --- | --- |
-| raw-http | 99,014 | 0.00 | 1.00 | 2.00 | 0.3% | 98,438–99,181 |
-| green-tea | 76,486 | 1.00 | 2.00 | 2.00 | 0.2% | 76,397–76,691 |
-| fastify | 63,869 | 1.00 | 2.00 | 3.00 | 0.3% | 63,837–64,323 |
-| express | 19,986 | 4.00 | 7.00 | 26.00 | 0.4% | 19,886–20,069 |
+| raw-http | 100,230 | 0.00 | 1.00 | 2.00 | 0.1% | 100,064–100,294 |
+| green-tea | 76,243 | 1.00 | 2.00 | 2.00 | 0.2% | 76,192–76,550 |
+| fastify | 63,222 | 1.00 | 2.00 | 3.00 | 0.7% | 62,307–63,229 |
+| express | 19,870 | 4.00 | 7.00 | 23.00 | 0.3% | 19,758–19,883 |
 
 ## Step-scaling (green-tea)
 
 | Path | Steps | req/s |
 | --- | --- | --- |
-| /steps/0 | 0 | 92,858 |
-| /steps/3 | 3 | 81,658 |
-| /steps/5 | 5 | 71,968 |
+| /steps/0 | 0 | 91,386 |
+| /steps/3 | 3 | 81,530 |
+| /steps/5 | 5 | 72,237 |
 
-Each additional pipeline step costs roughly 4,178 req/s (-22.5% over 5 steps), on this box.
+Each additional pipeline step costs roughly 3,830 req/s (-21.0% over 5 steps), on this box.
 
 ## Cost of secure-by-default (green-tea)
 
 | Label | req/s |
 | --- | --- |
-| security:false (parity) | 98,912 |
-| security:true (default) | 93,178 |
+| security:false (parity) | 97,760 |
+| security:true (default) | 93,306 |
 
-The real cost of running secure-by-default (rather than the parity-mode `security:false` used above) is ~5.8% req/s on this box.
+The real cost of running secure-by-default (rather than the parity-mode `security:false` used above) is ~4.6% req/s on this box.
+
+> Scope: this micro-bench currently measures the security-**headers** cost only (`security:false` vs
+> `security:true` on `/hello`). The incremental cost of `@body` validation and CORS is not separately
+> measured yet (deferred) — so this table is narrower than the design spec's 4-point plan.
 
 ## Methodology
 
@@ -95,3 +99,6 @@ The real cost of running secure-by-default (rather than the parity-mode `securit
   `JSON.stringify` in these benchmarks. Fastify's `fast-json-stringify` response serializer is
   deliberately **not** engaged — only its input `schema.body` validation is used — so no framework
   gets a serialization fast path the others lack.
+- **Content-type charset asymmetry (disclosed, not controlled)**: green-tea and raw-http send
+  `Content-Type: application/json` while Express and Fastify send `application/json; charset=utf-8`.
+  This is a minor header-byte asymmetry that is disclosed here rather than normalized away.

@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:dev": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:bench": "tsc --noEmit -p bench/tsconfig.json",
     "bench": "tsx bench/run.ts"
   },
   "dependencies": {
