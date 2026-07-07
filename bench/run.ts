@@ -87,7 +87,7 @@ async function measure(port: number, path: string, method: 'GET' | 'POST', body?
 }
 
 async function main(): Promise<void> {
-  const frameworks = ['raw-http', 'fastify', 'express', 'green-tea'];
+  const frameworks = ['raw-http', 'fastify', 'express', 'green-tea', 'nestjs-express', 'nestjs-fastify'];
   const scenarioBlocks: ScenarioBlock[] = SCENARIOS.map((s) => ({
     title: s.title,
     name: s.name,

@@ -174,6 +174,12 @@ function renderMethodology(): string {
     '- **Content-type charset asymmetry (disclosed, not controlled)**: green-tea and raw-http send',
     '  `Content-Type: application/json` while Express and Fastify send `application/json; charset=utf-8`.',
     '  This is a minor header-byte asymmetry that is disclosed here rather than normalized away.',
+    '- **NestJS runs on an underlying adapter** (Express or Fastify): the `nestjs-express` / `nestjs-fastify`',
+    "  rows measure Nest's DI / decorator / routing overhead **on top of** that adapter, so compare each",
+    '  against its own base (`express` / `fastify`) rather than against the field. Nest\'s idiomatic',
+    '  `ValidationPipe` / class-validator is **not** used — `/validate` performs the same manual field check',
+    '  as every other server (parity). The same parity controls apply: `etag` and `x-powered-by` are disabled',
+    '  on the underlying Express instance, and `keepAliveTimeout` is 5000 on both adapters.',
     '',
   ].join('\n');
 }
