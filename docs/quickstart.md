@@ -165,6 +165,9 @@ bounded buffer (`channel({ buffer: 100 })`, drop-oldest).
 A **teacup** can depend on a token that physically lives on a **teapot**. Exports are
 opt-in (`export: true`) and the control channel is gated by a shared secret.
 
+> ⚠️ **mesh is alpha** — its API and wire protocol may change. It's gated behind `experimental: true`;
+> `createApp` throws if you pass `mesh` without it. Don't ship it to production yet.
+
 **Node A — teapot (exposes `config`, `auth`, and a route):**
 
 ```typescript
@@ -180,7 +183,7 @@ class Svc { @Get('/ping', { export: true }) ping() { return { pong: true }; } }
 @Module({ mountpoint: '/api', providers: [Config], steps: [Auth], controllers: [Svc] })
 class TeapotModule {}
 
-const teapot = createApp({ modules: [TeapotModule], mesh: { secret: 'shh' } });
+const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: 'shh' } });
 await teapot.listen(3002);
 ```
 
@@ -199,6 +202,7 @@ class TeacupModule {}
 
 const teacup = createApp({
   modules: [TeacupModule],
+  experimental: true,
   mesh: { teapots: [{ url: 'ws://A-host:3002/__mesh__/control', secret: 'shh' }] },
 });
 await teacup.listen(3003);
@@ -308,6 +312,8 @@ to the WebSocket handshake (101/upgrade) response.
 | `security` | ON (HSTS only when the connection is secure) |
 
 ## 8. File uploads / multipart
+
+> Multipart parsing uses the optional [`busboy`](https://github.com/mscdex/busboy) peer dependency — install it with `npm i busboy`. A `multipart/form-data` request to a server without busboy installed returns `501`. (JSON and urlencoded need nothing extra.)
 
 A request with `Content-Type: multipart/form-data` makes `@body()` resolve to `{ fields, files }`
 instead of a plain object:

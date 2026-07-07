@@ -2,10 +2,13 @@
 
 > A calm, type-safe HTTP framework for Node. Your API is an explicit **dependency graph** you can see, slice, and trust — not a mutable bag threaded through positional middleware.
 
-`@green-tea/core` — **beta**, RC-track. One runtime dependency: `reflect-metadata` (`ws` is an optional peer, only for WebSocket/mesh).
+`@green-tea/core` — **beta**, RC-track. One runtime dependency: `reflect-metadata`. Two optional peers you install only if you use them: `ws` (WebSocket / mesh) and `busboy` (multipart uploads).
 
 ```bash
 npm install @green-tea/core reflect-metadata
+# optional, only if you use them:
+npm install ws       # WebSocket routes (@Ws) and mesh
+npm install busboy   # multipart/form-data file uploads
 ```
 
 ---
@@ -77,9 +80,10 @@ Beta shipped the parts a real API needs, without growing the runtime dependency 
 - **Secure by default.** `nosniff`, `X-Frame-Options`, `Referrer-Policy`, HSTS-when-secure — on every response, opt-out with one flag.
 - **CORS** with a guarded preflight and the credentials-never-`*` rule enforced for you.
 - **Validation via [Standard Schema](https://standardschema.dev).** `@body(schema)` accepts zod, valibot, or arktype — you bring the validator, the core stays zero-dep. Invalid input → `422` with per-field issues; the parsed value reaches your handler typed.
-- **Real body parsing.** JSON, urlencoded, and `multipart/form-data` file uploads (`@body()` → `{ fields, files }`), size-capped (`413`) against DoS.
+- **Real body parsing.** JSON and urlencoded out of the box; `multipart/form-data` file uploads (`@body()` → `{ fields, files }`) via the optional [`busboy`](https://github.com/mscdex/busboy) peer dependency (`npm i busboy`) — a multipart request without it returns a clear `501`. All size-capped (`413`) against DoS.
 - **Graceful shutdown.** `app.close()` drains in-flight requests, closes live streams and mesh links.
 - **Testable by construction.** `createApp({ overrides: { db: fakeDb } })` swaps any node in one line.
+- **Dual ESM + CommonJS.** Ships both builds behind an `exports` map — `import` and `require` both resolve, with matching type declarations.
 
 ## Benchmarks
 
@@ -103,7 +107,7 @@ Every framework here can serve `/users/:id`. The difference shows up as the app 
 | **Real-time** | bolt on `ws`/`sse` libs | plugins | separate Gateway + adapter | separate engine | **return an `AsyncIterable`** — SSE, ndjson & WebSocket, one primitive |
 | **Cross-service calls** | HTTP client / gRPC by hand | HTTP client / gRPC | Microservices transport + message patterns | — | **`@needs('x')` resolves on another node** |
 | **Plugin can break your pipeline?** | yes (deletes your body parser) | encapsulated, but hooks are global | interceptor order matters | yes | **no** — plugins only `bus.on` + `scope.add` |
-| **Runtime deps** | minimal | minimal | heavy (rxjs, reflect-metadata, …) | Express + InversifyJS | **`reflect-metadata` only** (`ws` optional) |
+| **Runtime deps** | minimal | minimal | heavy (rxjs, reflect-metadata, …) | Express + InversifyJS | **`reflect-metadata` only** (`ws`, `busboy` optional) |
 
 ### Read it as a story
 
@@ -170,18 +174,45 @@ The handler signature declares exactly what it wants — in any order, nothing m
 | `@param(...)` | route params | `()` · `('id')` · `('id', schema)` |
 | `@query(...)` | parsed query string | `()` · `('q')` · `(['a','b'])` · `(schema)` |
 | `@body(...)` | parsed body (JSON / urlencoded / multipart) | `()` · `('field')` · `(schema)` |
-| `@headers(...)` | request headers | `()` · `('authorization')` · `(schema)` |
+| `@headers(...)` | request headers (whole bag or picked) | `()` · `('authorization')` · `(['a','b'])` · `(schema)` |
+| `@header('name')` | one request header (singular alias of `@headers`) | `('x-trace')` · `('x-count', schema)` |
 
 `@needs` keys are validated at boot: nothing provides the key → `createApp` throws with a clear error instead of serving `undefined`. Pass a Standard Schema (`@body(User)`) and the value is validated, coerced, and typed before your handler sees it.
+
+> **Optional providers degrade, they don't crash.** A provider marked `optional: true` that throws on boot does **not** abort startup — it is left unregistered and logged. On `listen()` the app prints a one-line summary of what's running degraded, and the list is queryable via `app.degraded()`. Routes that actually need a degraded provider fail at request time, not at boot. This is deliberate (graceful degradation); wire an alert off `app.degraded()` or the `boot:provider:fail` bus event in production so a degraded start is never silent.
+
+## Routing
+
+Patterns match by segment: static, `:param` (one segment), and a trailing `:name*` **catch-all** that captures the rest of the path — slashes included — into `params.name`. When more than one route matches, the **most specific wins** (static ▸ `:param` ▸ catch-all), independent of registration order. A path that exists under a *different* method returns **`405` with an `Allow` header**, not `404`.
+
+```typescript
+@Get('/files/:path*')   //  /files/img/2026/logo.png  →  params.path = "img/2026/logo.png"
+```
+
+**Not yet** (post-beta, on the roadmap): regex / typed param constraints like `:id(\d+)`, and route matching is a linear scan — fine for typical route tables, but a radix-tree matcher for very large ones isn't built.
 
 ## Two layers
 
 1. **Typed functional core (`flow`)** — `flow().step(...).step(...).handle(...)`; step outputs accumulate into the context type (`Acc & Out`). This is where the compile-time guarantee lives.
 2. **Declarative decorator layer** — `@Provider/@Step/@Module/@Route/@Get/@Transformer` + argument decorators. Emits runtime metadata, builds and topologically sorts the graph, validates at boot.
 
+## Why legacy decorators
+
+green-tea uses **legacy** (experimental) decorators — you set `experimentalDecorators: true` in your `tsconfig`. This is a design decision, not inertia.
+
+The framework's argument injection (`@param`, `@query`, `@body`, `@header`, `@needs`, `@ctx`, `@inbound`, `@abort`) relies on **parameter decorators** — and the TC39 standard decorators proposal (Stage 3) deliberately does **not** include them. There is no standards-track way to decorate a parameter today, so a handler like `handler(@param('id') id: string)` is only expressible with legacy decorators.
+
+"Stage 3" also means *not finalized*: the proposal can still change before engines ship it. We track it, and if parameter injection ever gets a viable standard path we'll revisit. Until then, legacy decorators are the right tool for this API — not a shortcut. (We don't rely on `emitDecoratorMetadata`/`design:type` reflection; argument positions are recorded explicitly, so this is the only legacy surface we depend on.)
+
 ## Honest scope
 
-green-tea is **beta**, on the road to a release candidate. Express and Fastify have a decade of ecosystem; NestJS has enterprise tooling and a huge plugin catalog. green-tea's mesh is a walking skeleton — distributed DI works, but discovery, load-balancing, and failover are not built yet. Pick green-tea for the model and the ergonomics, not the ecosystem — *yet*.
+green-tea is **beta**, on the road to a release candidate. Express and Fastify have a decade of ecosystem; NestJS has enterprise tooling and a huge plugin catalog. Pick green-tea for the model and the ergonomics, not the ecosystem — *yet*.
+
+**Bring your own auth (and friends).** green-tea ships transport security — TLS/wss, secure-by-default headers, CORS — but **not** authentication, authorization, rate-limiting, CSRF, or sessions. You compose those as steps and plugins (the `Authenticate` step in the quick look is the pattern). Unlike Express/Fastify, there is no off-the-shelf plugin ecosystem for them yet.
+
+**Node only.** Runs on Node ≥ 18. Deno / Bun / edge runtimes (over web-standard `Request`/`Response`) are on the roadmap, not built — only `src/http/` is runtime-specific today.
+
+**mesh is alpha.** Distributed DI works, but discovery, load-balancing, and failover are not built, and its API and wire protocol may change between releases. It is gated behind an explicit opt-in — `createApp({ mesh, experimental: true })` — and `createApp` throws if you configure `mesh` without it. Don't ship mesh to production yet.
 
 ## Docs & development
 
@@ -207,7 +238,9 @@ npm run bench      # regenerate BENCHMARKS.md
 
 ## Versioning
 
-green-tea uses **calendar versioning**: `YY.MM.PATCH` (e.g. `26.07.0` = the first release cut in July 2026, patch 0). A version tells you *when* it shipped; breaking changes are called out in the [CHANGELOG](./CHANGELOG.md).
+green-tea uses **calendar versioning**: `YY.MM.PATCH` (e.g. `26.07.0` = the first release cut in July 2026, patch 0). A version tells you *when* it shipped, not how many breaking changes preceded it — those are always called out in the [CHANGELOG](./CHANGELOG.md).
+
+**While in beta**, releases carry a `-beta.N` pre-release suffix on the calendar version (e.g. `26.07.0-beta.0`) and publish under the npm `beta` dist-tag — so a plain `npm install @green-tea/core` won't pick one up until the first stable calendar release. The API can still change between betas.
 
 ## License
 
