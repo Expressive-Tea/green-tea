@@ -131,6 +131,17 @@ The handler signature declares exactly what it wants — in any order, nothing m
 1. **Typed functional core (`flow`)** — `flow().step(...).step(...).handle(...)`; step outputs accumulate into the context type (`Acc & Out`). This is where the compile-time guarantee lives.
 2. **Declarative decorator layer** — `@Provider/@Step/@Module/@Route/@Get/@Transformer` + argument decorators. Emits runtime metadata, builds and topologically sorts the graph, validates at boot.
 
+## Benchmarks
+
+Reproducible autocannon comparison vs Express 5, Fastify 5, and raw Node `http`
+lives in [BENCHMARKS.md](./BENCHMARKS.md) (regenerate with `npm run bench`).
+
+Numbers are single-box + loopback — absolute req/s is overstated and
+inter-framework differences are compressed; treat cross-framework *ratios* as
+the honest signal, not the raw throughput. The cross-framework table runs
+green-tea with `security:false` for header parity; the real cost of green-tea's
+secure-by-default headers/validation is measured separately in that file.
+
 ## Development
 
 ```bash

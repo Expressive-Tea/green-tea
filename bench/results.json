@@ -1,0 +1,280 @@
+{
+  "env": {
+    "date": "2026-07-07",
+    "commit": "926ca39",
+    "node": "v22.22.2",
+    "os": "darwin",
+    "cpu": "Apple M4 Max (16 cores)",
+    "ram": "69 GB",
+    "pinned": false
+  },
+  "config": {
+    "conns": 100,
+    "duration": 5,
+    "runs": 3,
+    "warmup": 1,
+    "pipelining": 1
+  },
+  "scenarios": [
+    {
+      "title": "JSON hello (overhead)",
+      "name": "hello",
+      "rows": [
+        {
+          "framework": "raw-http",
+          "reqSec": {
+            "median": 115398.4,
+            "min": 115078.4,
+            "max": 116076.8,
+            "stddev": 416.2570146222469,
+            "cv": 0.003603399427582749
+          },
+          "p50": 0,
+          "p99": 1,
+          "p999": 1
+        },
+        {
+          "framework": "fastify",
+          "reqSec": {
+            "median": 85881.6,
+            "min": 85382.4,
+            "max": 86073.6,
+            "stddev": 291.32305092457597,
+            "cv": 0.0033961968743538755
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 2
+        },
+        {
+          "framework": "express",
+          "reqSec": {
+            "median": 24126.4,
+            "min": 24072,
+            "max": 24158.4,
+            "stddev": 35.66560746090835,
+            "cv": 0.0014787390042501193
+          },
+          "p50": 3,
+          "p99": 5,
+          "p999": 8
+        },
+        {
+          "framework": "green-tea",
+          "reqSec": {
+            "median": 98912,
+            "min": 98835.2,
+            "max": 99961.6,
+            "stddev": 513.8455626180164,
+            "cv": 0.005178001751557391
+          },
+          "p50": 0,
+          "p99": 1,
+          "p999": 2
+        }
+      ]
+    },
+    {
+      "title": "Route param",
+      "name": "param",
+      "rows": [
+        {
+          "framework": "raw-http",
+          "reqSec": {
+            "median": 115436.8,
+            "min": 115244.8,
+            "max": 116012.8,
+            "stddev": 326.3372488699382,
+            "cv": 0.0028238464382747876
+          },
+          "p50": 0,
+          "p99": 1,
+          "p999": 1
+        },
+        {
+          "framework": "fastify",
+          "reqSec": {
+            "median": 85804.8,
+            "min": 85497.6,
+            "max": 85856,
+            "stddev": 158.26975565645782,
+            "cv": 0.0018463688799174882
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 2
+        },
+        {
+          "framework": "express",
+          "reqSec": {
+            "median": 23739.2,
+            "min": 23694.4,
+            "max": 23777.6,
+            "stddev": 33.99973856108518,
+            "cv": 0.001432347940819078
+          },
+          "p50": 4,
+          "p99": 5,
+          "p999": 8
+        },
+        {
+          "framework": "green-tea",
+          "reqSec": {
+            "median": 93113.6,
+            "min": 92947.2,
+            "max": 93126.4,
+            "stddev": 81.62613960409276,
+            "cv": 0.000877111912051406
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 2
+        }
+      ]
+    },
+    {
+      "title": "Pipeline (3 steps)",
+      "name": "pipeline",
+      "approximation": true,
+      "rows": [
+        {
+          "framework": "raw-http",
+          "reqSec": {
+            "median": 114016,
+            "min": 114003.2,
+            "max": 114156.8,
+            "stddev": 69.58722743594919,
+            "cv": 0.0006101003060058202
+          },
+          "p50": 0,
+          "p99": 1,
+          "p999": 1
+        },
+        {
+          "framework": "fastify",
+          "reqSec": {
+            "median": 83808,
+            "min": 83769.61,
+            "max": 83897.6,
+            "stddev": 53.62772106538676,
+            "cv": 0.0006397575458676833
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 2
+        },
+        {
+          "framework": "express",
+          "reqSec": {
+            "median": 23758.4,
+            "min": 23720,
+            "max": 23777.6,
+            "stddev": 23.946607275352836,
+            "cv": 0.001008193300579018
+          },
+          "p50": 4,
+          "p99": 5,
+          "p999": 8
+        },
+        {
+          "framework": "green-tea",
+          "reqSec": {
+            "median": 84230.4,
+            "min": 84179.2,
+            "max": 85049.6,
+            "stddev": 398.7907053413738,
+            "cv": 0.004720176328277377
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 2
+        }
+      ]
+    },
+    {
+      "title": "POST JSON + validation",
+      "name": "validate",
+      "rows": [
+        {
+          "framework": "raw-http",
+          "reqSec": {
+            "median": 99014.4,
+            "min": 98438.4,
+            "max": 99180.8,
+            "stddev": 318.0885131881125,
+            "cv": 0.0032169839814651393
+          },
+          "p50": 0,
+          "p99": 1,
+          "p999": 2
+        },
+        {
+          "framework": "fastify",
+          "reqSec": {
+            "median": 63868.8,
+            "min": 63836.8,
+            "max": 64323.2,
+            "stddev": 222.1331732692473,
+            "cv": 0.0034703102857891206
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 3
+        },
+        {
+          "framework": "express",
+          "reqSec": {
+            "median": 19985.6,
+            "min": 19886.41,
+            "max": 20068.8,
+            "stddev": 74.55572725597027,
+            "cv": 0.003731467455443308
+          },
+          "p50": 4,
+          "p99": 7,
+          "p999": 26
+        },
+        {
+          "framework": "green-tea",
+          "reqSec": {
+            "median": 76486.4,
+            "min": 76396.8,
+            "max": 76691.2,
+            "stddev": 123.21731480058412,
+            "cv": 0.0016101618664875192
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 2
+        }
+      ]
+    }
+  ],
+  "stepScaling": [
+    {
+      "path": "/steps/0",
+      "steps": 0,
+      "reqSec": 92857.6
+    },
+    {
+      "path": "/steps/3",
+      "steps": 3,
+      "reqSec": 81657.61
+    },
+    {
+      "path": "/steps/5",
+      "steps": 5,
+      "reqSec": 71968
+    }
+  ],
+  "secureCost": [
+    {
+      "label": "security:false (parity)",
+      "reqSec": 98912
+    },
+    {
+      "label": "security:true (default)",
+      "reqSec": 93177.6
+    }
+  ]
+}
