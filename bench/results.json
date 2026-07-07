@@ -1,0 +1,384 @@
+{
+  "env": {
+    "date": "2026-07-07",
+    "commit": "fe1831a",
+    "node": "v22.22.2",
+    "os": "darwin",
+    "cpu": "Apple M4 Max (16 cores)",
+    "ram": "69 GB",
+    "pinned": false
+  },
+  "config": {
+    "conns": 100,
+    "duration": 5,
+    "runs": 3,
+    "warmup": 1,
+    "pipelining": 1
+  },
+  "scenarios": [
+    {
+      "title": "JSON hello (overhead)",
+      "name": "hello",
+      "rows": [
+        {
+          "framework": "raw-http",
+          "reqSec": {
+            "median": 115398.4,
+            "min": 114822.4,
+            "max": 115539.2,
+            "stddev": 310.09010876768724,
+            "cv": 0.0026905088104554075
+          },
+          "p50": 0,
+          "p99": 1,
+          "p999": 1
+        },
+        {
+          "framework": "fastify",
+          "reqSec": {
+            "median": 86764.8,
+            "min": 86496,
+            "max": 87123.2,
+            "stddev": 256.9227813090051,
+            "cv": 0.002960121758353106
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 2
+        },
+        {
+          "framework": "express",
+          "reqSec": {
+            "median": 24366.4,
+            "min": 24283.2,
+            "max": 24417.6,
+            "stddev": 55.38455460585383,
+            "cv": 0.002273984274990166
+          },
+          "p50": 3,
+          "p99": 5,
+          "p999": 8
+        },
+        {
+          "framework": "green-tea",
+          "reqSec": {
+            "median": 98092.8,
+            "min": 98054.4,
+            "max": 98668.8,
+            "stddev": 281.0175795212842,
+            "cv": 0.002859589501804015
+          },
+          "p50": 0,
+          "p99": 1,
+          "p999": 2
+        },
+        {
+          "framework": "nestjs-express",
+          "reqSec": {
+            "median": 21761.6,
+            "min": 21697.6,
+            "max": 21896,
+            "stddev": 82.67870880032535,
+            "cv": 0.0037952010918943873
+          },
+          "p50": 4,
+          "p99": 6,
+          "p999": 10
+        },
+        {
+          "framework": "nestjs-fastify",
+          "reqSec": {
+            "median": 95033.6,
+            "min": 94240,
+            "max": 95264,
+            "stddev": 438.6166536839312,
+            "cv": 0.00462452048886261
+          },
+          "p50": 1,
+          "p99": 1,
+          "p999": 2
+        }
+      ]
+    },
+    {
+      "title": "Route param",
+      "name": "param",
+      "rows": [
+        {
+          "framework": "raw-http",
+          "reqSec": {
+            "median": 116332.8,
+            "min": 115974.4,
+            "max": 116409.6,
+            "stddev": 189.66281191162406,
+            "cv": 0.001631663389130871
+          },
+          "p50": 0,
+          "p99": 1,
+          "p999": 1
+        },
+        {
+          "framework": "fastify",
+          "reqSec": {
+            "median": 86278.4,
+            "min": 86137.6,
+            "max": 86764.8,
+            "stddev": 268.69839349476365,
+            "cv": 0.003110165492522174
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 2
+        },
+        {
+          "framework": "express",
+          "reqSec": {
+            "median": 23835.2,
+            "min": 23803.2,
+            "max": 24046.4,
+            "stddev": 107.89690552662897,
+            "cv": 0.004515472130491916
+          },
+          "p50": 3,
+          "p99": 5,
+          "p999": 8
+        },
+        {
+          "framework": "green-tea",
+          "reqSec": {
+            "median": 93433.6,
+            "min": 93152,
+            "max": 93612.8,
+            "stddev": 189.6628119116206,
+            "cv": 0.002030662686635119
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 2
+        },
+        {
+          "framework": "nestjs-express",
+          "reqSec": {
+            "median": 20955.2,
+            "min": 20948.8,
+            "max": 21201.6,
+            "stddev": 117.69157432317111,
+            "cv": 0.005594982425799189
+          },
+          "p50": 4,
+          "p99": 6,
+          "p999": 11
+        },
+        {
+          "framework": "nestjs-fastify",
+          "reqSec": {
+            "median": 89312,
+            "min": 89235.2,
+            "max": 89529.6,
+            "stddev": 124.68598780759793,
+            "cv": 0.001395338811201841
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 2
+        }
+      ]
+    },
+    {
+      "title": "Pipeline (3 steps)",
+      "name": "pipeline",
+      "approximation": true,
+      "rows": [
+        {
+          "framework": "raw-http",
+          "reqSec": {
+            "median": 113491.2,
+            "min": 112531.2,
+            "max": 114809.6,
+            "stddev": 933.9810324031724,
+            "cv": 0.008220892102882115
+          },
+          "p50": 0,
+          "p99": 1,
+          "p999": 1
+        },
+        {
+          "framework": "fastify",
+          "reqSec": {
+            "median": 85024,
+            "min": 84512,
+            "max": 85177.6,
+            "stddev": 284.55819947576623,
+            "cv": 0.003351507726431956
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 2
+        },
+        {
+          "framework": "express",
+          "reqSec": {
+            "median": 23950.4,
+            "min": 23902.4,
+            "max": 24011.2,
+            "stddev": 44.519758410046,
+            "cv": 0.0018585004345727763
+          },
+          "p50": 3,
+          "p99": 5,
+          "p999": 8
+        },
+        {
+          "framework": "green-tea",
+          "reqSec": {
+            "median": 84896,
+            "min": 84243.2,
+            "max": 85267.2,
+            "stddev": 423.2825796347192,
+            "cv": 0.004991414284012342
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 2
+        },
+        {
+          "framework": "nestjs-express",
+          "reqSec": {
+            "median": 20824,
+            "min": 20804.8,
+            "max": 20878.41,
+            "stddev": 31.17605954717337,
+            "cv": 0.001496278247605678
+          },
+          "p50": 4,
+          "p99": 6,
+          "p999": 11
+        },
+        {
+          "framework": "nestjs-fastify",
+          "reqSec": {
+            "median": 87328,
+            "min": 86867.2,
+            "max": 87660.8,
+            "stddev": 325.38753646827104,
+            "cv": 0.0037278603866430907
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 2
+        }
+      ]
+    },
+    {
+      "title": "POST JSON + validation",
+      "name": "validate",
+      "rows": [
+        {
+          "framework": "raw-http",
+          "reqSec": {
+            "median": 100140.8,
+            "min": 99846.4,
+            "max": 100294.4,
+            "stddev": 185.88177843875883,
+            "cv": 0.0018570746103533369
+          },
+          "p50": 0,
+          "p99": 1,
+          "p999": 2
+        },
+        {
+          "framework": "fastify",
+          "reqSec": {
+            "median": 63721.6,
+            "min": 63574.4,
+            "max": 63760,
+            "stddev": 79.99288857281053,
+            "cv": 0.0012560645345785087
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 3
+        },
+        {
+          "framework": "express",
+          "reqSec": {
+            "median": 20097.6,
+            "min": 20056,
+            "max": 20174.41,
+            "stddev": 49.04789518646266,
+            "cv": 0.0024390608203285337
+          },
+          "p50": 4,
+          "p99": 6,
+          "p999": 12
+        },
+        {
+          "framework": "green-tea",
+          "reqSec": {
+            "median": 77177.61,
+            "min": 77126.4,
+            "max": 77254.4,
+            "stddev": 52.602458962379814,
+            "cv": 0.0006815013839797027
+          },
+          "p50": 1,
+          "p99": 2,
+          "p999": 2
+        },
+        {
+          "framework": "nestjs-express",
+          "reqSec": {
+            "median": 18856,
+            "min": 18852.8,
+            "max": 19067.2,
+            "stddev": 100.32338821143516,
+            "cv": 0.005301010367660728
+          },
+          "p50": 5,
+          "p99": 7,
+          "p999": 30
+        },
+        {
+          "framework": "nestjs-fastify",
+          "reqSec": {
+            "median": 59145.6,
+            "min": 59004.8,
+            "max": 59376,
+            "stddev": 153.00625985741647,
+            "cv": 0.002585636725423652
+          },
+          "p50": 1,
+          "p99": 3,
+          "p999": 3
+        }
+      ]
+    }
+  ],
+  "stepScaling": [
+    {
+      "path": "/steps/0",
+      "steps": 0,
+      "reqSec": 92281.6
+    },
+    {
+      "path": "/steps/3",
+      "steps": 3,
+      "reqSec": 81529.61
+    },
+    {
+      "path": "/steps/5",
+      "steps": 5,
+      "reqSec": 71993.61
+    }
+  ],
+  "secureCost": [
+    {
+      "label": "security:false (parity)",
+      "reqSec": 98092.8
+    },
+    {
+      "label": "security:true (default)",
+      "reqSec": 92998.4
+    }
+  ]
+}
