@@ -27,6 +27,48 @@ Less to hold in your head. That's the tea.
 - **A remote dependency looks like a local one.** `@needs('billing')` resolves the same whether `billing` lives in this process or on another node (mesh, experimental). *Why it matters:* no gRPC layer or message-pattern DSL to learn — there's the graph, and some nodes happen to live elsewhere.
 - **Plugins can't sabotage you.** A plugin gets `bus.on(...)` (observe) and `scope.add(...)` (extend its own scope). There is no API to reorder or delete another scope's steps. *Why it matters:* installing a plugin can't break your body parser.
 
+## Real-time is a primitive, not a second framework
+
+Most stacks treat "push data over time" as a bolt-on: Express reaches for a `ws` or SSE library, Fastify for a plugin, NestJS for a separate **WebSocket Gateway** with its own adapter and decorators. That's a second mental model, a second error surface, glued to your HTTP app.
+
+green-tea has one model: an **`AsyncIterable`**. A handler that returns a sequence of values over time *is* a stream — the same shape you'd return from any function. You **declare the mode** with a decorator; the framework handles framing, backpressure, cleanup, and disconnects.
+
+| Declare | Direction | Transport | Reach for it when |
+|---|---|---|---|
+| `@Sse` | server → client | `text/event-stream` | live updates to a browser (`EventSource`) |
+| `@Ws` | duplex | WebSocket | chat, collaboration — anything two-way |
+| `@Stream` | negotiated | SSE / ndjson / WS, picked from the client's `Accept` / `Upgrade` | one handler, the client chooses |
+| *(plain return)* | server → client | SSE or ndjson by `Accept` | programmatic streaming over `fetch` |
+
+The primitive never changes — it's always an `AsyncIterable`. What changes is **direction and framing**, and you declare which. That's the difference between each iterable green-tea hands you:
+
+- **`@Sse` / plain return** — you return **one** iterable: the *outbound* stream. Each `yield` becomes an SSE event, or an ndjson line.
+- **`@Ws` (duplex)** — **two** iterables. `@inbound()` gives you the client's *incoming* messages to consume; the one you **return** is the *outbound* stream to the client. `@abort()` hands you an `AbortSignal` for teardown.
+- **`@Stream`** — you write the handler once; the client's request decides whether it arrives as SSE, ndjson, or a WebSocket. No branching in your code.
+
+Fan-out is a primitive too: `channel()` is a **multicast** `AsyncIterable` (bounded, drop-oldest) so one source feeds many subscribers, and `rooms` are named broadcast hubs — publish once, every connection in the room receives it.
+
+```typescript
+@Route('/live')
+class Live {
+  @Sse('/prices')                                   // one iterable out — each yield is an event
+  prices() {
+    return (async function* () {
+      while (true) { yield { btc: await getPrice() }; await sleep(1000); }
+    })();
+  }
+
+  @Ws('/echo')                                      // duplex — consume @inbound, return the outbound stream
+  echo(@inbound() incoming: AsyncIterable<string>) {
+    const out = channel<string>();
+    (async () => { for await (const m of incoming) out.push(`echo: ${m}`); out.close(); })();
+    return out;
+  }
+}
+```
+
+Same `@Route`, same handler shape, same `AsyncIterable` — real-time is not a separate framework you also have to learn.
+
 ## Batteries included — still one dependency
 
 Beta shipped the parts a real API needs, without growing the runtime dependency tree past `reflect-metadata`:
@@ -58,7 +100,7 @@ Every framework here can serve `/users/:id`. The difference shows up as the app 
 | **`req.user` exists?** | hope so | hope so | if the guard ran | if the middleware ran | **boot fails if nothing provides it** |
 | **Type safety** | none | schemas (runtime) | decorator types (runtime DI) | runtime | **compile-time in `flow`** + boot-validated decorators |
 | **See the pipeline** | read the code | read the code | paid Devtools | `inspect` | **`explain` / `graph` / `/__graph__` — free** |
-| **Real-time** | bolt on `ws`/`sse` libs | plugins | separate Gateway + adapter | separate engine | **return an `AsyncIterable`** — same primitive |
+| **Real-time** | bolt on `ws`/`sse` libs | plugins | separate Gateway + adapter | separate engine | **return an `AsyncIterable`** — SSE, ndjson & WebSocket, one primitive |
 | **Cross-service calls** | HTTP client / gRPC by hand | HTTP client / gRPC | Microservices transport + message patterns | — | **`@needs('x')` resolves on another node** |
 | **Plugin can break your pipeline?** | yes (deletes your body parser) | encapsulated, but hooks are global | interceptor order matters | yes | **no** — plugins only `bus.on` + `scope.add` |
 | **Runtime deps** | minimal | minimal | heavy (rxjs, reflect-metadata, …) | Express + InversifyJS | **`reflect-metadata` only** (`ws` optional) |
