@@ -16,7 +16,7 @@ export interface RequestLimits {
   headersTimeoutMs?: number;   // default 10_000
   keepAliveTimeoutMs?: number; // default 5_000
 }
-export interface HttpOptions { limits?: RequestLimits; streams?: Set<() => void>; tls?: TlsOptions }
+export interface HttpOptions { limits?: RequestLimits; streams?: Set<() => void>; tls?: TlsOptions; trustProxy?: boolean }
 
 export type RouteHandler = (req: {
   method: string; url: string;
@@ -24,6 +24,8 @@ export type RouteHandler = (req: {
   params: Record<string, string>;
   query: Record<string, string>;
   body: unknown;
+  protocol: 'http' | 'https';
+  ip: string;
 }) => Promise<PipelineResult>;
 
 export interface RouteDef { method: string; pattern: string; transport: Transport; handler: RouteHandler }
@@ -80,6 +82,19 @@ async function readBody(req: http.IncomingMessage, maxBodyBytes: number): Promis
   if (chunks.length === 0) return undefined;
   const raw = Buffer.concat(chunks).toString('utf8');
   return raw === '' ? undefined : raw;
+}
+
+function firstToken(v: string | string[] | undefined): string | undefined {
+  const s = Array.isArray(v) ? v[0] : v;
+  return s?.split(',')[0].trim();
+}
+function deriveSecure(req: http.IncomingMessage, trustProxy: boolean): boolean {
+  if (trustProxy) { const p = firstToken(req.headers['x-forwarded-proto']); if (p) return p === 'https'; }
+  return (req.socket as any).encrypted === true;
+}
+function deriveIp(req: http.IncomingMessage, trustProxy: boolean): string {
+  if (trustProxy) { const f = firstToken(req.headers['x-forwarded-for']); if (f) return f; }
+  return req.socket.remoteAddress ?? '';
 }
 
 function pickEncoder(transport: Transport, accept: string): StreamEncoder {
@@ -218,11 +233,14 @@ export function createHttpServer(
     } else if (raw !== undefined && ct.includes('application/x-www-form-urlencoded')) {
       body = Object.fromEntries(new URLSearchParams(raw));
     }
+    const trustProxy = opts?.trustProxy ?? false;
+    const secure = deriveSecure(req, trustProxy);
     let result: PipelineResult;
     try {
       result = await matched.def.handler({
         method: req.method ?? 'GET', url, headers: req.headers,
         params: matched.params, query: parseQuery(url), body,
+        protocol: secure ? 'https' : 'http', ip: deriveIp(req, trustProxy),
       });
     } catch (error) {
       result = errorToResponse(error);

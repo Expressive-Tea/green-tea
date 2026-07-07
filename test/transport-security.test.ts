@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import https from 'https';
 import WebSocket from 'ws';
-import { createApp, Route, Get, Ws, Module, inbound, channel } from '../src';
+import { createApp, Route, Get, Ws, Module, inbound, channel, ctx } from '../src';
 import { selfSignedTls } from './helpers/tls';
 
 @Route('/')
@@ -45,5 +45,27 @@ describe('TLS', () => {
     });
     expect(got).toBe('hi');
     ws.close();
+  });
+});
+
+describe('trustProxy', () => {
+  it('trustProxy honors X-Forwarded-Proto; ctx exposes protocol/ip', async () => {
+    @Route('/') class P { @Get('/who') who(@ctx() c: any) { return { proto: c.protocol, ip: c.ip }; } }
+    @Module({ mountpoint: '/', controllers: [P] }) class PMod {}
+    app = createApp({ modules: [PMod], trustProxy: true });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    const r = await fetch(`http://127.0.0.1:${port}/who`, {
+      headers: { 'x-forwarded-proto': 'https', 'x-forwarded-for': '9.9.9.9' } });
+    expect(await r.json()).toEqual({ proto: 'https', ip: '9.9.9.9' });
+  });
+  it('without trustProxy, forwarded headers are ignored', async () => {
+    @Route('/') class P { @Get('/who') who(@ctx() c: any) { return { proto: c.protocol }; } }
+    @Module({ mountpoint: '/', controllers: [P] }) class PMod {}
+    app = createApp({ modules: [PMod] });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    const r = await fetch(`http://127.0.0.1:${port}/who`, { headers: { 'x-forwarded-proto': 'https' } });
+    expect(await r.json()).toEqual({ proto: 'http' });
   });
 });
