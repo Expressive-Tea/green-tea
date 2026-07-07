@@ -8,8 +8,8 @@ import { sseEncoder, ndjsonEncoder, StreamEncoder } from './encoders';
 import { isStreamResult, type PipelineResult, type ResponseShape } from './pipeline';
 import type { Transport } from './metadata';
 import type { Bus } from './bus';
-import { buildSecurityHeaders, mergeVary } from './security';
-import type { TlsOptions, SecurityOptions } from './security';
+import { buildSecurityHeaders, mergeVary, resolveCors, corsPreflightHeaders } from './security';
+import type { TlsOptions, SecurityOptions, CorsOptions } from './security';
 
 export interface RequestLimits {
   maxBodyBytes?: number;       // default 1_000_000
@@ -17,7 +17,7 @@ export interface RequestLimits {
   headersTimeoutMs?: number;   // default 10_000
   keepAliveTimeoutMs?: number; // default 5_000
 }
-export interface HttpOptions { limits?: RequestLimits; streams?: Set<() => void>; tls?: TlsOptions; trustProxy?: boolean; security?: boolean | SecurityOptions }
+export interface HttpOptions { limits?: RequestLimits; streams?: Set<() => void>; tls?: TlsOptions; trustProxy?: boolean; security?: boolean | SecurityOptions; cors?: CorsOptions }
 
 export type RouteHandler = (req: {
   method: string; url: string;
@@ -212,7 +212,6 @@ export function createHttpServer(
     // (200, 404, error, stream) writes headers through the same patched writeHead.
     const secure = deriveSecure(req, trustProxy);
     const injected: Record<string, string> = { ...buildSecurityHeaders(opts?.security ?? true, secure) };
-    // (CORS is folded into `injected` in Task 5; this task is security headers only.)
     const orig = res.writeHead.bind(res);
     (res as any).writeHead = (status: number, arg2?: any, arg3?: any) => {
       // normalize (statusMessage?, headers?) overloads
@@ -233,6 +232,15 @@ export function createHttpServer(
       else if (handlerVary !== undefined) merged['vary'] = handlerVary; // preserve handler Vary when no CORS
       return typeof arg2 === 'string' ? orig(status, arg2, merged) : orig(status, merged);
     };
+    // CORS is added to `injected` AFTER the patch is installed — the patch reads it lazily
+    // by reference at writeHead time, so keys added here still land on every response.
+    if (opts?.cors) Object.assign(injected, resolveCors(opts.cors, req));
+    if (opts?.cors && req.method === 'OPTIONS' && req.headers['access-control-request-method']) {
+      const pf = corsPreflightHeaders(opts.cors, req);
+      res.writeHead(204, pf);
+      res.end();
+      return;
+    }
     const matched = matchRoute(routes, req.method ?? 'GET', path);
     if (!matched) {
       res.writeHead(404, { 'content-type': 'application/json' });

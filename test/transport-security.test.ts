@@ -158,3 +158,60 @@ describe('security headers', () => {
     await res.body?.cancel();
   });
 });
+
+describe('CORS', () => {
+  it('echoes allowed origin, sets Vary; preflight 204', async () => {
+    @Route('/') class C { @Get('/x') x() { return { ok: 1 }; } }
+    @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
+    app = createApp({ modules: [CMod], cors: { origins: 'https://a.com' } });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    const r = await fetch(`http://127.0.0.1:${port}/x`, { headers: { origin: 'https://a.com' } });
+    expect(r.headers.get('access-control-allow-origin')).toBe('https://a.com');
+    expect(r.headers.get('vary')).toContain('Origin');
+    const pre = await fetch(`http://127.0.0.1:${port}/x`, {
+      method: 'OPTIONS', headers: { origin: 'https://a.com', 'access-control-request-method': 'GET' } });
+    expect(pre.status).toBe(204);
+    expect(pre.headers.get('access-control-allow-methods')).toContain('GET');
+    expect(pre.headers.get('x-content-type-options')).toBe('nosniff'); // security headers on preflight too
+  });
+
+  it('credentials never returns *; echoes concrete origin', async () => {
+    @Route('/') class C { @Get('/x') x() { return { ok: 1 }; } }
+    @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
+    app = createApp({ modules: [CMod], cors: { origins: '*', credentials: true } });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    const r = await fetch(`http://127.0.0.1:${port}/x`, { headers: { origin: 'https://a.com' } });
+    expect(r.headers.get('access-control-allow-origin')).toBe('https://a.com');
+    expect(r.headers.get('access-control-allow-credentials')).toBe('true');
+  });
+
+  it('disallowed origin → no allow-origin; bare OPTIONS (no ACRM) falls through to 404', async () => {
+    @Route('/') class C { @Get('/x') x() { return { ok: 1 }; } }
+    @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
+    app = createApp({ modules: [CMod], cors: { origins: 'https://a.com' } });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    const r = await fetch(`http://127.0.0.1:${port}/x`, { headers: { origin: 'https://evil.com' } });
+    expect(r.headers.get('access-control-allow-origin')).toBeNull();
+    const bare = await fetch(`http://127.0.0.1:${port}/x`, { method: 'OPTIONS' }); // no ACRM
+    expect(bare.status).toBe(404);
+  });
+
+  it("merges a handler's Title-Case Vary with CORS's Origin", async () => {
+    @Route('/') class C {
+      @Get('/x')
+      @Transformer((v) => ({ status: 200, headers: { Vary: 'Accept-Encoding' }, body: JSON.stringify(v) }))
+      x() { return { ok: 1 }; }
+    }
+    @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
+    app = createApp({ modules: [CMod], cors: { origins: 'https://a.com' } });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    const r = await fetch(`http://127.0.0.1:${port}/x`, { headers: { origin: 'https://a.com' } });
+    const vary = r.headers.get('vary');
+    expect(vary).toContain('Accept-Encoding');
+    expect(vary).toContain('Origin');
+  });
+});
