@@ -43,7 +43,7 @@ interface RoutePlan {
   steps: GraphNode[];
   handlerName: string;
   needs: string[];
-  run: (ctx: any) => unknown;
+  run: (ctx: any) => Promise<unknown>;
   transformer: typeof JsonTransformer;
   duplicates?: 'array' | 'last';
 }
@@ -114,7 +114,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
           steps: [],
           handlerName: route.handlerName,
           needs: getHandlerNeeds(argSpecs),
-          run: (c: any) => inst[route.handlerName](...resolveArgs(argSpecs, c)),
+          run: async (c: any) => inst[route.handlerName](...(await resolveArgs(argSpecs, c))),
           transformer: getTransformer(C, route.handlerName) ?? JsonTransformer,
           duplicates: route.duplicates,
         });
@@ -358,7 +358,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
                            headers: req.headers, inbound, abort,
                            protocol: (req.socket as any).encrypted ? 'https' : 'http', ip: req.socket.remoteAddress ?? '' };
           for (const s of planSteps(plan)) { ctx = { ...ctx, ...(await s.run(ctx)) }; }
-          const out = plan.run(ctx);
+          const out = await plan.run(ctx);
           if (!isAsyncIterable(out)) throw new Error(`@Ws handler '${plan.handlerName}' must return an AsyncIterable`);
           return out as AsyncIterable<unknown>;
         },
