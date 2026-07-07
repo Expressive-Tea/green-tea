@@ -2,29 +2,33 @@ import { isHttpError, Redirect, ValidationError } from './signals';
 import type { TransformerFn } from './metadata';
 import { flattenPath } from './standard-schema';
 
+/** Default transformer: serialize a handler's return value as a JSON `200` response. */
 export const JsonTransformer: TransformerFn = (value) => ({
   status: 200,
   headers: { 'content-type': 'application/json' },
   body: JSON.stringify(value),
 });
 
-export function errorToResponse(e: unknown): { status: number; headers: Record<string, string>; body: string } {
-  if (e instanceof ValidationError) {
+/** Map a thrown value to a JSON error response (422 for validation, HttpError status, else 500). */
+export function errorToResponse(error: unknown): { status: number; headers: Record<string, string>; body: string } {
+  if (error instanceof ValidationError) {
     return {
       status: 422,
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         error: 'Validation failed',
-        source: e.source,
-        issues: e.issues.map((i) => ({ path: flattenPath(i), message: i.message })),
+        source: error.source,
+        issues: error.issues.map((issue) => ({ path: flattenPath(issue), message: issue.message })),
       }),
     };
   }
-  if (isHttpError(e)) {
+
+  if (isHttpError(error)) {
     const headers: Record<string, string> = { 'content-type': 'application/json' };
-    if (e instanceof Redirect) headers.location = e.location;
-    return { status: e.status, headers, body: JSON.stringify({ error: e.message }) };
+    if (error instanceof Redirect) headers.location = error.location;
+    return { status: error.status, headers, body: JSON.stringify({ error: error.message }) };
   }
+
   return {
     status: 500,
     headers: { 'content-type': 'application/json' },

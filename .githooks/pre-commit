@@ -1,0 +1,17 @@
+#!/bin/sh
+# Pre-commit gate. Auto-fixes formatting/lint on staged source, then enforces
+# lint + cognitive-complexity. Enabled via `git config core.hooksPath .githooks`
+# (run automatically by the `prepare` npm script on install).
+set -e
+
+# Auto-fix format + lint on staged TypeScript sources, then re-stage them.
+staged=$(git diff --cached --name-only --diff-filter=ACM -- 'src/*.ts' 'src/**/*.ts')
+if [ -n "$staged" ]; then
+  echo "$staged" | xargs npx prettier --write
+  echo "$staged" | xargs npx eslint --fix
+  echo "$staged" | xargs git add
+fi
+
+# Enforce (no auto-fix): lint must be clean, and no function over the complexity gate.
+npm run lint
+npm run complexity:check

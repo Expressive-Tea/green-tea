@@ -4,30 +4,105 @@ import { encode, decode, type Manifest, type RequestEnvelope, type Frame } from 
 
 let connSeq = 0; // module-level: deterministic unique connection-id prefix (no Date.now/Math.random)
 
+/** Client handle to a remote mesh server: its manifest, an RPC caller, and a close(). */
 export interface Link {
   manifest: Manifest;
   rpc(kind: 'scope' | 'route', name: string, ctx: RequestEnvelope): Promise<unknown>;
   close(): void;
 }
 
+/** An in-flight RPC awaiting its `rpc-res`, keyed by id in the pending map. */
+type PendingEntry = {
+  resolve: (v: unknown) => void;
+  reject: (e: unknown) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+
 function loadWs(): any {
-  return require('ws'); // lazy/optional, like streams; the ws CJS export is the WebSocket class
+  // lazy/optional, like streams; the ws CJS export is the WebSocket class
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('ws');
 }
 
-export function connectLink(args: {
-  url: string;
-  secret: string;
-  timeoutMs?: number;
-  bus?: Bus;
-}): Promise<Link> {
+/** Reject and clear every in-flight RPC — used when the link closes. */
+function rejectAllPending(pending: Map<string, PendingEntry>, reason: string): void {
+  for (const [, entry] of pending) {
+    clearTimeout(entry.timer);
+    entry.reject(new Error(reason));
+  }
+
+  pending.clear();
+}
+
+/** Register one RPC in `pending` by id, send its request, and reject it on timeout. */
+function sendRpc(
+  ws: any,
+  pending: Map<string, PendingEntry>,
+  id: string,
+  kind: 'scope' | 'route',
+  name: string,
+  ctx: RequestEnvelope,
+  timeoutMs: number,
+): Promise<unknown> {
+  return new Promise((resolveCall, rejectCall) => {
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      rejectCall(new Error(`mesh rpc timeout: ${name}`));
+    }, timeoutMs);
+
+    pending.set(id, { resolve: resolveCall, reject: rejectCall, timer });
+    ws.send(encode({ type: 'rpc-req', id, kind, name, ctx }));
+  });
+}
+
+/** Assemble the client-facing Link once the manifest arrives. */
+function buildLink(
+  ws: any,
+  pending: Map<string, PendingEntry>,
+  manifest: Manifest,
+  connId: string,
+  timeoutMs: number,
+): Link {
+  let counter = 0;
+
+  return {
+    manifest,
+    rpc(kind, name, ctx) {
+      const id = `${connId}:${counter++}`;
+
+      return sendRpc(ws, pending, id, kind, name, ctx, timeoutMs);
+    },
+    close() {
+      ws.close();
+    },
+  };
+}
+
+/** Settle a pending RPC from its `rpc-res` frame — resolve on ok, reject (and emit) on error. */
+function settleRpcResponse(
+  pending: Map<string, PendingEntry>,
+  frame: Extract<Frame, { type: 'rpc-res' }>,
+  bus?: Bus,
+): void {
+  const entry = pending.get(frame.id);
+  if (!entry) return;
+  pending.delete(frame.id);
+  clearTimeout(entry.timer);
+
+  if (frame.ok) {
+    entry.resolve(frame.result);
+  } else {
+    bus?.emit('mesh:rpc:error', { name: frame.id, error: frame.error });
+    entry.reject(new HttpError(frame.error.status ?? 500, frame.error.message));
+  }
+}
+
+/** Open a WebSocket link to a mesh server, handshake with `secret`, and resolve once its manifest arrives. */
+export function connectLink(args: { url: string; secret: string; timeoutMs?: number; bus?: Bus }): Promise<Link> {
   const timeoutMs = args.timeoutMs ?? 30_000;
   const WS = loadWs();
   const ws = new WS(args.url);
-  const pending = new Map<
-    string,
-    { resolve: (v: unknown) => void; reject: (e: unknown) => void; timer: ReturnType<typeof setTimeout> }
-  >();
-  let counter = 0;
+  const pending = new Map<string, PendingEntry>();
   const connId = `c${connSeq++}`;
   let manifest: Manifest | undefined;
 
@@ -38,20 +113,17 @@ export function connectLink(args: {
     }, timeoutMs);
 
     ws.on('open', () => ws.send(encode({ type: 'hello', secret: args.secret })));
-    ws.on('error', (e: unknown) => reject(e));
+    ws.on('error', (error: unknown) => reject(error));
     ws.on('close', () => {
       clearTimeout(connectTimer);
       args.bus?.emit('mesh:disconnect', { name: args.url });
-      for (const [, p] of pending) {
-        clearTimeout(p.timer);
-        p.reject(new Error('mesh link closed'));
-      }
-      pending.clear();
+      rejectAllPending(pending, 'mesh link closed');
       if (!manifest) reject(new Error(`mesh handshake failed: ${args.url}`));
     });
 
     ws.on('message', (data: unknown) => {
       let frame: Frame;
+
       try {
         frame = decode(String(data));
       } catch {
@@ -62,37 +134,12 @@ export function connectLink(args: {
         manifest = { scopes: frame.scopes, routes: frame.routes };
         clearTimeout(connectTimer);
         args.bus?.emit('mesh:connect', { name: args.url });
-        resolve({
-          manifest,
-          rpc(kind, name, ctx) {
-            const id = `${connId}:${counter++}`;
-            return new Promise((res, rej) => {
-              const timer = setTimeout(() => {
-                pending.delete(id);
-                rej(new Error(`mesh rpc timeout: ${name}`));
-              }, timeoutMs);
-              pending.set(id, { resolve: res, reject: rej, timer });
-              ws.send(encode({ type: 'rpc-req', id, kind, name, ctx }));
-            });
-          },
-          close() {
-            ws.close();
-          },
-        });
+        resolve(buildLink(ws, pending, manifest, connId, timeoutMs));
         return;
       }
 
       if (frame.type === 'rpc-res') {
-        const p = pending.get(frame.id);
-        if (!p) return;
-        pending.delete(frame.id);
-        clearTimeout(p.timer);
-        if (frame.ok) {
-          p.resolve(frame.result);
-        } else {
-          args.bus?.emit('mesh:rpc:error', { name: frame.id, error: frame.error });
-          p.reject(new HttpError(frame.error.status ?? 500, frame.error.message));
-        }
+        settleRpcResponse(pending, frame, args.bus);
       }
     });
   });

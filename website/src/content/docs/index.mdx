@@ -1,0 +1,41 @@
+---
+title: green-tea
+description: A calm, type-safe HTTP framework for Node — your API is an explicit dependency graph you can see, slice, and trust.
+template: splash
+hero:
+  tagline: Your API is an explicit dependency graph you can see, slice, and trust — not a mutable bag threaded through positional middleware.
+  actions:
+    - text: Get started
+      link: /getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: The idea
+      link: /concepts/the-graph/
+      icon: open-book
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Less to hold in your head
+
+Most frameworks make you keep the whole request in your head: which middleware ran, whether `req.user` exists by now, what fired in what order. green-tea puts the request **on the page** — you declare what each step _needs_ and _produces_, and the framework computes the order, type-checks the wiring, and can print the whole thing.
+
+<CardGrid stagger>
+  <Card title="A graph, not a chain" icon="puzzle">
+    Declare `needs`/`provides`; green-tea topologically sorts it. No ordering bugs, no positional guesswork — each route runs only its slice of the graph.
+  </Card>
+  <Card title="The type is the contract" icon="approve-check">
+    In the typed `flow` core, a handler that reads `ctx.user` **fails to compile** if no step produces `user`. "It was undefined in prod" disappears at build time.
+  </Card>
+  <Card title="See the request before it runs" icon="magnifier">
+    `app.explain('/users/:id')` prints the ordered chain; `GET /__graph__` renders it as a live diagram. Onboarding and audits are reading, not archaeology.
+  </Card>
+  <Card title="One primitive for real-time" icon="rocket">
+    Return an `AsyncIterable` and the transport streams it — SSE, ndjson, or a WebSocket duplex — with backpressure and cleanup handled. No separate gateway.
+  </Card>
+</CardGrid>
+
+:::note[Beta]
+green-tea is **beta**, on the RC track. One runtime dependency (`reflect-metadata`); `ws` and `busboy` are optional peers. [mesh](/guides/mesh/) is alpha and gated behind an explicit opt-in.
+:::

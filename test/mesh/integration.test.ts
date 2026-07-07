@@ -25,12 +25,12 @@ class TeacupModule {}
 
 describe('mesh skeleton integration', () => {
   it('teacup resolves remote app-scope + request-scope into a local handler', async () => {
-    const teapot = createApp({ modules: [TeapotModule], mesh: { secret: SECRET } });
+    const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
     const tServer = await teapot.listen(0);
     const tPort = (tServer.address() as any).port;
     const url = `ws://127.0.0.1:${tPort}/__mesh__/control`;
 
-    const teacup = createApp({ modules: [TeacupModule], mesh: { teapots: [{ url, secret: SECRET }] } });
+    const teacup = createApp({ modules: [TeacupModule], experimental: true, mesh: { teapots: [{ url, secret: SECRET }] } });
     const cServer = await teacup.listen(0);
     const cPort = (cServer.address() as any).port;
 
@@ -40,8 +40,12 @@ describe('mesh skeleton integration', () => {
     tServer.close(); cServer.close();
   });
 
+  it('mesh is gated behind experimental: true', () => {
+    expect(() => createApp({ modules: [TeapotModule], mesh: { secret: SECRET } })).toThrow(/alpha feature/);
+  });
+
   it('teapot still serves its own local route (regression)', async () => {
-    const app = createApp({ modules: [TeapotModule], mesh: { secret: SECRET } });
+    const app = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
     const s = await app.listen(0); const p = (s.address() as any).port;
     const res = await fetch(`http://127.0.0.1:${p}/api/remote/ping`);
     expect(await res.json()).toEqual({ pong: true });
@@ -49,9 +53,9 @@ describe('mesh skeleton integration', () => {
   });
 
   it('rejects a bad secret (teacup boot fails)', async () => {
-    const teapot = createApp({ modules: [TeapotModule], mesh: { secret: SECRET } });
+    const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
     const tServer = await teapot.listen(0); const tPort = (tServer.address() as any).port;
-    const teacup = createApp({ modules: [TeacupModule], mesh: { teapots: [{ url: `ws://127.0.0.1:${tPort}/__mesh__/control`, secret: 'WRONG' }], timeoutMs: 800 } });
+    const teacup = createApp({ modules: [TeacupModule], experimental: true, mesh: { teapots: [{ url: `ws://127.0.0.1:${tPort}/__mesh__/control`, secret: 'WRONG' }], timeoutMs: 800 } });
     await expect(teacup.listen(0)).rejects.toThrow();
     tServer.close();
   });

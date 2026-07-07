@@ -1,3 +1,4 @@
+/** Serialized request context sent across the mesh for a scope or route RPC. */
 export interface RequestEnvelope {
   method: string;
   params: Record<string, string>;
@@ -6,10 +7,23 @@ export interface RequestEnvelope {
   headers: Record<string, string | string[] | undefined>;
 }
 
-export interface ScopeEntry { token: string; scope: 'app' | 'request' }
-export interface RouteEntry { method: string; pattern: string }
-export interface Manifest { scopes: ScopeEntry[]; routes: RouteEntry[] }
+/** Manifest entry for an exported scope token and its lifetime. */
+export interface ScopeEntry {
+  token: string;
+  scope: 'app' | 'request';
+}
+/** Manifest entry for an exported route. */
+export interface RouteEntry {
+  method: string;
+  pattern: string;
+}
+/** A mesh server's advertised scopes and routes. */
+export interface Manifest {
+  scopes: ScopeEntry[];
+  routes: RouteEntry[];
+}
 
+/** Discriminated union of every message on the mesh wire. */
 export type Frame =
   | { type: 'hello'; secret: string }
   | { type: 'manifest'; scopes: ScopeEntry[]; routes: RouteEntry[] }
@@ -19,14 +33,18 @@ export type Frame =
 
 const TYPES = new Set(['hello', 'manifest', 'rpc-req', 'rpc-res']);
 
-export function encode(f: Frame): string {
-  return JSON.stringify(f);
+/** Serialize a frame to a JSON wire string. */
+export function encode(frame: Frame): string {
+  return JSON.stringify(frame);
 }
 
-export function decode(s: string): Frame {
-  const f = JSON.parse(s) as { type?: unknown };
-  if (typeof f.type !== 'string' || !TYPES.has(f.type)) {
-    throw new Error(`unknown frame type: ${String(f.type)}`);
+/** Parse a wire string into a frame, throwing if the `type` tag is unknown. */
+export function decode(json: string): Frame {
+  const parsed = JSON.parse(json) as { type?: unknown };
+
+  if (typeof parsed.type !== 'string' || !TYPES.has(parsed.type)) {
+    throw new Error(`unknown frame type: ${String(parsed.type)}`);
   }
-  return f as Frame;
+
+  return parsed as Frame;
 }

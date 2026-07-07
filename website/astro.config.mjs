@@ -1,0 +1,53 @@
+import { defineConfig } from 'astro/config';
+import starlight from '@astrojs/starlight';
+
+// Docs site for @green-tea/core. Content lives in src/content/docs/**.
+export default defineConfig({
+  site: 'https://green-tea.dev',
+  integrations: [
+    starlight({
+      title: 'green-tea',
+      description: 'A calm, type-safe HTTP framework for Node — your API is an explicit dependency graph.',
+      tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 3 },
+      sidebar: [
+        {
+          label: 'Start here',
+          items: [
+            { label: 'Introduction', link: '/' },
+            { label: 'Getting started', slug: 'getting-started' },
+          ],
+        },
+        {
+          label: 'Concepts',
+          items: [
+            { label: 'The dependency graph', slug: 'concepts/the-graph' },
+            { label: 'The typed flow core', slug: 'concepts/flow' },
+          ],
+        },
+        {
+          label: 'Guides',
+          items: [
+            { label: 'Routing', slug: 'guides/routing' },
+            { label: 'Dependency injection', slug: 'guides/dependency-injection' },
+            { label: 'Argument decorators', slug: 'guides/arguments' },
+            { label: 'Validation', slug: 'guides/validation' },
+            { label: 'Streaming & real-time', slug: 'guides/streaming' },
+            { label: 'File uploads', slug: 'guides/uploads' },
+            { label: 'Transport security', slug: 'guides/security' },
+            { label: 'Plugins & observability', slug: 'guides/plugins' },
+            { label: 'Graph introspection', slug: 'guides/introspection' },
+            { label: 'Testing', slug: 'guides/testing' },
+            { label: 'Mesh (alpha)', slug: 'guides/mesh', badge: { text: 'alpha', variant: 'caution' } },
+          ],
+        },
+        {
+          label: 'Reference',
+          items: [
+            { label: 'Decorators', slug: 'reference/decorators' },
+            { label: 'createApp options', slug: 'reference/createapp' },
+          ],
+        },
+      ],
+    }),
+  ],
+});

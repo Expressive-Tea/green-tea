@@ -10,3 +10,7 @@ coverage/
 # Env
 .env
 .env.*
+
+# Astro (docs site)
+.astro/
+website/dist/
