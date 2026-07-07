@@ -217,11 +217,20 @@ export function createHttpServer(
     (res as any).writeHead = (status: number, arg2?: any, arg3?: any) => {
       // normalize (statusMessage?, headers?) overloads
       const hdrs = (typeof arg2 === 'string' ? arg3 : arg2) as Record<string, any> | undefined;
-      // injected LAST → CORS/security keys are authoritative (a handler cannot weaken them).
-      // Handler's non-injected headers (content-type, etc.) survive via ...hdrs.
-      const merged: Record<string, any> = { ...(hdrs ?? {}), ...injected };
-      // Vary is list-valued: only merge when injected carries one (CORS active); else leave handler's Vary alone.
-      if (injected['vary']) merged['vary'] = mergeVary(hdrs?.['vary'], injected['vary']);
+      // injected (security/CORS) is authoritative. Node's writeHead does NOT dedupe case-variant
+      // keys — both lines would ship and a browser honors the first — so drop any handler header
+      // whose name case-insensitively collides with an injected one before merging.
+      const merged: Record<string, any> = {};
+      const injectedLower = new Set(Object.keys(injected).map((k) => k.toLowerCase()));
+      let handlerVary: string | undefined;
+      if (hdrs) for (const k of Object.keys(hdrs)) {
+        const lk = k.toLowerCase();
+        if (lk === 'vary') { handlerVary = hdrs[k]; continue; }        // merged separately below
+        if (!injectedLower.has(lk)) merged[k] = hdrs[k];
+      }
+      Object.assign(merged, injected);
+      if (injected['vary']) merged['vary'] = mergeVary(handlerVary, injected['vary']);
+      else if (handlerVary !== undefined) merged['vary'] = handlerVary; // preserve handler Vary when no CORS
       return typeof arg2 === 'string' ? orig(status, arg2, merged) : orig(status, merged);
     };
     const matched = matchRoute(routes, req.method ?? 'GET', path);

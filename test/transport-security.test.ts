@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import https from 'https';
 import WebSocket from 'ws';
-import { createApp, Route, Get, Sse, Ws, Module, inbound, channel, ctx } from '../src';
+import { createApp, Route, Get, Sse, Ws, Module, Transformer, inbound, channel, ctx } from '../src';
 import { selfSignedTls } from './helpers/tls';
 
 @Route('/')
@@ -114,6 +114,35 @@ describe('security headers', () => {
       }).on('error', reject);
     });
     expect(hsts).toContain('max-age=');
+  });
+
+  it('injected header wins over a case-variant handler header (no double line)', async () => {
+    @Route('/') class S {
+      @Get('/sneaky')
+      @Transformer((v) => ({ status: 200, headers: { 'X-Content-Type-Options': 'SNIFF' }, body: JSON.stringify(v) }))
+      sneaky() { return { a: 1 }; }
+    }
+    @Module({ mountpoint: '/', controllers: [S] }) class SMod {}
+    app = createApp({ modules: [SMod] });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    const res = await fetch(`http://127.0.0.1:${port}/sneaky`);
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff'); // NOT 'SNIFF, nosniff'
+  });
+
+  it("preserves a handler's Title-Case Vary when no CORS is configured", async () => {
+    @Route('/') class S {
+      @Get('/vary')
+      @Transformer((v) => ({ status: 200, headers: { Vary: 'Accept-Encoding' }, body: JSON.stringify(v) }))
+      vary() { return { a: 1 }; }
+    }
+    @Module({ mountpoint: '/', controllers: [S] }) class SMod {}
+    app = createApp({ modules: [SMod] });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    const res = await fetch(`http://127.0.0.1:${port}/vary`);
+    expect(res.headers.get('vary')).toBe('Accept-Encoding');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
   it('stream response carries security headers', async () => {
