@@ -45,6 +45,7 @@ interface RoutePlan {
   needs: string[];
   run: (ctx: any) => unknown;
   transformer: typeof JsonTransformer;
+  duplicates?: 'array' | 'last';
 }
 
 export interface MeshConfig {
@@ -53,7 +54,7 @@ export interface MeshConfig {
   timeoutMs?: number;
 }
 
-export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits; devGraph?: boolean; overrides?: Record<string, unknown>; tls?: TlsOptions; trustProxy?: boolean; security?: boolean | SecurityOptions; cors?: CorsOptions }): App {
+export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits; devGraph?: boolean; overrides?: Record<string, unknown>; tls?: TlsOptions; trustProxy?: boolean; security?: boolean | SecurityOptions; cors?: CorsOptions; bodyDuplicates?: 'array' | 'last' }): App {
   const bus = new Bus();
   const container = new Container();
   let server: http.Server | undefined;
@@ -115,6 +116,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
           needs: getHandlerNeeds(argSpecs),
           run: (c: any) => inst[route.handlerName](...resolveArgs(argSpecs, c)),
           transformer: getTransformer(C, route.handlerName) ?? JsonTransformer,
+          duplicates: route.duplicates,
         });
       }
     }
@@ -319,7 +321,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
       ...routePlans
         .filter((plan) => plan.transport !== 'ws')   // buffer | sse | ndjson | negotiate
         .map((plan): RouteDef => ({
-          method: plan.method, pattern: plan.pattern, transport: plan.transport,
+          method: plan.method, pattern: plan.pattern, transport: plan.transport, bodyDuplicates: plan.duplicates,
           handler: async (req) => {
             const provided = await providedSeed(plan);
             return runPipeline({
@@ -362,7 +364,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
         },
       }));
 
-    server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, { limits: opts.limits, streams, tls: opts.tls, trustProxy: opts.trustProxy, security: opts.security ?? true, cors: opts.cors });
+    server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, { limits: opts.limits, streams, tls: opts.tls, trustProxy: opts.trustProxy, security: opts.security ?? true, cors: opts.cors, bodyDuplicates: opts.bodyDuplicates });
     server.on('close', () => { for (const l of meshLinks) { try { l.close(); } catch { /* */ } } });
     await new Promise<void>((resolve) => server!.listen(port, resolve));
     return server;
