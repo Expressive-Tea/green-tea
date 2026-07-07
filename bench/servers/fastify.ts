@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 
-const app = Fastify({ logger: false });
+const app = Fastify({ logger: false, keepAliveTimeout: 5000 });
 app.get('/hello', async () => ({ hello: 'world' }));
 app.get('/users/:id', async (req: any) => ({ id: req.params.id }));
 const hook = (n: number) => (req: any, _res: any, done: any) => { req[`s${n}`] = n; done(); };
@@ -14,6 +14,5 @@ app.post('/validate', {
 });
 app.listen({ port: 0 }, (err, addr) => {
   if (err) { console.error(err); process.exit(1); }
-  (app.server as any).keepAliveTimeout = 5000;
   console.log(`READY ${Number(new URL(addr).port)}`);
 });

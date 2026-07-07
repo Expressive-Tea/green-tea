@@ -6,7 +6,6 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && url === '/hello') return send({ hello: 'world' });
   if (req.method === 'GET' && url.startsWith('/users/')) return send({ id: url.slice('/users/'.length) });
   if (req.method === 'GET' && url === '/pipeline') { const s: any = {}; [1, 2, 3].forEach((n) => (s[`s${n}`] = n)); return send({ hello: 'world', s3: s.s3 }); }
-  if (req.method === 'GET' && url === '/steps/0') return send({ hello: 'world' });
   if (req.method === 'POST' && url === '/validate') {
     let raw = ''; req.on('data', (c) => (raw += c)); req.on('end', () => {
       try { const b = JSON.parse(raw); if (typeof b.email === 'string' && b.email.includes('@')) return send({ email: b.email }); return send({ error: 'invalid' }, 422); }
