@@ -45,6 +45,7 @@ interface RoutePlan {
   needs: string[];
   run: (ctx: any) => unknown;
   transformer: typeof JsonTransformer;
+  duplicates?: 'array' | 'last';
 }
 
 export interface MeshConfig {
@@ -115,6 +116,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
           needs: getHandlerNeeds(argSpecs),
           run: (c: any) => inst[route.handlerName](...resolveArgs(argSpecs, c)),
           transformer: getTransformer(C, route.handlerName) ?? JsonTransformer,
+          duplicates: route.duplicates,
         });
       }
     }
@@ -319,7 +321,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
       ...routePlans
         .filter((plan) => plan.transport !== 'ws')   // buffer | sse | ndjson | negotiate
         .map((plan): RouteDef => ({
-          method: plan.method, pattern: plan.pattern, transport: plan.transport,
+          method: plan.method, pattern: plan.pattern, transport: plan.transport, bodyDuplicates: plan.duplicates,
           handler: async (req) => {
             const provided = await providedSeed(plan);
             return runPipeline({

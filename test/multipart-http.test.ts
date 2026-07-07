@@ -72,4 +72,19 @@ describe('bodyDuplicates', () => {
       method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'x=1&x=2' });
     expect(await r.json()).toEqual({ x: '2' });
   });
+
+  it('per-endpoint override beats app default', async () => {
+    @Route('/') class C {
+      @Post('/a', { duplicates: 'last' }) a(@body() b: any) { return b; }
+      @Post('/b', { duplicates: 'array' }) b2(@body() b: any) { return b; }
+    }
+    @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
+    app = createApp({ modules: [CMod], bodyDuplicates: 'last' });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    const post = (p: string) => fetch(`http://127.0.0.1:${port}${p}`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'x=1&x=2' }).then((r) => r.json());
+    expect(await post('/a')).toEqual({ x: '2' });
+    expect(await post('/b')).toEqual({ x: ['1', '2'] });
+  });
 });

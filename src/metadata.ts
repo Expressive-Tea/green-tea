@@ -7,7 +7,7 @@ export interface ProviderMeta { provides: string; needs: string[]; optional: boo
 export interface StepMeta { provides: string; needs: string[]; optional: boolean; export: boolean }
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 export type Transport = 'buffer' | 'sse' | 'ndjson' | 'negotiate' | 'ws';
-export interface RouteMeta { method: HttpMethod; path: string; handlerName: string; transport: Transport; export: boolean }
+export interface RouteMeta { method: HttpMethod; path: string; handlerName: string; transport: Transport; export: boolean; duplicates?: 'array' | 'last' }
 export interface ModuleOptions {
   mountpoint: string; providers?: Ctor[]; steps?: Ctor[]; controllers?: Ctor[];
 }
@@ -40,11 +40,11 @@ export function Route(prefix: string): ClassDecorator {
 }
 
 function routeDecorator(method: HttpMethod, transport: Transport) {
-  return (path: string, opts?: { export?: boolean }): MethodDecorator =>
+  return (path: string, opts?: { export?: boolean; duplicates?: 'array' | 'last' }): MethodDecorator =>
     (target, propertyKey) => {
       const ctor = target.constructor;
       const routes = (Reflect.getMetadata(K.routes, ctor) as RouteMeta[]) ?? [];
-      routes.push({ method, path, handlerName: String(propertyKey), transport, export: opts?.export ?? false });
+      routes.push({ method, path, handlerName: String(propertyKey), transport, export: opts?.export ?? false, duplicates: opts?.duplicates });
       Reflect.defineMetadata(K.routes, routes, ctor);
     };
 }

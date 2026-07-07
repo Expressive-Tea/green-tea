@@ -31,7 +31,7 @@ export type RouteHandler = (req: {
   ip: string;
 }) => Promise<PipelineResult>;
 
-export interface RouteDef { method: string; pattern: string; transport: Transport; handler: RouteHandler }
+export interface RouteDef { method: string; pattern: string; transport: Transport; handler: RouteHandler; bodyDuplicates?: 'array' | 'last' }
 export interface MatchedRoute { params: Record<string, string>; def: RouteDef }
 
 export interface WsOpenCtx {
@@ -258,7 +258,7 @@ export function createHttpServer(
     }
     let body: unknown;
     const ct = String(req.headers['content-type'] ?? '');
-    const duplicates = opts?.bodyDuplicates ?? 'last';
+    const duplicates = matched.def.bodyDuplicates ?? opts?.bodyDuplicates ?? 'last';
     if (buf !== undefined && ct.includes('application/json')) {
       try { body = JSON.parse(buf.toString('utf8')); }
       catch {
