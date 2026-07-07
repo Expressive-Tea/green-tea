@@ -7,8 +7,12 @@ green-tea uses calendar versioning: `YY.MM.PATCH`.
 
 ## [Unreleased]
 
-Beta on the road to a release candidate. No published release yet; the
-version below is a placeholder until the API freeze.
+_Nothing yet._
+
+## [26.7.0-beta.0] - 2026-07-07
+
+First public beta, published under the npm `beta` dist-tag. The API may still
+change before the stable release.
 
 ### Added
 - **Transport security** — native TLS termination (https/wss), CORS with a
@@ -19,10 +23,18 @@ version below is a placeholder until the API freeze.
   [Standard Schema](https://standardschema.dev) (zod / valibot / arktype); the
   parsed value is passed to the handler, invalid input returns `422` with
   per-field issues. Core stays dependency-free.
-- **Body parsing** — JSON, `application/x-www-form-urlencoded`, and
-  `multipart/form-data` file uploads (`@body()` → `{ fields, files }`), with a
-  configurable repeated-field policy (`bodyDuplicates`, per-route overridable)
-  and a `maxParts` DoS bound.
+- **Body parsing** — JSON and `application/x-www-form-urlencoded` out of the
+  box; `multipart/form-data` file uploads (`@body()` → `{ fields, files }`) via
+  the optional [`busboy`](https://github.com/mscdex/busboy) peer dependency
+  (a multipart request without it returns `501`), with a configurable
+  repeated-field policy (`bodyDuplicates`, per-route overridable) and a
+  `maxParts` DoS bound.
+- **Routing** — `:name*` catch-all params, specificity-based precedence
+  (static ▸ `:param` ▸ catch-all, independent of registration order), and
+  `405 Method Not Allowed` with an `Allow` header when a path exists under a
+  different method.
+- **Argument decorators** — `@needs/@ctx/@param/@query/@body/@headers/@inbound/
+  @abort`, plus `@header('name')` as a singular alias of `@headers`.
 - **Streams** — SSE / ndjson / WebSocket duplex over a multicast
   `AsyncIterable` channel, with backpressure and cleanup; `rooms` broadcast hubs.
 - **Graph introspection** — `app.explain(route)`, `app.graph()`,
@@ -30,11 +42,19 @@ version below is a placeholder until the API freeze.
 - **Operational hardening** — request body/size limits (`413`), request and
   keep-alive timeouts, and `app.close()` graceful shutdown (drains in-flight
   requests, closes live streams and mesh links).
+- **Visible degradation** — optional providers that fail at boot are
+  summarized on `listen()` and queryable via `app.degraded()`, instead of a
+  silent warning.
 - **Testing ergonomics** — `createApp({ overrides })` swaps any provider/step
   by token in one line.
-- **Mesh (walking skeleton)** — `teapot`/`teacup` distributed dependency
-  injection over a secret-gated WebSocket control channel. Experimental.
+- **Mesh (alpha, walking skeleton)** — `teapot`/`teacup` distributed dependency
+  injection over a secret-gated WebSocket control channel. Gated behind
+  `experimental: true`; `createApp` throws if `mesh` is configured without it.
+- **Packaging** — dual **ESM + CommonJS** builds behind an `exports` map, with
+  matching type declarations; one runtime dependency (`reflect-metadata`),
+  `ws` and `busboy` optional peers.
 - **Benchmarks** — reproducible `npm run bench` harness vs Express 5, Fastify 5,
   NestJS, and raw `http`; results in [BENCHMARKS.md](./BENCHMARKS.md).
 
-[Unreleased]: https://git.svc.zoit.services/Green-Tea/core/commits/develop
+[Unreleased]: https://git.svc.zoit.services/Green-Tea/core/compare/26.7.0-beta.0...develop
+[26.7.0-beta.0]: https://git.svc.zoit.services/Green-Tea/core/releases/tag/26.7.0-beta.0

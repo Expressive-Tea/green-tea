@@ -238,9 +238,9 @@ npm run bench      # regenerate BENCHMARKS.md
 
 ## Versioning
 
-green-tea uses **calendar versioning**: `YY.MM.PATCH` (e.g. `26.07.0` = the first release cut in July 2026, patch 0). A version tells you *when* it shipped, not how many breaking changes preceded it — those are always called out in the [CHANGELOG](./CHANGELOG.md).
+green-tea uses **calendar versioning**: `YY.M.PATCH` (e.g. `26.7.0` = the first release cut in July 2026, patch 0). The month is **not** zero-padded — npm treats versions as semver, which forbids leading zeros. A version tells you *when* it shipped, not how many breaking changes preceded it — those are always called out in the [CHANGELOG](./CHANGELOG.md).
 
-**While in beta**, releases carry a `-beta.N` pre-release suffix on the calendar version (e.g. `26.07.0-beta.0`) and publish under the npm `beta` dist-tag — so a plain `npm install @green-tea/core` won't pick one up until the first stable calendar release. The API can still change between betas.
+**While in beta**, releases carry a `-beta.N` pre-release suffix on the calendar version (e.g. `26.7.0-beta.0`) and publish under the npm `beta` dist-tag — so a plain `npm install @green-tea/core` won't pick one up until the first stable calendar release. The API can still change between betas.
 
 ## License
 
