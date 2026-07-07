@@ -1,28 +1,55 @@
 # 🍵 green-tea
 
-> A declarative, type-safe HTTP framework for Node. The request pipeline is an explicit **dependency graph**, not a mutable middleware chain.
+> A calm, type-safe HTTP framework for Node. Your API is an explicit **dependency graph** you can see, slice, and trust — not a mutable bag threaded through positional middleware.
 
-`@green-tea/core` — **alpha**. Zero runtime dependencies beyond `reflect-metadata` (`ws` is an optional peer dep, only for WebSocket/mesh on Node).
+`@green-tea/core` — **beta**, RC-track. One runtime dependency: `reflect-metadata` (`ws` is an optional peer, only for WebSocket/mesh).
 
-## Documentation
+```bash
+npm install @green-tea/core reflect-metadata
+```
 
-- **[Quickstart](./docs/quickstart.md)** — install + concrete examples (routes/DI, `flow`, SSE, WebSocket, mesh, plugins).
-- **[Architecture](./docs/architecture.md)** — the mental map (layers, request lifecycle, mesh) as diagrams.
+---
 
-## Why
+## The idea
 
-Express/Fastify middleware is positional, untyped, and globally mutable: order depends on the line you wrote `app.use()` on, `req.user` may or may not exist, and a plugin can quietly delete your body parser. green-tea replaces that model:
+Most frameworks make you keep the whole request in your head: which middleware ran, whether `req.user` exists by now, what order things fire in, which plugin quietly deleted your body parser. That mental bookkeeping is where bugs live.
 
-- **Declarative, not positional.** You declare what each step *needs* and *produces*. The graph order is computed at boot via topological sort — there is no "put this before that".
-- **The type is the contract.** What a handler reads from the context *is* its dependency declaration. The typed `flow` core makes a handler that reads `ctx.user` **fail to compile** if no step produces `user`.
-- **Structural plugin isolation.** Plugins get only `bus.on(...)` (observe) and `scope.add(...)` (extend their own scope). There is no API to reorder or delete another scope's steps.
-- **Response = return value.** No `Response.json()`. Return data; a `@Transformer` serializes it in a leave phase. Cut a request by `throw`ing a typed signal.
-- **Fail-fast boot.** A required provider that can't initialize (e.g. the DB) stops the server from serving — no 500s because a resource wasn't ready.
+green-tea puts the request on the page instead. You declare what each step **needs** and **produces**; the framework computes the order, type-checks the wiring, and can print the whole thing. A route runs only the steps its handler actually depends on. Boot fails loudly when a dependency is missing, so you never serve `undefined`.
+
+Less to hold in your head. That's the tea.
+
+## What's different — and why it matters
+
+- **The pipeline is a graph, not a chain.** You never write "put this before that." You declare `needs`/`provides` and green-tea topologically sorts it. *Why it matters:* no ordering bugs, no positional guesswork, and each route runs only its slice of the graph (an auth step doesn't run on public routes).
+- **The type is the contract.** What a handler reads from the context *is* its dependency list. In the typed `flow` core, a handler that reads `ctx.user` **fails to compile** if no step produces `user`. *Why it matters:* whole classes of "it was undefined in prod" disappear at compile time.
+- **You can see the request before it runs.** `app.explain('/users/:id')` prints the ordered chain with origins; `app.graph()` / `GET /__graph__` render it as a live diagram. *Why it matters:* onboarding, debugging, and audits are reading, not archaeology. (NestJS puts this behind a paid Devtools plan.)
+- **One primitive for real-time.** Return an `AsyncIterable` and the transport streams it — SSE, ndjson, or a WebSocket duplex — with backpressure and cleanup handled. *Why it matters:* no separate gateway, adapter, or library to bolt on.
+- **A remote dependency looks like a local one.** `@needs('billing')` resolves the same whether `billing` lives in this process or on another node (mesh, experimental). *Why it matters:* no gRPC layer or message-pattern DSL to learn — there's the graph, and some nodes happen to live elsewhere.
+- **Plugins can't sabotage you.** A plugin gets `bus.on(...)` (observe) and `scope.add(...)` (extend its own scope). There is no API to reorder or delete another scope's steps. *Why it matters:* installing a plugin can't break your body parser.
+
+## Batteries included — still one dependency
+
+Beta shipped the parts a real API needs, without growing the runtime dependency tree past `reflect-metadata`:
+
+- **TLS → https/wss** natively, plus proxy-aware `trustProxy` (`X-Forwarded-*` → `ctx.protocol`/`ctx.ip`).
+- **Secure by default.** `nosniff`, `X-Frame-Options`, `Referrer-Policy`, HSTS-when-secure — on every response, opt-out with one flag.
+- **CORS** with a guarded preflight and the credentials-never-`*` rule enforced for you.
+- **Validation via [Standard Schema](https://standardschema.dev).** `@body(schema)` accepts zod, valibot, or arktype — you bring the validator, the core stays zero-dep. Invalid input → `422` with per-field issues; the parsed value reaches your handler typed.
+- **Real body parsing.** JSON, urlencoded, and `multipart/form-data` file uploads (`@body()` → `{ fields, files }`), size-capped (`413`) against DoS.
+- **Graceful shutdown.** `app.close()` drains in-flight requests, closes live streams and mesh links.
+- **Testable by construction.** `createApp({ overrides: { db: fakeDb } })` swaps any node in one line.
+
+## Benchmarks
+
+We built a reproducible [autocannon harness](./BENCHMARKS.md) comparing green-tea to Express 5, Fastify 5, NestJS (on both Express and Fastify), and raw Node `http` — and we wrote it to be **hard on ourselves**, not flattering.
+
+On that harness, **green-tea handled more requests per second than every other framework in 3 of 4 scenarios** (JSON response, routing, and body-parsing-plus-validation), behind only raw `http` with no framework at all. In the fourth (a multi-step pipeline) it lands even with Fastify.
+
+Read the honest caveats in [BENCHMARKS.md](./BENCHMARKS.md): the numbers are single-box + loopback (absolute throughput is overstated and differences compressed — trust the *ratios*), the cross-framework table runs green-tea with `security:false` for header parity, and the real cost of secure-by-default is measured separately. Regenerate any time with `npm run bench`.
 
 ## How it compares
 
-Every framework here can serve `/users/:id`. The difference is what happens when the app
-grows: more dependencies, real-time, and more than one machine.
+Every framework here can serve `/users/:id`. The difference shows up as the app grows: more dependencies, real-time, and more than one machine.
 
 | | Express | Fastify | NestJS | expressive-tea | **green-tea** |
 |---|---|---|---|---|---|
@@ -30,7 +57,7 @@ grows: more dependencies, real-time, and more than one machine.
 | **Order is decided by** | the line you wrote it on | hook phase + registration order | module/provider wiring | boot-stage order | **what each step *needs/produces*** |
 | **`req.user` exists?** | hope so | hope so | if the guard ran | if the middleware ran | **boot fails if nothing provides it** |
 | **Type safety** | none | schemas (runtime) | decorator types (runtime DI) | runtime | **compile-time in `flow`** + boot-validated decorators |
-| **Response** | `res.send()` (mutate) | `reply.send()` | return value | return value | **return value → `@Transformer`** |
+| **See the pipeline** | read the code | read the code | paid Devtools | `inspect` | **`explain` / `graph` / `/__graph__` — free** |
 | **Real-time** | bolt on `ws`/`sse` libs | plugins | separate Gateway + adapter | separate engine | **return an `AsyncIterable`** — same primitive |
 | **Cross-service calls** | HTTP client / gRPC by hand | HTTP client / gRPC | Microservices transport + message patterns | — | **`@needs('x')` resolves on another node** |
 | **Plugin can break your pipeline?** | yes (deletes your body parser) | encapsulated, but hooks are global | interceptor order matters | yes | **no** — plugins only `bus.on` + `scope.add` |
@@ -38,31 +65,10 @@ grows: more dependencies, real-time, and more than one machine.
 
 ### Read it as a story
 
-- **Express / Fastify** — fast and battle-tested, but the request is a *mutable bag* threaded
-  through positional middleware. Order is implicit, `req.x` is a leap of faith, and a careless
-  plugin can delete another's work. You wire types and DI yourself.
-- **NestJS** — brings DI, decorators, and structure, but the DI is *runtime token resolution*,
-  it's a large opinionated dependency tree, and every new capability (WebSockets, gRPC,
-  microservices) is a **separate subsystem** with its own abstraction (Gateways, transports,
-  message patterns) to learn and glue.
-- **expressive-tea** — the sibling this project grew from: decorators + InversifyJS DI + boot
-  stages on top of Express. green-tea keeps the ideas, drops Express and Inversify, and makes
-  the graph — not the middleware chain — the core.
-- **green-tea** — one model answers three questions other stacks answer with three subsystems:
-  - *"what does this handler depend on?"* → the graph (boot-validated, `flow` checks it at compile time)
-  - *"how do I push data over time?"* → return an `AsyncIterable` (SSE / WebSocket, one primitive)
-  - *"how do I call another service?"* → `@needs` a token that lives on another node (mesh)
-
-  A remote dependency looks **identical** to a local one. There is no gRPC layer, no
-  message-pattern DSL, no separate WebSocket gateway — there is the graph, and some of its
-  nodes happen to live on another machine.
-
-### Honest scope
-
-green-tea is **alpha**. Express/Fastify have a decade of ecosystem; NestJS has enterprise
-tooling and a huge plugin catalog. Mesh discovery, load-balancing, and failover are not built
-yet (the [walking skeleton](./docs/quickstart.md#5-mesh--distributed-dependency-injection) is).
-Pick green-tea for the model, not the ecosystem — *yet*.
+- **Express / Fastify** — fast and battle-tested, but the request is a *mutable bag* threaded through positional middleware. Order is implicit, `req.x` is a leap of faith, and a careless plugin can delete another's work. You wire types and DI yourself.
+- **NestJS** — brings DI, decorators, and structure, but the DI is *runtime token resolution*, it ships a large opinionated dependency tree, and every new capability (WebSockets, gRPC, microservices) is a **separate subsystem** with its own abstraction to learn and glue.
+- **expressive-tea** — the sibling this project grew from: decorators + InversifyJS + boot stages on top of Express. green-tea keeps the ideas, drops Express and Inversify, and makes the graph — not the middleware chain — the core.
+- **green-tea** — one model answers three questions other stacks answer with three subsystems: *what does this handler depend on?* → the graph; *how do I push data over time?* → an `AsyncIterable`; *how do I call another service?* → `@needs` a token that lives on another node.
 
 ## Quick look
 
@@ -102,7 +108,7 @@ class UserController {
 class ApiModule {}
 
 const app = createApp({ modules: [ApiModule] });
-console.log(app.inspect('/api/users/:id'));  // auditable: ordered chain with origins
+console.log(app.explain('/api/users/:id'));  // auditable: the ordered chain, with origins
 app.listen(3000);
 ```
 
@@ -119,45 +125,47 @@ The handler signature declares exactly what it wants — in any order, nothing m
 |---|---|---|
 | `@needs('user')` | a graph-produced value (boot-validated) | `('key')` |
 | `@ctx()` | the whole accumulated context | `()` |
-| `@param(...)` | route params | `()` · `('id')` · `(['a','b'])` |
-| `@query(...)` | parsed query string | `()` · `('q')` · `(['a','b'])` |
-| `@body(...)` | parsed JSON body | `()` · `('field')` · `(['a','b'])` |
-| `@headers(...)` | request headers | `()` · `('authorization')` · `(['a','b'])` |
+| `@param(...)` | route params | `()` · `('id')` · `('id', schema)` |
+| `@query(...)` | parsed query string | `()` · `('q')` · `(['a','b'])` · `(schema)` |
+| `@body(...)` | parsed body (JSON / urlencoded / multipart) | `()` · `('field')` · `(schema)` |
+| `@headers(...)` | request headers | `()` · `('authorization')` · `(schema)` |
 
-`@needs` keys are validated at boot: if nothing provides the key, `createApp` throws with a clear error instead of serving `undefined`.
+`@needs` keys are validated at boot: nothing provides the key → `createApp` throws with a clear error instead of serving `undefined`. Pass a Standard Schema (`@body(User)`) and the value is validated, coerced, and typed before your handler sees it.
 
 ## Two layers
 
 1. **Typed functional core (`flow`)** — `flow().step(...).step(...).handle(...)`; step outputs accumulate into the context type (`Acc & Out`). This is where the compile-time guarantee lives.
 2. **Declarative decorator layer** — `@Provider/@Step/@Module/@Route/@Get/@Transformer` + argument decorators. Emits runtime metadata, builds and topologically sorts the graph, validates at boot.
 
-## Benchmarks
+## Honest scope
 
-Reproducible autocannon comparison vs Express 5, Fastify 5, and raw Node `http`
-lives in [BENCHMARKS.md](./BENCHMARKS.md) (regenerate with `npm run bench`).
+green-tea is **beta**, on the road to a release candidate. Express and Fastify have a decade of ecosystem; NestJS has enterprise tooling and a huge plugin catalog. green-tea's mesh is a walking skeleton — distributed DI works, but discovery, load-balancing, and failover are not built yet. Pick green-tea for the model and the ergonomics, not the ecosystem — *yet*.
 
-Numbers are single-box + loopback — absolute req/s is overstated and
-inter-framework differences are compressed; treat cross-framework *ratios* as
-the honest signal, not the raw throughput. The cross-framework table runs
-green-tea with `security:false` for header parity; the real cost of green-tea's
-secure-by-default headers/validation is measured separately in that file.
+## Docs & development
 
-## Development
+- **[Quickstart](./docs/quickstart.md)** — install + concrete examples (routes/DI, `flow`, validation, uploads, SSE, WebSocket, mesh, plugins).
+- **[Architecture](./docs/architecture.md)** — the mental map (layers, request lifecycle, mesh) as diagrams.
 
 ```bash
 npm install
-npm test          # vitest
-npm run typecheck # tsc --noEmit (includes the compile-time-guarantee type test)
-npm run build     # emit dist/
+npm test           # vitest
+npm run typecheck  # tsc --noEmit (includes the compile-time-guarantee type test)
+npm run build      # emit dist/
+npm run bench      # regenerate BENCHMARKS.md
 ```
 
 ## Roadmap
 
-- ✅ **streams** — SSE / ndjson / WebSocket duplex over a multicast `AsyncIterable` channel. Return an `AsyncIterable` and the transport streams it (backpressure + cleanup). See the [quickstart](./docs/quickstart.md#3-streaming--sse).
-- ✅ **mesh (walking skeleton)** — `teapot`/`teacup`: a consumer resolves a scope/step or proxies a route living on another node, over a secret-gated WS control channel, via one id-correlated RPC. Remote tokens become synthetic graph nodes. Model: a BEAM/OTP-style cluster, *not* microservices. See the [quickstart](./docs/quickstart.md#5-mesh--distributed-dependency-injection).
-- **mesh sub-specs (next)** — discovery/auto-registration, 2-way load-balancing, failover/health.
-- **runtime adapters** — factor the transport behind an adapter so the core stays runtime-agnostic; Node / Deno / Bun / edge become thin adapters over web-standard `Request`/`Response`. Only `src/http.ts` is runtime-specific today.
-- official plugins (cors, body parsers, auth) — structurally unable to sabotage the global pipeline.
+- ✅ **transport security** — native TLS/wss, CORS, secure-by-default headers, `trustProxy`.
+- ✅ **request I/O** — JSON / urlencoded / multipart uploads, size limits, graceful shutdown, Standard Schema validation.
+- ✅ **streams** — SSE / ndjson / WebSocket duplex over a multicast `AsyncIterable` channel, with backpressure and cleanup.
+- ✅ **graph introspection** — `explain` / `graph` / `toMermaid` / `GET /__graph__`.
+- ✅ **mesh (walking skeleton)** — `teapot`/`teacup` distributed DI over a secret-gated WS control channel. A BEAM/OTP-style cluster, *not* microservices.
+- **next** — API freeze + first published release, mesh sub-specs (discovery, load-balancing, failover), runtime adapters (Deno / Bun / edge over web-standard `Request`/`Response`), official plugins.
+
+## Versioning
+
+green-tea uses **calendar versioning**: `YY.MM.PATCH` (e.g. `26.07.0` = the first release cut in July 2026, patch 0). A version tells you *when* it shipped; breaking changes are called out in the [CHANGELOG](./CHANGELOG.md).
 
 ## License
 
