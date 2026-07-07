@@ -120,10 +120,12 @@ async function main(): Promise<void> {
           const runs = await measure(port, sr.path, 'GET');
           stepScaling.push({ path: sr.path, steps: sr.steps, reqSec: aggregate(runs.map((r) => r.reqSec)).median });
         }
-        secureCost.push({
-          label: 'security:false (parity)',
-          reqSec: aggregate((await measure(port, '/hello', 'GET')).map((r) => r.reqSec)).median,
-        });
+        // Reuse the hello scenario's already-computed median so the parity row exactly matches
+        // the green-tea hello-table number (rather than re-measuring the same server/config).
+        const helloMedian = scenarioBlocks
+          .find((b) => b.name === 'hello')!
+          .rows.find((r) => r.framework === 'green-tea')!.reqSec.median;
+        secureCost.push({ label: 'security:false (parity)', reqSec: helloMedian });
       }
     } finally {
       await kill();
