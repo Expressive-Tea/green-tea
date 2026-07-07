@@ -10,12 +10,14 @@ import type { Transport } from './metadata';
 import type { Bus } from './bus';
 import { buildSecurityHeaders, mergeVary, resolveCors, corsPreflightHeaders } from './security';
 import type { TlsOptions, SecurityOptions, CorsOptions } from './security';
+import { parseMultipart, extractBoundary } from './multipart';
 
 export interface RequestLimits {
   maxBodyBytes?: number;       // default 1_000_000
   requestTimeoutMs?: number;   // default 30_000
   headersTimeoutMs?: number;   // default 10_000
   keepAliveTimeoutMs?: number; // default 5_000
+  maxParts?: number;           // default 1000
 }
 export interface HttpOptions { limits?: RequestLimits; streams?: Set<() => void>; tls?: TlsOptions; trustProxy?: boolean; security?: boolean | SecurityOptions; cors?: CorsOptions }
 
@@ -72,7 +74,7 @@ export function parseQuery(url: string): Record<string, string> {
   return out;
 }
 
-async function readBody(req: http.IncomingMessage, maxBodyBytes: number): Promise<string | undefined> {
+async function readBody(req: http.IncomingMessage, maxBodyBytes: number): Promise<Buffer | undefined> {
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of req) {
@@ -80,9 +82,7 @@ async function readBody(req: http.IncomingMessage, maxBodyBytes: number): Promis
     if (total > maxBodyBytes) throw new HttpError(413, 'Payload Too Large');
     chunks.push(chunk as Buffer);
   }
-  if (chunks.length === 0) return undefined;
-  const raw = Buffer.concat(chunks).toString('utf8');
-  return raw === '' ? undefined : raw;
+  return chunks.length === 0 ? undefined : Buffer.concat(chunks);
 }
 
 function firstToken(v: string | string[] | undefined): string | undefined {
@@ -247,26 +247,42 @@ export function createHttpServer(
       res.end(JSON.stringify({ error: 'Not Found' }));
       return;
     }
-    let raw: string | undefined;
+    let buf: Buffer | undefined;
     try {
-      raw = await readBody(req, maxBody);
+      buf = await readBody(req, maxBody);
     } catch (error) {
       const r = errorToResponse(error);
       res.writeHead(r.status, { ...r.headers, connection: 'close' });
       res.end(r.body);
       return;
     }
-    let body: unknown = raw;
+    let body: unknown;
     const ct = String(req.headers['content-type'] ?? '');
-    if (raw !== undefined && ct.includes('application/json')) {
-      try { body = JSON.parse(raw); }
+    if (buf !== undefined && ct.includes('application/json')) {
+      try { body = JSON.parse(buf.toString('utf8')); }
       catch {
         res.writeHead(400, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid JSON body' }));
         return;
       }
-    } else if (raw !== undefined && ct.includes('application/x-www-form-urlencoded')) {
-      body = Object.fromEntries(new URLSearchParams(raw));
+    } else if (buf !== undefined && ct.includes('application/x-www-form-urlencoded')) {
+      body = Object.fromEntries(new URLSearchParams(buf.toString('utf8'))); // duplicates policy added in Task 3
+    } else if (buf !== undefined && ct.includes('multipart/form-data')) {
+      const boundary = extractBoundary(ct);
+      if (!boundary) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid multipart body' }));
+        return;
+      }
+      try { body = parseMultipart(buf, boundary, { maxParts: opts?.limits?.maxParts ?? 1000, duplicates: 'last' }); }
+      catch {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid multipart body' }));
+        return;
+      }
+    } else {
+      const s = buf?.toString('utf8');
+      body = s === '' ? undefined : s;
     }
     let result: PipelineResult;
     try {
