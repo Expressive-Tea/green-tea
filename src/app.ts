@@ -14,6 +14,7 @@ import {
 import { getArgs, getHandlerNeeds, resolveArgs } from './params';
 import { connectLink, type Link } from './mesh/link';
 import { Rooms } from './rooms';
+import type { TlsOptions, SecurityOptions, CorsOptions } from './security';
 import { buildRemote } from './mesh/teacup';
 import { buildManifest, createMeshControl } from './mesh/teapot';
 import type { MeshControl } from './http';
@@ -52,7 +53,7 @@ export interface MeshConfig {
   timeoutMs?: number;
 }
 
-export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits; devGraph?: boolean; overrides?: Record<string, unknown> }): App {
+export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits; devGraph?: boolean; overrides?: Record<string, unknown>; tls?: TlsOptions; trustProxy?: boolean; security?: boolean | SecurityOptions; cors?: CorsOptions }): App {
   const bus = new Bus();
   const container = new Container();
   let server: http.Server | undefined;
@@ -323,7 +324,8 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
             const provided = await providedSeed(plan);
             return runPipeline({
               steps: planSteps(plan), handler: plan.run, transformer: plan.transformer, bus,
-              seed: { ...provided, req, params: req.params, query: req.query, body: req.body, headers: req.headers },
+              seed: { ...provided, req, params: req.params, query: req.query, body: req.body, headers: req.headers,
+                      protocol: req.protocol, ip: req.ip },
             });
           },
         })),
@@ -349,8 +351,10 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
         pattern: plan.pattern,
         open: async ({ params, inbound, abort, req }) => {
           const provided = await providedSeed(plan);
+          // ws upgrades come in on the raw Node req; trustProxy derivation for ws is out of scope here
           let ctx: any = { ...provided, req, params, query: parseQuery(req.url ?? ''), body: undefined,
-                           headers: req.headers, inbound, abort };
+                           headers: req.headers, inbound, abort,
+                           protocol: (req.socket as any).encrypted ? 'https' : 'http', ip: req.socket.remoteAddress ?? '' };
           for (const s of planSteps(plan)) { ctx = { ...ctx, ...(await s.run(ctx)) }; }
           const out = plan.run(ctx);
           if (!isAsyncIterable(out)) throw new Error(`@Ws handler '${plan.handlerName}' must return an AsyncIterable`);
@@ -358,7 +362,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
         },
       }));
 
-    server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, { limits: opts.limits, streams });
+    server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, { limits: opts.limits, streams, tls: opts.tls, trustProxy: opts.trustProxy, security: opts.security ?? true, cors: opts.cors });
     server.on('close', () => { for (const l of meshLinks) { try { l.close(); } catch { /* */ } } });
     await new Promise<void>((resolve) => server!.listen(port, resolve));
     return server;

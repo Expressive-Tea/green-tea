@@ -1,4 +1,5 @@
 import http from 'http';
+import https from 'https';
 import { once } from 'events';
 import { channel } from './channel';
 import { errorToResponse } from './transformers';
@@ -7,6 +8,8 @@ import { sseEncoder, ndjsonEncoder, StreamEncoder } from './encoders';
 import { isStreamResult, type PipelineResult, type ResponseShape } from './pipeline';
 import type { Transport } from './metadata';
 import type { Bus } from './bus';
+import { buildSecurityHeaders, mergeVary, resolveCors, corsPreflightHeaders } from './security';
+import type { TlsOptions, SecurityOptions, CorsOptions } from './security';
 
 export interface RequestLimits {
   maxBodyBytes?: number;       // default 1_000_000
@@ -14,7 +17,7 @@ export interface RequestLimits {
   headersTimeoutMs?: number;   // default 10_000
   keepAliveTimeoutMs?: number; // default 5_000
 }
-export interface HttpOptions { limits?: RequestLimits; streams?: Set<() => void> }
+export interface HttpOptions { limits?: RequestLimits; streams?: Set<() => void>; tls?: TlsOptions; trustProxy?: boolean; security?: boolean | SecurityOptions; cors?: CorsOptions }
 
 export type RouteHandler = (req: {
   method: string; url: string;
@@ -22,6 +25,8 @@ export type RouteHandler = (req: {
   params: Record<string, string>;
   query: Record<string, string>;
   body: unknown;
+  protocol: 'http' | 'https';
+  ip: string;
 }) => Promise<PipelineResult>;
 
 export interface RouteDef { method: string; pattern: string; transport: Transport; handler: RouteHandler }
@@ -78,6 +83,19 @@ async function readBody(req: http.IncomingMessage, maxBodyBytes: number): Promis
   if (chunks.length === 0) return undefined;
   const raw = Buffer.concat(chunks).toString('utf8');
   return raw === '' ? undefined : raw;
+}
+
+function firstToken(v: string | string[] | undefined): string | undefined {
+  const s = Array.isArray(v) ? v[0] : v;
+  return s?.split(',')[0].trim();
+}
+function deriveSecure(req: http.IncomingMessage, trustProxy: boolean): boolean {
+  if (trustProxy) { const p = firstToken(req.headers['x-forwarded-proto']); if (p) return p === 'https'; }
+  return (req.socket as any).encrypted === true;
+}
+function deriveIp(req: http.IncomingMessage, trustProxy: boolean): string {
+  if (trustProxy) { const f = firstToken(req.headers['x-forwarded-for']); if (f) return f; }
+  return req.socket.remoteAddress ?? '';
 }
 
 function pickEncoder(transport: Transport, accept: string): StreamEncoder {
@@ -186,9 +204,43 @@ export function createHttpServer(
   routes: RouteDef[], wsRoutes: WsRouteDef[] = [], bus?: Bus, meshControl?: MeshControl, opts?: HttpOptions,
 ): http.Server {
   const maxBody = opts?.limits?.maxBodyBytes ?? 1_000_000;
-  const server = http.createServer(async (req, res) => {
+  const trustProxy = opts?.trustProxy ?? false;
+  const handler = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     const url = req.url ?? '/';
     const path = url.split('?')[0];
+    // Install the security-header patch BEFORE any routing/response so every path
+    // (200, 404, error, stream) writes headers through the same patched writeHead.
+    const secure = deriveSecure(req, trustProxy);
+    const injected: Record<string, string> = { ...buildSecurityHeaders(opts?.security ?? true, secure) };
+    const orig = res.writeHead.bind(res);
+    (res as any).writeHead = (status: number, arg2?: any, arg3?: any) => {
+      // normalize (statusMessage?, headers?) overloads
+      const hdrs = (typeof arg2 === 'string' ? arg3 : arg2) as Record<string, any> | undefined;
+      // injected (security/CORS) is authoritative. Node's writeHead does NOT dedupe case-variant
+      // keys — both lines would ship and a browser honors the first — so drop any handler header
+      // whose name case-insensitively collides with an injected one before merging.
+      const merged: Record<string, any> = {};
+      const injectedLower = new Set(Object.keys(injected).map((k) => k.toLowerCase()));
+      let handlerVary: string | undefined;
+      if (hdrs) for (const k of Object.keys(hdrs)) {
+        const lk = k.toLowerCase();
+        if (lk === 'vary') { handlerVary = hdrs[k]; continue; }        // merged separately below
+        if (!injectedLower.has(lk)) merged[k] = hdrs[k];
+      }
+      Object.assign(merged, injected);
+      if (injected['vary']) merged['vary'] = mergeVary(handlerVary, injected['vary']);
+      else if (handlerVary !== undefined) merged['vary'] = handlerVary; // preserve handler Vary when no CORS
+      return typeof arg2 === 'string' ? orig(status, arg2, merged) : orig(status, merged);
+    };
+    // CORS is added to `injected` AFTER the patch is installed — the patch reads it lazily
+    // by reference at writeHead time, so keys added here still land on every response.
+    if (opts?.cors) Object.assign(injected, resolveCors(opts.cors, req));
+    if (opts?.cors && req.method === 'OPTIONS' && req.headers['access-control-request-method']) {
+      const pf = corsPreflightHeaders(opts.cors, req);
+      res.writeHead(204, pf);
+      res.end();
+      return;
+    }
     const matched = matchRoute(routes, req.method ?? 'GET', path);
     if (!matched) {
       res.writeHead(404, { 'content-type': 'application/json' });
@@ -221,6 +273,7 @@ export function createHttpServer(
       result = await matched.def.handler({
         method: req.method ?? 'GET', url, headers: req.headers,
         params: matched.params, query: parseQuery(url), body,
+        protocol: secure ? 'https' : 'http', ip: deriveIp(req, trustProxy),
       });
     } catch (error) {
       result = errorToResponse(error);
@@ -233,7 +286,11 @@ export function createHttpServer(
     const r: ResponseShape = result;
     res.writeHead(r.status, r.headers);
     res.end(r.body);
-  });
+  };
+  // runtime-compatible; only @types differ (https.Server lacks the http-only timeout props)
+  const server: http.Server = (opts?.tls
+    ? https.createServer(opts.tls as https.ServerOptions, handler)
+    : http.createServer(handler)) as unknown as http.Server;
   server.requestTimeout = opts?.limits?.requestTimeoutMs ?? 30_000;
   server.headersTimeout = opts?.limits?.headersTimeoutMs ?? 10_000;
   server.keepAliveTimeout = opts?.limits?.keepAliveTimeoutMs ?? 5_000;
