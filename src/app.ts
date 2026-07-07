@@ -43,7 +43,7 @@ interface RoutePlan {
   steps: GraphNode[];
   handlerName: string;
   needs: string[];
-  run: (ctx: any) => unknown;
+  run: (ctx: any) => Promise<unknown>;
   transformer: typeof JsonTransformer;
   duplicates?: 'array' | 'last';
 }
