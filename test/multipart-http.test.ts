@@ -50,3 +50,26 @@ describe('multipart over http', () => {
     expect(r.status).toBe(400);
   });
 });
+
+describe('bodyDuplicates', () => {
+  it('app "array" makes repeated urlencoded fields arrays', async () => {
+    @Route('/') class C { @Post('/f') f(@body() b: any) { return b; } }
+    @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
+    app = createApp({ modules: [CMod], bodyDuplicates: 'array' });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    const r = await fetch(`http://127.0.0.1:${port}/f`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'x=1&x=2&y=9' });
+    expect(await r.json()).toEqual({ x: ['1', '2'], y: ['9'] });
+  });
+  it('default (no option) keeps urlencoded last-wins', async () => {
+    @Route('/') class C { @Post('/f') f(@body() b: any) { return b; } }
+    @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
+    app = createApp({ modules: [CMod] });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    const r = await fetch(`http://127.0.0.1:${port}/f`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'x=1&x=2' });
+    expect(await r.json()).toEqual({ x: '2' });
+  });
+});

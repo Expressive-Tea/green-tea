@@ -53,7 +53,7 @@ export interface MeshConfig {
   timeoutMs?: number;
 }
 
-export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits; devGraph?: boolean; overrides?: Record<string, unknown>; tls?: TlsOptions; trustProxy?: boolean; security?: boolean | SecurityOptions; cors?: CorsOptions }): App {
+export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits; devGraph?: boolean; overrides?: Record<string, unknown>; tls?: TlsOptions; trustProxy?: boolean; security?: boolean | SecurityOptions; cors?: CorsOptions; bodyDuplicates?: 'array' | 'last' }): App {
   const bus = new Bus();
   const container = new Container();
   let server: http.Server | undefined;
@@ -362,7 +362,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
         },
       }));
 
-    server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, { limits: opts.limits, streams, tls: opts.tls, trustProxy: opts.trustProxy, security: opts.security ?? true, cors: opts.cors });
+    server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, { limits: opts.limits, streams, tls: opts.tls, trustProxy: opts.trustProxy, security: opts.security ?? true, cors: opts.cors, bodyDuplicates: opts.bodyDuplicates });
     server.on('close', () => { for (const l of meshLinks) { try { l.close(); } catch { /* */ } } });
     await new Promise<void>((resolve) => server!.listen(port, resolve));
     return server;

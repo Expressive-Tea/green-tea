@@ -35,6 +35,16 @@ function addField(fields: MultipartBody['fields'], name: string, value: string, 
   }
 }
 
+// Reusable accumulator for any iterable of [key, value] pairs (e.g. URLSearchParams)
+// so urlencoded bodies collapse duplicates with the exact same policy as multipart fields.
+export function collapseDuplicates(
+  pairs: Iterable<[string, string]>, dup: 'array' | 'last',
+): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
+  for (const [k, v] of pairs) addField(out, k, v, dup);
+  return out;
+}
+
 function addFile(files: MultipartBody['files'], name: string, file: UploadedFile): void {
   const ex = files[name];
   if (ex === undefined) files[name] = file;

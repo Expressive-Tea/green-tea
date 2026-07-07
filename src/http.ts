@@ -10,7 +10,7 @@ import type { Transport } from './metadata';
 import type { Bus } from './bus';
 import { buildSecurityHeaders, mergeVary, resolveCors, corsPreflightHeaders } from './security';
 import type { TlsOptions, SecurityOptions, CorsOptions } from './security';
-import { parseMultipart, extractBoundary } from './multipart';
+import { parseMultipart, extractBoundary, collapseDuplicates } from './multipart';
 
 export interface RequestLimits {
   maxBodyBytes?: number;       // default 1_000_000
@@ -19,7 +19,7 @@ export interface RequestLimits {
   keepAliveTimeoutMs?: number; // default 5_000
   maxParts?: number;           // default 1000
 }
-export interface HttpOptions { limits?: RequestLimits; streams?: Set<() => void>; tls?: TlsOptions; trustProxy?: boolean; security?: boolean | SecurityOptions; cors?: CorsOptions }
+export interface HttpOptions { limits?: RequestLimits; streams?: Set<() => void>; tls?: TlsOptions; trustProxy?: boolean; security?: boolean | SecurityOptions; cors?: CorsOptions; bodyDuplicates?: 'array' | 'last' }
 
 export type RouteHandler = (req: {
   method: string; url: string;
@@ -258,6 +258,7 @@ export function createHttpServer(
     }
     let body: unknown;
     const ct = String(req.headers['content-type'] ?? '');
+    const duplicates = opts?.bodyDuplicates ?? 'last';
     if (buf !== undefined && ct.includes('application/json')) {
       try { body = JSON.parse(buf.toString('utf8')); }
       catch {
@@ -266,7 +267,7 @@ export function createHttpServer(
         return;
       }
     } else if (buf !== undefined && ct.includes('application/x-www-form-urlencoded')) {
-      body = Object.fromEntries(new URLSearchParams(buf.toString('utf8'))); // duplicates policy added in Task 3
+      body = collapseDuplicates(new URLSearchParams(buf.toString('utf8')), duplicates);
     } else if (buf !== undefined && ct.includes('multipart/form-data')) {
       const boundary = extractBoundary(ct);
       if (!boundary) {
@@ -274,7 +275,7 @@ export function createHttpServer(
         res.end(JSON.stringify({ error: 'Invalid multipart body' }));
         return;
       }
-      try { body = parseMultipart(buf, boundary, { maxParts: opts?.limits?.maxParts ?? 1000, duplicates: 'last' }); }
+      try { body = parseMultipart(buf, boundary, { maxParts: opts?.limits?.maxParts ?? 1000, duplicates }); }
       catch {
         res.writeHead(400, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid multipart body' }));
