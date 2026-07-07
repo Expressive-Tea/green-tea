@@ -11,7 +11,7 @@ const fakeLink = (calls: any[]): Link => ({
 describe('teacup buildRemote', () => {
   it('makes a provider node (app) and a step node (request) with RPC runners returning merge objects', async () => {
     const calls: any[] = [];
-    const { providers, steps } = buildRemote(fakeLink(calls), 'ws://t');
+    const { providers, steps } = buildRemote(fakeLink(calls));
     expect(providers.map((p) => p.name)).toEqual(['config']);
     expect(steps.map((s) => s.name)).toEqual(['auth']);
     expect(await providers[0].run({})).toEqual({ config: { url: 'db://x' } });
@@ -22,7 +22,7 @@ describe('teacup buildRemote', () => {
 
   it('makes a proxy route entry with method+pattern', async () => {
     const calls: any[] = [];
-    const { routes } = buildRemote(fakeLink(calls), 'ws://t');
+    const { routes } = buildRemote(fakeLink(calls));
     expect(routes[0]).toMatchObject({ method: 'GET', pattern: '/u/:id' });
   });
 

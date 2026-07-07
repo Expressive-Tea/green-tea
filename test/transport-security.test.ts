@@ -187,7 +187,7 @@ describe('CORS', () => {
     expect(r.headers.get('access-control-allow-credentials')).toBe('true');
   });
 
-  it('disallowed origin → no allow-origin; bare OPTIONS (no ACRM) falls through to 404', async () => {
+  it('disallowed origin → no allow-origin; bare OPTIONS (no ACRM) → 405 Allow for an existing path', async () => {
     @Route('/') class C { @Get('/x') x() { return { ok: 1 }; } }
     @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
     app = createApp({ modules: [CMod], cors: { origins: 'https://a.com' } });
@@ -195,8 +195,11 @@ describe('CORS', () => {
     const port = (server.address() as any).port;
     const r = await fetch(`http://127.0.0.1:${port}/x`, { headers: { origin: 'https://evil.com' } });
     expect(r.headers.get('access-control-allow-origin')).toBeNull();
-    const bare = await fetch(`http://127.0.0.1:${port}/x`, { method: 'OPTIONS' }); // no ACRM
-    expect(bare.status).toBe(404);
+    // A bare OPTIONS (no Access-Control-Request-Method) isn't a CORS preflight; the path exists
+    // under GET, so the router answers 405 with an Allow header rather than 404.
+    const bare = await fetch(`http://127.0.0.1:${port}/x`, { method: 'OPTIONS' });
+    expect(bare.status).toBe(405);
+    expect(bare.headers.get('allow')).toContain('GET');
   });
 
   it("merges a handler's Title-Case Vary with CORS's Origin", async () => {

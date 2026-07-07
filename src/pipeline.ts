@@ -3,15 +3,35 @@ import { errorToResponse } from './transformers';
 import { isAsyncIterable } from './channel';
 import type { TransformerFn } from './metadata';
 
-export interface PipelineStep { name: string; origin: string; run: (ctx: any) => any }
-export interface ResponseShape { status: number; headers: Record<string, string>; body: string }
-export interface StreamResult { stream: AsyncIterable<unknown> }
+/** A single step in a request pipeline: a named unit whose `run` merges its output into the shared context. */
+export interface PipelineStep {
+  name: string;
+  origin: string;
+  run: (ctx: any) => any;
+}
+/** A fully materialized HTTP response produced by a transformer. */
+export interface ResponseShape {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+}
+/** A streaming response; the async iterable is written to the socket and bypasses the transformer. */
+export interface StreamResult {
+  stream: AsyncIterable<unknown>;
+}
+/** The outcome of {@link runPipeline}: either a buffered response or a stream. */
 export type PipelineResult = ResponseShape | StreamResult;
 
-export function isStreamResult(r: PipelineResult): r is StreamResult {
-  return 'stream' in r;
+/** Type guard narrowing a {@link PipelineResult} to a {@link StreamResult}. */
+export function isStreamResult(result: PipelineResult): result is StreamResult {
+  return 'stream' in result;
 }
 
+/**
+ * Run `steps` in order over a context seeded from `seed`, then invoke `handler`.
+ * An async-iterable handler result becomes a stream; anything else is run through `transformer`.
+ * Errors are caught, emitted on `bus`, and converted to an error response.
+ */
 export async function runPipeline(args: {
   steps: PipelineStep[];
   handler: (ctx: any) => unknown;
@@ -20,18 +40,21 @@ export async function runPipeline(args: {
   bus: Bus;
 }): Promise<PipelineResult> {
   const { steps, handler, transformer, seed, bus } = args;
-  let ctx: any = { ...seed };
+  // context is intentionally `any`: each step merges arbitrary keys into the accumulator
+  let context: any = { ...seed };
+
   try {
-    for (const s of steps) {
-      bus.emit('request:step:enter', { name: s.name, scope: s.origin });
-      const out = await s.run(ctx);
-      ctx = { ...ctx, ...out };
-      bus.emit('request:step:leave', { name: s.name, scope: s.origin });
+    for (const step of steps) {
+      bus.emit('request:step:enter', { name: step.name, scope: step.origin });
+      const output = await step.run(context);
+      context = { ...context, ...output };
+      bus.emit('request:step:leave', { name: step.name, scope: step.origin });
     }
-    const result = await handler(ctx);
-    if (isAsyncIterable(result)) return { stream: result };   // stream path: transformer bypassed
-    const r = transformer(result);
-    return { status: r.status ?? 200, headers: r.headers ?? {}, body: r.body };
+
+    const result = await handler(context);
+    if (isAsyncIterable(result)) return { stream: result }; // stream path: transformer bypassed
+    const transformed = transformer(result);
+    return { status: transformed.status ?? 200, headers: transformed.headers ?? {}, body: transformed.body };
   } catch (error) {
     bus.emit('request:step:error', { name: 'pipeline', error });
     return errorToResponse(error);

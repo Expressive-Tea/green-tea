@@ -72,8 +72,12 @@ test('optional provider failure warns but does not abort boot', async () => {
   class SysModule {}
 
   const app = createApp({ modules: [SysModule] });
+  expect(app.degraded()).toEqual([]); // nothing degraded until boot runs
   const server = await app.listen(0);            // must NOT throw
   expect(warn).toHaveBeenCalledWith(expect.stringContaining("optional provider 'cache' failed"));
+  // boot ends with a summary of everything running degraded, and it is queryable on the app
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining('started with 1 degraded optional provider(s): cache'));
+  expect(app.degraded()).toEqual(['cache']);
   server.close();
   warn.mockRestore();
 });

@@ -1,32 +1,53 @@
+/**
+ * @green-tea/core — a decorator-driven, type-safe HTTP framework.
+ * Public API barrel: application bootstrap, routing/DI decorators, streaming,
+ * request validation, security helpers, and the cross-server mesh.
+ */
 import 'reflect-metadata';
 
-export const VERSION = '0.0.0';
+/** Package version, replaced at publish time. */
+export const VERSION = '26.07.0-beta.0';
+
+// Application
 export { createApp } from './app';
-export type { App, InspectLine, Explain } from './app';
+export type { App, InspectLine, Explain, MeshConfig } from './app';
+
+// Graph visualization
 export { toMermaid, toDOT } from './graph-viz';
 export type { GraphView } from './graph-viz';
-export { Provider, Step, Route, Get, Module, Transformer } from './metadata';
+
+// Routing & decorators
+export { Provider, Step, Route, Get, Module, Transformer, Sse, Ws, Stream, Post, Put, Patch, Delete } from './metadata';
+export type { Transport, HttpMethod } from './metadata';
 export type { Plugin } from './plugin';
+
+// Transformers & error signals
 export { JsonTransformer } from './transformers';
 export { HttpError, Unauthorized, NotFound, Redirect, NotModified, ValidationError } from './signals';
+
+// Bus & flow
 export { Bus } from './bus';
 export { flow, Flow } from './flow';
 export type { StepFn, CompiledFlow } from './flow';
-export { needs, ctx, param, query, body, headers } from './params';
+
+// Parameter decorators
+export { needs, ctx, param, query, body, headers, header, inbound, abort } from './params';
 export type { Query, Headers, Context, ArgSpec } from './params';
+
+// Streaming
 export { channel, isAsyncIterable } from './channel';
 export type { Channel } from './channel';
 export { Rooms } from './rooms';
-export { Sse, Ws, Stream, Post, Put, Patch, Delete } from './metadata';
-export type { Transport, HttpMethod } from './metadata';
-export { inbound, abort } from './params';
 export { sseEncoder, ndjsonEncoder } from './encoders';
 export type { StreamEncoder } from './encoders';
-export type { MeshConfig } from './app';
+
+// HTTP, security & validation
 export type { RequestLimits } from './http';
 export type { TlsOptions, CorsOptions, SecurityOptions } from './security';
 export type { UploadedFile, MultipartBody } from './multipart';
 export type { StandardSchemaV1 } from './standard-schema';
+
+// Mesh
 export { connectLink } from './mesh/link';
 export { buildRemote, envelopeFrom } from './mesh/teacup';
 export { buildManifest, createMeshControl, MESH_CONTROL_PATH } from './mesh/teapot';

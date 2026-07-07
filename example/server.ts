@@ -101,7 +101,7 @@ class PingController {
 @Module({ mountpoint: '/mesh', providers: [ConfigProvider], steps: [AuthStep], controllers: [PingController] })
 class TeapotModule {}
 
-export const teapotApp = createApp({ modules: [TeapotModule], mesh: { secret: 'demo-secret' } });
+export const teapotApp = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: 'demo-secret' } });
 
 @Route('/remote')
 class TeacupController {
