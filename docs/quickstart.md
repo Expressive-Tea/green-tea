@@ -228,6 +228,85 @@ const app = createApp({ modules: [ApiModule], plugins: [logger] });
 Lifecycle events: `boot:provider:*`, `request:step:*`, `stream:open|close|error`,
 `mesh:connect|disconnect|rpc:error`, `plugin:mounted`.
 
+## 7. Transport security
+
+Four `createApp` options cover TLS, proxying, CORS, and response headers.
+
+### TLS (native https/wss)
+
+```typescript
+import { readFileSync } from 'fs';
+
+const app = createApp({
+  modules: [App],
+  tls: { key: readFileSync('key.pem'), cert: readFileSync('cert.pem') },
+});
+```
+
+When `tls` is set the server serves https, and WebSocket upgrades become wss on the same
+port — no other changes.
+
+### `trustProxy`
+
+```typescript
+const app = createApp({ modules: [App], trustProxy: true });
+```
+
+Behind a reverse proxy, reads `X-Forwarded-Proto` / `X-Forwarded-For` to populate
+`ctx.protocol` (`'http' | 'https'`) and `ctx.ip` (read via `@ctx()`). Off by default —
+forwarded headers are ignored (and spoofable) until you opt in. It trusts the immediate hop
+unconditionally; there's no CIDR allowlist yet.
+
+### CORS
+
+Off unless `origins` is set.
+
+```typescript
+const app = createApp({
+  modules: [App],
+  cors: { origins: 'https://app.example.com', credentials: true },
+});
+```
+
+`origins` accepts `string | string[] | '*' | (origin) => boolean`. A preflight `OPTIONS`
+request (with `Access-Control-Request-Method`) is auto-answered with 204.
+
+- With `credentials: true`, the server never sends `Access-Control-Allow-Origin: *` — it
+  echoes the concrete allowed origin (or blocks the request).
+- **Security warning:** `origins: '*'` together with `credentials: true` reflects *any*
+  origin with credentials attached — the classic reflect-any foot-gun. Only combine them if
+  you truly intend an open credentialed API; prefer an explicit allowlist.
+
+### `security` (headers, ON by default)
+
+Applied to every HTTP response. Disable everything with `security: false`, or override
+individual headers with an options object.
+
+| Header | Default |
+|---|---|
+| `X-Content-Type-Options` | `nosniff` |
+| `X-Frame-Options` | `SAMEORIGIN` |
+| `Referrer-Policy` | `no-referrer` |
+| `X-DNS-Prefetch-Control` | `off` |
+| `Strict-Transport-Security` | `max-age=15552000` (180d) — **only when the connection is secure** (native TLS, or `trustProxy` + `X-Forwarded-Proto: https`); no `includeSubDomains`/`preload` |
+| `Content-Security-Policy` | not set — pass `security: { csp: "..." }` |
+
+```typescript
+const app = createApp({ modules: [App], security: { csp: "default-src 'self'" } });
+```
+
+**Scope caveat:** `security` and `cors` headers apply to HTTP responses; they do not apply
+to the WebSocket handshake (101/upgrade) response.
+
+### Defaults
+
+| Option | Default |
+|---|---|
+| `tls` | off (plain http/ws) |
+| `trustProxy` | off |
+| `cors` | off (same-origin only) |
+| `security` | ON (HSTS only when the connection is secure) |
+
 ## Inspect & test the graph
 
 ### Visualize with Mermaid
