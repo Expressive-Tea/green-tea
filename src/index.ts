@@ -25,6 +25,7 @@ export type { StreamEncoder } from './encoders';
 export type { MeshConfig } from './app';
 export type { RequestLimits } from './http';
 export type { TlsOptions, CorsOptions, SecurityOptions } from './security';
+export type { UploadedFile, MultipartBody } from './multipart';
 export { connectLink } from './mesh/link';
 export { buildRemote, envelopeFrom } from './mesh/teacup';
 export { buildManifest, createMeshControl, MESH_CONTROL_PATH } from './mesh/teapot';
