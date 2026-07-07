@@ -8,7 +8,8 @@ import { sseEncoder, ndjsonEncoder, StreamEncoder } from './encoders';
 import { isStreamResult, type PipelineResult, type ResponseShape } from './pipeline';
 import type { Transport } from './metadata';
 import type { Bus } from './bus';
-import type { TlsOptions } from './security';
+import { buildSecurityHeaders, mergeVary } from './security';
+import type { TlsOptions, SecurityOptions } from './security';
 
 export interface RequestLimits {
   maxBodyBytes?: number;       // default 1_000_000
@@ -16,7 +17,7 @@ export interface RequestLimits {
   headersTimeoutMs?: number;   // default 10_000
   keepAliveTimeoutMs?: number; // default 5_000
 }
-export interface HttpOptions { limits?: RequestLimits; streams?: Set<() => void>; tls?: TlsOptions; trustProxy?: boolean }
+export interface HttpOptions { limits?: RequestLimits; streams?: Set<() => void>; tls?: TlsOptions; trustProxy?: boolean; security?: boolean | SecurityOptions }
 
 export type RouteHandler = (req: {
   method: string; url: string;
@@ -203,9 +204,26 @@ export function createHttpServer(
   routes: RouteDef[], wsRoutes: WsRouteDef[] = [], bus?: Bus, meshControl?: MeshControl, opts?: HttpOptions,
 ): http.Server {
   const maxBody = opts?.limits?.maxBodyBytes ?? 1_000_000;
+  const trustProxy = opts?.trustProxy ?? false;
   const handler = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     const url = req.url ?? '/';
     const path = url.split('?')[0];
+    // Install the security-header patch BEFORE any routing/response so every path
+    // (200, 404, error, stream) writes headers through the same patched writeHead.
+    const secure = deriveSecure(req, trustProxy);
+    const injected: Record<string, string> = { ...buildSecurityHeaders(opts?.security ?? true, secure) };
+    // (CORS is folded into `injected` in Task 5; this task is security headers only.)
+    const orig = res.writeHead.bind(res);
+    (res as any).writeHead = (status: number, arg2?: any, arg3?: any) => {
+      // normalize (statusMessage?, headers?) overloads
+      const hdrs = (typeof arg2 === 'string' ? arg3 : arg2) as Record<string, any> | undefined;
+      // injected LAST → CORS/security keys are authoritative (a handler cannot weaken them).
+      // Handler's non-injected headers (content-type, etc.) survive via ...hdrs.
+      const merged: Record<string, any> = { ...(hdrs ?? {}), ...injected };
+      // Vary is list-valued: only merge when injected carries one (CORS active); else leave handler's Vary alone.
+      if (injected['vary']) merged['vary'] = mergeVary(hdrs?.['vary'], injected['vary']);
+      return typeof arg2 === 'string' ? orig(status, arg2, merged) : orig(status, merged);
+    };
     const matched = matchRoute(routes, req.method ?? 'GET', path);
     if (!matched) {
       res.writeHead(404, { 'content-type': 'application/json' });
@@ -233,8 +251,6 @@ export function createHttpServer(
     } else if (raw !== undefined && ct.includes('application/x-www-form-urlencoded')) {
       body = Object.fromEntries(new URLSearchParams(raw));
     }
-    const trustProxy = opts?.trustProxy ?? false;
-    const secure = deriveSecure(req, trustProxy);
     let result: PipelineResult;
     try {
       result = await matched.def.handler({

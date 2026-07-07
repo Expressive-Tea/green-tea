@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import https from 'https';
 import WebSocket from 'ws';
-import { createApp, Route, Get, Ws, Module, inbound, channel, ctx } from '../src';
+import { createApp, Route, Get, Sse, Ws, Module, inbound, channel, ctx } from '../src';
 import { selfSignedTls } from './helpers/tls';
 
 @Route('/')
@@ -67,5 +67,65 @@ describe('trustProxy', () => {
     const port = (server.address() as any).port;
     const r = await fetch(`http://127.0.0.1:${port}/who`, { headers: { 'x-forwarded-proto': 'https' } });
     expect(await r.json()).toEqual({ proto: 'http' });
+  });
+});
+
+describe('security headers', () => {
+  it('on 200, 404, error; HSTS only when secure', async () => {
+    @Route('/') class S {
+      @Get('/ok') ok() { return { a: 1 }; }
+      @Get('/boom') boom() { throw new Error('x'); }
+    }
+    @Module({ mountpoint: '/', controllers: [S] }) class SMod {}
+    app = createApp({ modules: [SMod] }); // security defaults on
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    const ok = await fetch(`http://127.0.0.1:${port}/ok`);
+    expect(ok.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(ok.headers.get('strict-transport-security')).toBeNull(); // http, not secure
+    const nf = await fetch(`http://127.0.0.1:${port}/nope`);
+    expect(nf.status).toBe(404);
+    expect(nf.headers.get('x-frame-options')).toBe('SAMEORIGIN');
+    const boom = await fetch(`http://127.0.0.1:${port}/boom`);
+    expect(boom.status).toBe(500);
+    expect(boom.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+
+  it('security:false emits none', async () => {
+    @Route('/') class S { @Get('/ok') ok() { return { a: 1 }; } }
+    @Module({ mountpoint: '/', controllers: [S] }) class SMod {}
+    app = createApp({ modules: [SMod], security: false });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    const ok = await fetch(`http://127.0.0.1:${port}/ok`);
+    expect(ok.headers.get('x-content-type-options')).toBeNull();
+  });
+
+  it('HSTS present over https', async () => {
+    @Route('/') class S { @Get('/ok') ok() { return { a: 1 }; } }
+    @Module({ mountpoint: '/', controllers: [S] }) class SMod {}
+    app = createApp({ modules: [SMod], tls: selfSignedTls() });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    const hsts = await new Promise<string | undefined>((resolve, reject) => {
+      https.get({ port, path: '/ok', rejectUnauthorized: false }, (res) => {
+        res.resume();
+        resolve(res.headers['strict-transport-security'] as string | undefined);
+      }).on('error', reject);
+    });
+    expect(hsts).toContain('max-age=');
+  });
+
+  it('stream response carries security headers', async () => {
+    @Route('/') class S {
+      @Sse('/stream') async *stream() { yield 'a'; }
+    }
+    @Module({ mountpoint: '/', controllers: [S] }) class SMod {}
+    app = createApp({ modules: [SMod] });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    const res = await fetch(`http://127.0.0.1:${port}/stream`, { headers: { accept: 'text/event-stream' } });
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    await res.body?.cancel();
   });
 });

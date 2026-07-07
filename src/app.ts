@@ -14,7 +14,7 @@ import {
 import { getArgs, getHandlerNeeds, resolveArgs } from './params';
 import { connectLink, type Link } from './mesh/link';
 import { Rooms } from './rooms';
-import type { TlsOptions } from './security';
+import type { TlsOptions, SecurityOptions } from './security';
 import { buildRemote } from './mesh/teacup';
 import { buildManifest, createMeshControl } from './mesh/teapot';
 import type { MeshControl } from './http';
@@ -53,7 +53,7 @@ export interface MeshConfig {
   timeoutMs?: number;
 }
 
-export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits; devGraph?: boolean; overrides?: Record<string, unknown>; tls?: TlsOptions; trustProxy?: boolean }): App {
+export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: MeshConfig; limits?: RequestLimits; devGraph?: boolean; overrides?: Record<string, unknown>; tls?: TlsOptions; trustProxy?: boolean; security?: boolean | SecurityOptions }): App {
   const bus = new Bus();
   const container = new Container();
   let server: http.Server | undefined;
@@ -362,7 +362,7 @@ export function createApp(opts: { modules: Ctor[]; plugins?: Plugin[]; mesh?: Me
         },
       }));
 
-    server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, { limits: opts.limits, streams, tls: opts.tls, trustProxy: opts.trustProxy });
+    server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, { limits: opts.limits, streams, tls: opts.tls, trustProxy: opts.trustProxy, security: opts.security ?? true });
     server.on('close', () => { for (const l of meshLinks) { try { l.close(); } catch { /* */ } } });
     await new Promise<void>((resolve) => server!.listen(port, resolve));
     return server;
