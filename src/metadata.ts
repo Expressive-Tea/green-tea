@@ -31,6 +31,8 @@ export interface RouteMeta {
   transport: Transport;
   export: boolean;
   duplicates?: 'array' | 'last';
+  maxBodyBytes?: number;
+  maxParts?: number;
 }
 /** Options accepted by the `@Module` decorator. */
 export interface ModuleOptions {
@@ -93,7 +95,10 @@ export function Route(prefix: string): ClassDecorator {
 }
 
 function routeDecorator(method: HttpMethod, transport: Transport) {
-  return (path: string, opts?: { export?: boolean; duplicates?: 'array' | 'last' }): MethodDecorator =>
+  return (
+      path: string,
+      opts?: { export?: boolean; duplicates?: 'array' | 'last'; maxBodyBytes?: number; maxParts?: number },
+    ): MethodDecorator =>
     (target, propertyKey) => {
       const ctor = target.constructor;
       const routes = (Reflect.getMetadata(K.routes, ctor) as RouteMeta[]) ?? [];
@@ -104,6 +109,8 @@ function routeDecorator(method: HttpMethod, transport: Transport) {
         transport,
         export: opts?.export ?? false,
         duplicates: opts?.duplicates,
+        maxBodyBytes: opts?.maxBodyBytes,
+        maxParts: opts?.maxParts,
       });
       Reflect.defineMetadata(K.routes, routes, ctor);
     };

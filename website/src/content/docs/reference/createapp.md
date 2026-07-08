@@ -15,12 +15,14 @@ const app = createApp(options);
 | `plugins` | `Plugin[]` | `[]` | plugins, each limited to `bus.on` + `scope.add` ([plugins](/guides/plugins/)) |
 | `limits` | `RequestLimits` | see below | body-size and timeout ceilings |
 | `devGraph` | `boolean` | `false` | mount `GET /__graph__` ([introspection](/guides/introspection/)) |
+| `devOpenapi` | `boolean` | `false` | mount `GET /__openapi__` serving the [OpenAPI](/guides/openapi/) document |
 | `overrides` | `Record<string, unknown>` | — | swap any node by token ([testing](/guides/testing/)) |
 | `tls` | `TlsOptions` | — | serve over https/wss |
 | `trustProxy` | `boolean` | `false` | honor `X-Forwarded-*` for `ctx.protocol` / `ctx.ip` |
 | `security` | `boolean \| SecurityOptions` | `true` | secure-by-default headers ([security](/guides/security/)) |
 | `cors` | `CorsOptions` | — | CORS handling |
 | `bodyDuplicates` | `'array' \| 'last'` | `'last'` | policy for repeated form fields |
+| `onError` | `ErrorRenderer` | — | render errors your way ([error handling](/guides/errors/)); returns a response or `undefined` to fall back to JSON |
 | `mesh` | `MeshConfig` | — | distributed DI — **requires `experimental: true`** ([mesh](/guides/mesh/)) |
 | `experimental` | `boolean` | `false` | opt in to alpha features (currently gates `mesh`) |
 
@@ -62,6 +64,7 @@ const app = createApp(options);
 | `explain(route)` | `Explain` | the chain annotated with each node's needs/provides |
 | `graph()` | `GraphView` | the full node + route graph |
 | `toMermaid()` / `toDOT()` | `string` | render the graph |
+| `openapi(info?)` | `OpenApiDoc` | structural OpenAPI 3.1 document ([details](/guides/openapi/)) |
 | `degraded()` | `string[]` | optional providers running degraded (empty until `listen()`) |
 | `bus` | `Bus` | lifecycle + request event bus |
 

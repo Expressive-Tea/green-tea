@@ -1,5 +1,5 @@
 import { Bus } from './bus';
-import { errorToResponse } from './transformers';
+import { renderError, type ErrorRenderer } from './transformers';
 import { isAsyncIterable } from './channel';
 import type { TransformerFn } from './metadata';
 
@@ -38,8 +38,9 @@ export async function runPipeline(args: {
   transformer: TransformerFn;
   seed: Record<string, unknown>;
   bus: Bus;
+  onError?: ErrorRenderer;
 }): Promise<PipelineResult> {
-  const { steps, handler, transformer, seed, bus } = args;
+  const { steps, handler, transformer, seed, bus, onError } = args;
   // context is intentionally `any`: each step merges arbitrary keys into the accumulator
   let context: any = { ...seed };
 
@@ -57,6 +58,11 @@ export async function runPipeline(args: {
     return { status: transformed.status ?? 200, headers: transformed.headers ?? {}, body: transformed.body };
   } catch (error) {
     bus.emit('request:step:error', { name: 'pipeline', error });
-    return errorToResponse(error);
+    const req = (context.req ?? {}) as { method?: string; url?: string; headers?: Record<string, unknown> };
+    return renderError(
+      error,
+      { method: req.method ?? '', url: req.url ?? '', headers: (context.headers ?? req.headers ?? {}) as never },
+      onError,
+    );
   }
 }

@@ -57,7 +57,14 @@ Uploaded files are held in memory, so they're bounded by the same `maxBodyBytes`
 const app = createApp({ modules: [ApiModule], limits: { maxParts: 500 } });
 ```
 
-A malformed multipart body (bad boundary, missing headers, truncated part) → **400**.
+Both limits can be overridden **per route** — an upload endpoint can allow a larger body than the rest of the API:
+
+```typescript
+@Post('/avatar', { maxBodyBytes: 5_000_000, maxParts: 20 })
+uploadAvatar(@body() form: MultipartBody) { /* ... */ }
+```
+
+A route's `maxBodyBytes` / `maxParts` fall back to the server-wide `limits` when unset. A malformed multipart body (bad boundary, missing headers, truncated part) → **400**.
 
 :::note
 To validate parsed fields against a schema, pass a Standard Schema to `@body()` — see [validation](/guides/validation/).

@@ -6,10 +6,11 @@ import { toMermaid, toDOT, graphHtml, type GraphView } from '../graph-viz';
 import { runPipeline, PipelineStep } from '../pipeline';
 import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from '../http';
 import { isAsyncIterable } from '../channel';
-import { JsonTransformer } from '../transformers';
+import { JsonTransformer, type ErrorRenderer } from '../transformers';
 import { mountPlugin, Plugin, ScopeApi, ScopeNode } from '../plugin';
 import { Ctor, getModuleMeta, getProviderMeta, getStepMeta, getRoutes, getTransformer, joinPath } from '../metadata';
 import { getArgs, getHandlerNeeds, resolveArgs } from '../params';
+import { buildOpenApi, type OpenApiInfo } from '../openapi';
 import { connectLink, type Link } from '../mesh/link';
 import { Rooms } from '../rooms';
 import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
@@ -42,6 +43,7 @@ interface PipelineDeps {
   providedSeed(plan: RoutePlan): Promise<Record<string, unknown>>;
   planSteps(plan: RoutePlan): PipelineStep[];
   bus: Bus;
+  onError?: ErrorRenderer;
 }
 
 /**
@@ -55,12 +57,15 @@ export function createApp(opts: {
   mesh?: MeshConfig;
   limits?: RequestLimits;
   devGraph?: boolean;
+  devOpenapi?: boolean;
   overrides?: Record<string, unknown>;
   tls?: TlsOptions;
   trustProxy?: boolean;
   security?: boolean | SecurityOptions;
   cors?: CorsOptions;
   bodyDuplicates?: 'array' | 'last';
+  /** Render errors your own way (HTML, custom JSON, …); return a response or undefined to fall back to JSON. */
+  onError?: ErrorRenderer;
   /** Opt in to alpha features whose API may still change. Currently gates `mesh`. */
   experimental?: boolean;
 }): App {
@@ -100,12 +105,22 @@ export function createApp(opts: {
   const inspect = (routePath: string): InspectLine[] => inspectRoute(routePlans, routePath, booted);
   const graph = (): GraphView => buildGraphView(providerNodes, stepNodes, routePlans, booted);
   const explain = (routePath: string): Explain => explainRoute(routePlans, routePath, booted);
+  const openapi = (info?: OpenApiInfo) =>
+    buildOpenApi(
+      routePlans.map((plan) => ({
+        method: plan.method,
+        pattern: plan.pattern,
+        transport: plan.transport,
+        args: plan.args,
+      })),
+      info,
+    );
 
   const providedSeed = (plan: RoutePlan) => seedProviders(container, plan);
   const planSteps = (plan: RoutePlan) => compilePlanSteps(runners, plan);
 
   const listen = async (port: number): Promise<http.Server> => {
-    const deps: PipelineDeps = { providedSeed, planSteps, bus };
+    const deps: PipelineDeps = { providedSeed, planSteps, bus, onError: opts.onError };
 
     // mesh teacup: connect remote teapots, splice their scopes/routes into the graph, then finalize
     let remoteRoutes: RouteDef[] = [];
@@ -137,6 +152,7 @@ export function createApp(opts: {
 
     const httpRoutes = buildHttpRoutes(routePlans, remoteRoutes, deps);
     if (opts.devGraph) httpRoutes.push(devGraphRoute(graph));
+    if (opts.devOpenapi) httpRoutes.push(openApiRoute(openapi));
     const wsRoutes = buildWsRoutes(routePlans, deps);
 
     server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, {
@@ -147,6 +163,7 @@ export function createApp(opts: {
       security: opts.security ?? true,
       cors: opts.cors,
       bodyDuplicates: opts.bodyDuplicates,
+      onError: opts.onError,
     });
     server.on('close', () => closeLinks(meshLinks));
     await new Promise<void>((resolve) => server!.listen(port, resolve));
@@ -169,6 +186,7 @@ export function createApp(opts: {
     toMermaid: () => toMermaid(graph()),
     toDOT: () => toDOT(graph()),
     explain,
+    openapi,
     degraded: () => [...degradedProviders],
     bus,
   };
@@ -245,6 +263,9 @@ function collectControllers(controllers: Ctor[], mountpoint: string, origin: str
         run: async (context: any) => instance[route.handlerName](...(await resolveArgs(argSpecs, context))),
         transformer: getTransformer(ControllerClass, route.handlerName) ?? JsonTransformer,
         duplicates: route.duplicates,
+        maxBodyBytes: route.maxBodyBytes,
+        maxParts: route.maxParts,
+        args: argSpecs,
       });
     }
   }
@@ -447,7 +468,7 @@ function buildMeshControl(
 
   if (!mesh?.secret || !hasExports) return undefined;
   const { container, orderedProviders, orderedSteps } = deps;
-  const { bus, providedSeed, planSteps } = deps.deps;
+  const { bus, providedSeed, planSteps, onError } = deps.deps;
   const manifest = buildManifest({ providers: exportedProviders, steps: exportedSteps, routes: exportedRoutes });
 
   const resolveScope = async (name: string, env: RequestEnvelope): Promise<unknown> => {
@@ -480,6 +501,7 @@ function buildMeshControl(
       handler: plan.run,
       transformer: plan.transformer,
       bus,
+      onError,
       seed: { ...provided, req: env, params: env.params, query: env.query, body: env.body, headers: env.headers },
     });
 
@@ -497,7 +519,7 @@ function buildMeshControl(
 
 /** Compiles every non-ws route plan into an HTTP route that seeds and runs the pipeline, plus any remote routes. */
 function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps: PipelineDeps): RouteDef[] {
-  const { providedSeed, planSteps, bus } = deps;
+  const { providedSeed, planSteps, bus, onError } = deps;
 
   const local = routePlans
     .filter((plan) => plan.transport !== 'ws') // buffer | sse | ndjson | negotiate
@@ -506,6 +528,8 @@ function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps
       pattern: plan.pattern,
       transport: plan.transport,
       bodyDuplicates: plan.duplicates,
+      maxBodyBytes: plan.maxBodyBytes,
+      maxParts: plan.maxParts,
       handler: async (req) => {
         const provided = await providedSeed(plan);
         return runPipeline({
@@ -513,6 +537,7 @@ function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps
           handler: plan.run,
           transformer: plan.transformer,
           bus,
+          onError,
           seed: {
             ...provided,
             req,
@@ -543,6 +568,20 @@ function devGraphRoute(graph: () => GraphView): RouteDef {
         ? { status: 200, headers: { 'content-type': 'text/plain' }, body: mermaid }
         : { status: 200, headers: { 'content-type': 'text/html' }, body: graphHtml(mermaid) };
     },
+  };
+}
+
+/** The dev-only `/__openapi__` route: serves the structural OpenAPI 3.1 document as JSON. */
+function openApiRoute(openapi: () => unknown): RouteDef {
+  return {
+    method: 'GET',
+    pattern: '/__openapi__',
+    transport: 'buffer',
+    handler: async () => ({
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(openapi()),
+    }),
   };
 }
 

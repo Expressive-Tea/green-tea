@@ -1,6 +1,7 @@
 import http from 'http';
 import type { Transport } from '../metadata';
 import type { PipelineResult } from '../pipeline';
+import type { ErrorRenderer } from '../transformers';
 import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
 
 /** Per-request size and timeout ceilings applied by the server. */
@@ -21,6 +22,7 @@ export interface HttpOptions {
   security?: boolean | SecurityOptions;
   cors?: CorsOptions;
   bodyDuplicates?: 'array' | 'last';
+  onError?: ErrorRenderer;
 }
 
 /** Handler for a matched HTTP route; receives a normalized request and resolves to a pipeline result. */
@@ -42,6 +44,8 @@ export interface RouteDef {
   transport: Transport;
   handler: RouteHandler;
   bodyDuplicates?: 'array' | 'last';
+  maxBodyBytes?: number; // per-route override of the server's maxBodyBytes
+  maxParts?: number; // per-route override of the server's multipart maxParts
 }
 
 /** Result of matching a request path against a route: extracted params plus the matched definition. */

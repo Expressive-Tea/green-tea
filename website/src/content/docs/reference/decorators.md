@@ -48,7 +48,7 @@ Method decorator. Turns a handler's return value into `{ status?, headers?, body
 
 ## Routes
 
-Method decorators on a controller. All accept `(path, opts?)` where `opts = { export?: boolean, duplicates?: 'array' | 'last' }`.
+Method decorators on a controller. All accept `(path, opts?)` where `opts = { export?: boolean, duplicates?: 'array' | 'last', maxBodyBytes?: number, maxParts?: number }`. `maxBodyBytes` / `maxParts` override the server-wide [`limits`](/reference/createapp/) for this route only.
 
 | Decorator | Method | Transport |
 |---|---|---|
@@ -58,8 +58,9 @@ Method decorators on a controller. All accept `(path, opts?)` where `opts = { ex
 | `@Stream` | GET | negotiated (SSE / ndjson / WS) |
 
 ```typescript
-@Get('/ping', { export: true })          // exportable over mesh
-@Post('/upload', { duplicates: 'array' }) // repeated form fields → arrays
+@Get('/ping', { export: true })                          // exportable over mesh
+@Post('/upload', { duplicates: 'array' })                // repeated form fields → arrays
+@Post('/avatar', { maxBodyBytes: 5_000_000, maxParts: 20 }) // per-route upload limits
 ```
 
 See [Routing](/guides/routing/) for pattern matching and [Streaming](/guides/streaming/) for the transports.

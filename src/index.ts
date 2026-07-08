@@ -15,6 +15,8 @@ export type { App, InspectLine, Explain, MeshConfig } from './app';
 // Graph visualization
 export { toMermaid, toDOT } from './graph-viz';
 export type { GraphView } from './graph-viz';
+export { buildOpenApi } from './openapi';
+export type { OpenApiDoc, OpenApiInfo, OpenApiRoute } from './openapi';
 
 // Routing & decorators
 export { Provider, Step, Route, Get, Module, Transformer, Sse, Ws, Stream, Post, Put, Patch, Delete } from './metadata';
@@ -23,6 +25,7 @@ export type { Plugin } from './plugin';
 
 // Transformers & error signals
 export { JsonTransformer } from './transformers';
+export type { ErrorRenderer, ErrorRequest, ErrorResponse } from './transformers';
 export { HttpError, Unauthorized, NotFound, Redirect, NotModified, ValidationError } from './signals';
 
 // Bus & flow

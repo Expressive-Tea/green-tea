@@ -1,7 +1,7 @@
 import http from 'http';
 import https from 'https';
-import { errorToResponse } from '../transformers';
-import { isHttpError } from '../signals';
+import { renderError, type ErrorRequest, type ErrorRenderer } from '../transformers';
+import { isHttpError, HttpError, NotFound } from '../signals';
 import { isStreamResult, type PipelineResult, type ResponseShape } from '../pipeline';
 import type { Bus } from '../bus';
 import { buildSecurityHeaders, mergeVary, resolveCors, corsPreflightHeaders } from '../security';
@@ -22,6 +22,24 @@ interface HandlerConfig {
 
 /** A ready-to-send error response produced while acquiring the request body. */
 type BodyFailure = { fail: { status: number; headers: Record<string, string>; body: string } };
+
+/** Builds the {@link ErrorRequest} handed to a user error renderer. */
+function errorRequest(req: http.IncomingMessage): ErrorRequest {
+  return { method: req.method ?? 'GET', url: req.url ?? '/', headers: req.headers };
+}
+
+/** Renders an error (through the optional user hook) and writes it, merging any extra headers (e.g. `Allow`). */
+function sendError(
+  res: http.ServerResponse,
+  error: unknown,
+  req: http.IncomingMessage,
+  onError?: ErrorRenderer,
+  extraHeaders?: Record<string, string>,
+): void {
+  const rendered = renderError(error, errorRequest(req), onError);
+  res.writeHead(rendered.status, extraHeaders ? { ...rendered.headers, ...extraHeaders } : rendered.headers);
+  res.end(rendered.body);
+}
 
 /**
  * Builds an HTTP/HTTPS server that routes requests, parses bodies, streams results, and handles WebSocket upgrades.
@@ -83,13 +101,11 @@ function createRequestHandler(cfg: HandlerConfig) {
       const allow = allowedMethods(routes, path);
 
       if (allow.length) {
-        res.writeHead(405, { 'content-type': 'application/json', allow: allow.join(', ') });
-        res.end(JSON.stringify({ error: 'Method Not Allowed' }));
+        sendError(res, new HttpError(405, 'Method Not Allowed'), req, opts?.onError, { allow: allow.join(', ') });
         return;
       }
 
-      res.writeHead(404, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Not Found' }));
+      sendError(res, new NotFound('Not Found'), req, opts?.onError);
       return;
     }
 
@@ -115,7 +131,7 @@ function createRequestHandler(cfg: HandlerConfig) {
         ip: deriveIp(req, trustProxy),
       });
     } catch (error) {
-      result = errorToResponse(error);
+      result = renderError(error, errorRequest(req), opts?.onError);
     }
 
     if (isStreamResult(result)) {
@@ -138,28 +154,23 @@ async function acquireBody(
   maxBody: number,
 ): Promise<{ body: unknown } | BodyFailure> {
   let buf: Buffer | undefined;
+  const bodyLimit = matched.def.maxBodyBytes ?? maxBody; // per-route override falls back to the server default
 
   try {
-    buf = await readBody(req, maxBody);
+    buf = await readBody(req, bodyLimit);
   } catch (error) {
-    const response = errorToResponse(error);
-    return {
-      fail: { status: response.status, headers: { ...response.headers, connection: 'close' }, body: response.body },
-    };
+    const rendered = renderError(error, errorRequest(req), opts?.onError);
+    return { fail: { ...rendered, headers: { ...rendered.headers, connection: 'close' } } };
   }
 
   const contentType = String(req.headers['content-type'] ?? '');
   const duplicates = matched.def.bodyDuplicates ?? opts?.bodyDuplicates ?? 'last';
-  const parsed = await parseRequestBody(buf, contentType, duplicates, opts?.limits?.maxParts ?? 1000);
+  const maxParts = matched.def.maxParts ?? opts?.limits?.maxParts ?? 1000;
+  const parsed = await parseRequestBody(buf, contentType, duplicates, maxParts);
 
   if ('error' in parsed) {
-    return {
-      fail: {
-        status: parsed.status ?? 400,
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ error: parsed.error }),
-      },
-    };
+    const rendered = renderError(new HttpError(parsed.status ?? 400, parsed.error), errorRequest(req), opts?.onError);
+    return { fail: rendered };
   }
 
   return { body: parsed.body };
