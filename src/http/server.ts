@@ -4,12 +4,13 @@ import { renderError, type ErrorRequest, type ErrorRenderer } from '../transform
 import { isHttpError, HttpError, NotFound } from '../signals';
 import { isStreamResult, type PipelineResult, type ResponseShape } from '../pipeline';
 import type { Bus } from '../bus';
-import { buildSecurityHeaders, mergeVary, resolveCors, corsPreflightHeaders } from '../security';
+import { buildSecurityHeaders, resolveCors, corsPreflightHeaders } from '../security';
 import { parseMultipart, extractBoundary, collapseDuplicates } from '../multipart';
 import { matchRoute, allowedMethods, parseQuery } from './router';
 import { readBody, deriveSecure, deriveIp } from './request';
 import { pickEncoder, pipeStream } from './stream';
 import { attachWs } from './ws';
+import { mergeInjectedHeaders } from './headers';
 import type { RouteDef, WsRouteDef, MatchedRoute, MeshControl, HttpOptions } from './types';
 
 interface HandlerConfig {
@@ -185,27 +186,8 @@ function patchResponseHeaders(res: http.ServerResponse, injected: Record<string,
   const origWriteHead = res.writeHead.bind(res);
 
   (res as any).writeHead = (status: number, arg2?: any, arg3?: any) => {
-    // normalize (statusMessage?, headers?) overloads
     const handlerHeaders = (typeof arg2 === 'string' ? arg3 : arg2) as Record<string, any> | undefined;
-    const merged: Record<string, any> = {};
-    const injectedLower = new Set(Object.keys(injected).map((key) => key.toLowerCase()));
-    let handlerVary: string | undefined;
-
-    if (handlerHeaders)
-      for (const key of Object.keys(handlerHeaders)) {
-        const lowerKey = key.toLowerCase();
-
-        if (lowerKey === 'vary') {
-          handlerVary = handlerHeaders[key];
-          continue;
-        } // merged separately below
-
-        if (!injectedLower.has(lowerKey)) merged[key] = handlerHeaders[key];
-      }
-
-    Object.assign(merged, injected);
-    if (injected['vary']) merged['vary'] = mergeVary(handlerVary, injected['vary']);
-    else if (handlerVary !== undefined) merged['vary'] = handlerVary; // preserve handler Vary when no CORS
+    const merged = mergeInjectedHeaders(handlerHeaders, injected);
     return typeof arg2 === 'string' ? origWriteHead(status, arg2, merged) : origWriteHead(status, merged);
   };
 }
