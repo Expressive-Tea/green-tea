@@ -6,8 +6,11 @@ export default defineConfig({
   site: 'https://green-tea.dev',
   integrations: [
     starlight({
-      title: 'green-tea',
-      description: 'A calm, type-safe HTTP framework for Node — your API is an explicit dependency graph.',
+      title: 'Green Tea.',
+      description: 'A zen, opinionated, type-safe framework — your API is a graph, not a chain.',
+      logo: { src: './src/assets/logo.svg', alt: 'Green Tea' },
+      favicon: '/favicon.svg',
+      customCss: ['./src/styles/brand.css'],
       tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 3 },
       sidebar: [
         {

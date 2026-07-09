@@ -1,7 +1,7 @@
 {
   "name": "@green-tea/core",
   "version": "26.7.0-beta.0",
-  "description": "Declarative, type-safe HTTP framework. The pipeline is a graph, not a middleware chain.",
+  "description": "A zen, opinionated, type-safe framework — your API is a graph, not a middleware chain.",
   "license": "MIT",
   "author": "green-tea contributors",
   "keywords": [
@@ -40,6 +40,7 @@
   },
   "files": [
     "dist",
+    "assets",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"

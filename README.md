@@ -1,6 +1,15 @@
-# 🍵 green-tea
+<p align="center">
+  <img src="./assets/logo.png" width="112" alt="Green Tea" />
+</p>
 
-> A calm, type-safe HTTP framework for Node. Your API is an explicit **dependency graph** you can see, slice, and trust — not a mutable bag threaded through positional middleware.
+<h1 align="center">Green&nbsp;Tea.</h1>
+
+<p align="center"><b>A zen, opinionated, type-safe framework.</b></p>
+
+<p align="center">
+  Your API is an explicit <b>dependency graph</b> you can see, slice, and trust —<br />
+  not a mutable bag threaded through positional middleware. <i>That's the tea.</i> 🍵
+</p>
 
 `@green-tea/core` — **beta**, RC-track. One runtime dependency: `reflect-metadata`. Two optional peers you install only if you use them: `ws` (WebSocket / mesh) and `busboy` (multipart uploads).
 
