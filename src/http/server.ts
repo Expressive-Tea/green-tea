@@ -179,7 +179,7 @@ type ParseResult = { body: unknown } | { error: string; status?: number };
  * Parses a raw request body by content type (JSON, urlencoded, multipart, or plain text).
  * @returns `{ body }` on success, or `{ error, status? }` on malformed input / missing multipart support.
  */
-async function parseRequestBody(
+export async function parseRequestBody(
   buf: Buffer | undefined,
   contentType: string,
   duplicates: 'array' | 'last',
