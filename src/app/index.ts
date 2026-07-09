@@ -5,6 +5,8 @@ import { topoSort, subgraphFor, GraphNode, nearest } from '../graph';
 import { toMermaid, toDOT, graphHtml, type GraphView } from '../graph-viz';
 import { runPipeline, PipelineStep } from '../pipeline';
 import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from '../http';
+import type { HttpOptions } from '../http';
+import { buildFetch } from '../http/web';
 import { isAsyncIterable } from '../channel';
 import { JsonTransformer, type ErrorRenderer } from '../transformers';
 import { mountPlugin, Plugin, ScopeApi, ScopeNode } from '../plugin';
@@ -119,6 +121,33 @@ export function createApp(opts: {
   const providedSeed = (plan: RoutePlan) => seedProviders(container, plan);
   const planSteps = (plan: RoutePlan) => compilePlanSteps(runners, plan);
 
+  // Boots app-scope providers exactly once, however first triggered (app.fetch or listen()); calling
+  // both never double-boots (which would re-run provider factories and their side effects).
+  const bootAppProviders = makeProviderBooter(
+    registry,
+    opts.overrides,
+    () => orderedProviders,
+    { runners, container, providerMeta, bus },
+    degradedProviders,
+  );
+
+  const fetchOpts: HttpOptions = {
+    limits: opts.limits,
+    tls: opts.tls,
+    trustProxy: opts.trustProxy,
+    security: opts.security ?? true,
+    cors: opts.cors,
+    bodyDuplicates: opts.bodyDuplicates,
+    onError: opts.onError,
+  };
+  const fetchFn = buildAppFetch(
+    () => booted,
+    routePlans,
+    { providedSeed, planSteps, bus, onError: opts.onError },
+    fetchOpts,
+    bootAppProviders,
+  );
+
   const listen = async (port: number): Promise<http.Server> => {
     const deps: PipelineDeps = { providedSeed, planSteps, bus, onError: opts.onError };
 
@@ -133,15 +162,7 @@ export function createApp(opts: {
       finalize();
     }
 
-    applyOverrides(opts.overrides, registry);
-    degradedProviders.length = 0;
-    degradedProviders.push(...(await bootProviders(orderedProviders, { runners, container, providerMeta, bus })));
-
-    if (degradedProviders.length) {
-      console.warn(
-        `[green-tea] started with ${degradedProviders.length} degraded optional provider(s): ${degradedProviders.join(', ')} — routes that need them will fail at request time.`,
-      );
-    }
+    await bootAppProviders();
 
     const meshControl = buildMeshControl(opts.mesh, registry, {
       container,
@@ -181,6 +202,7 @@ export function createApp(opts: {
   return {
     listen,
     close,
+    fetch: fetchFn,
     inspect,
     graph,
     toMermaid: () => toMermaid(graph()),
@@ -451,6 +473,43 @@ async function bootProviders(
 }
 
 /**
+ * Returns a memoized boot function: applies overrides and boots app-scope providers exactly once,
+ * however first triggered — {@link buildAppFetch}'s handler or `listen()` may both call it, and the
+ * memoization guarantees only the first call actually runs (and warns about) the boot sequence.
+ */
+function makeProviderBooter(
+  registry: Registry,
+  overrides: Record<string, unknown> | undefined,
+  getOrderedProviders: () => GraphNode[],
+  deps: {
+    runners: Map<string, Runner>;
+    container: Container;
+    providerMeta: Map<string, { optional: boolean }>;
+    bus: Bus;
+  },
+  degradedProviders: string[],
+): () => Promise<void> {
+  let bootPromise: Promise<void> | undefined;
+
+  const runBoot = async (): Promise<void> => {
+    applyOverrides(overrides, registry);
+    degradedProviders.length = 0;
+    degradedProviders.push(...(await bootProviders(getOrderedProviders(), deps)));
+
+    if (degradedProviders.length) {
+      console.warn(
+        `[green-tea] started with ${degradedProviders.length} degraded optional provider(s): ${degradedProviders.join(', ')} — routes that need them will fail at request time.`,
+      );
+    }
+  };
+
+  return (): Promise<void> => {
+    if (!bootPromise) bootPromise = runBoot();
+    return bootPromise;
+  };
+}
+
+/**
  * Builds the mesh control gateway that exposes this node's declared exports over the control channel.
  * Returns undefined when there is nothing to export; throws if exports are declared without a gating secret.
  */
@@ -553,6 +612,35 @@ function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps
     }));
 
   return [...local, ...remoteRoutes];
+}
+
+/**
+ * Builds `app.fetch`: a Web-Standards handler over the same route table `listen()` uses, so
+ * `Deno.serve(app.fetch)` / `Bun.serve({ fetch: app.fetch })` work without ever calling `listen()`.
+ * Non-mesh apps finalize eagerly, so `getBooted()` is already `true` and the route table is built
+ * on the very first call. Mesh apps defer finalize to `listen()` (remote scopes must splice into the
+ * graph first): `getBooted` reads the outer `booted` flag *live* on every call — exactly like
+ * `explain()`/`graph()`/`inspect()` do — so the returned function throws until `listen()` finalizes,
+ * then starts working from the next call on, without ever needing to be rebuilt.
+ */
+function buildAppFetch(
+  getBooted: () => boolean,
+  routePlans: RoutePlan[],
+  deps: PipelineDeps,
+  fetchOpts: HttpOptions,
+  ensureBooted: () => Promise<void>,
+): (request: Request) => Promise<Response> {
+  let handler: ((request: Request) => Promise<Response>) | undefined;
+
+  return async (request: Request): Promise<Response> => {
+    if (!handler) {
+      if (!getBooted()) throw new Error('fetch() unavailable before listen() for mesh apps');
+      handler = buildFetch(buildHttpRoutes(routePlans, [], deps), fetchOpts);
+    }
+
+    await ensureBooted(); // idempotent: no-op if listen() already booted the providers
+    return handler(request);
+  };
 }
 
 /** The dev-only `/__graph__` route: serves the dependency graph as Mermaid text or an HTML viewer. */

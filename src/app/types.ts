@@ -35,6 +35,8 @@ export interface Explain {
 export interface App {
   listen(port: number): Promise<http.Server>;
   close(): Promise<void>;
+  /** Web-Standards handler: run a Fetch API Request through the graph and return a Response (Node/Deno/Bun/edge). WS not included. */
+  fetch(request: Request): Promise<Response>;
   inspect(routePath: string): InspectLine[];
   graph(): GraphView;
   toMermaid(): string;
