@@ -99,9 +99,17 @@ export function serveDeno(app: App, options?: DenoServeOptions): DenoHttpServer 
   return Deno.serve(options ?? {}, (request, info) => {
     if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
       const { socket, response } = Deno.upgradeWebSocket(request);
-      // fire-and-forget: the graph runs after we return the upgrade response.
-      // runWsConnection swallows its own errors (closeOnError), so nothing escapes.
-      void app.upgrade(toWsRequest(request, info), denoSocket(socket));
+      // Fire-and-forget: the upgrade response must be returned synchronously while
+      // the graph runs. app.upgrade can reject BEFORE runWsConnection's own try/catch
+      // (mesh-before-listen throw, or a provider boot failure), so guard the call here —
+      // an uncaught rejection would be fatal on Deno and crash the whole server.
+      void app.upgrade(toWsRequest(request, info), denoSocket(socket)).catch(() => {
+        try {
+          socket.close(1011, 'internal error');
+        } catch {
+          /* already closed */
+        }
+      });
       return response;
     }
 
