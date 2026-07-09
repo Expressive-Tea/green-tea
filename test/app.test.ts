@@ -376,8 +376,8 @@ describe('devGraph endpoint', () => {
     const app = createApp({ modules: [M], devGraph: true });
     const s = await app.listen(0);
     const html = await fetch(`http://127.0.0.1:${portOf(s)}/__graph__`).then((r) => r.text());
-    expect(html).toContain('class="mermaid"');
-    expect(html).toContain('flowchart');
+    expect(html).toContain('cytoscape');
+    expect(html).toContain('/api/u/me');
     const mmd = await fetch(`http://127.0.0.1:${portOf(s)}/__graph__`, { headers: { accept: 'text/plain' } });
     expect(mmd.headers.get('content-type')).toContain('text/plain');
     expect(await mmd.text()).toContain('flowchart');

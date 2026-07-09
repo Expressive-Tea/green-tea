@@ -562,11 +562,11 @@ function devGraphRoute(graph: () => GraphView): RouteDef {
     pattern: '/__graph__',
     transport: 'buffer',
     handler: async (req) => {
-      const mermaid = toMermaid(graph());
+      const view = graph();
       const accept = String(req.headers['accept'] ?? '');
       return accept.includes('text/plain')
-        ? { status: 200, headers: { 'content-type': 'text/plain' }, body: mermaid }
-        : { status: 200, headers: { 'content-type': 'text/html' }, body: graphHtml(mermaid) };
+        ? { status: 200, headers: { 'content-type': 'text/plain' }, body: toMermaid(view) }
+        : { status: 200, headers: { 'content-type': 'text/html' }, body: graphHtml(view) };
     },
   };
 }

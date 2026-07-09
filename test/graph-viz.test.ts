@@ -16,10 +16,10 @@ describe('toMermaid', () => {
     expect(m).toContain('flowchart');
     expect(m).toContain('"db"');
     expect(m).toContain('"user"');
-    expect(m).toContain('n_config --> n_db');   // db needs config
-    expect(m).toContain('n_db --> n_user');      // user needs db
-    expect(m).not.toContain('n_req');            // 'req' is a seed (no node) -> no edge
-    expect(m).toContain('GET /users/:id');       // route node label
+    expect(m).toContain('n_config --> n_db'); // db needs config
+    expect(m).toContain('n_db --> n_user'); // user needs db
+    expect(m).not.toContain('n_req'); // 'req' is a seed (no node) -> no edge
+    expect(m).toContain('GET /users/:id'); // route node label
   });
 });
 
@@ -32,10 +32,20 @@ describe('toDOT', () => {
 });
 
 describe('graphHtml', () => {
-  it('wraps mermaid source in an HTML page that loads mermaid', () => {
-    const html = graphHtml('flowchart LR\n  a-->b');
-    expect(html).toContain('<pre class="mermaid">');
-    expect(html).toContain('flowchart LR');
-    expect(html).toContain('mermaid');
+  it('emits an interactive Cytoscape page with the graph embedded as JSON', () => {
+    const html = graphHtml(view);
+    expect(html).toContain('cytoscape'); // loads the viz lib from CDN
+    expect(html).toContain('cytoscape-dagre'); // and the DAG layout
+    expect(html).toContain('"user"'); // node data is embedded client-side
+    expect(html).toContain('/users/:id'); // route data too
+  });
+
+  it('escapes embedded JSON so a node name cannot break out of the script tag', () => {
+    const evil = graphHtml({
+      nodes: [{ name: 'a</script><b', kind: 'provider', origin: 'x', needs: [], provides: ['a'] }],
+      routes: [],
+    });
+    expect(evil).not.toContain('a</script><b'); // raw injection must not survive
+    expect(evil).toContain('a\\u003c/script'); // '<' is escaped to <
   });
 });
