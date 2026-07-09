@@ -1,16 +1,16 @@
 import http from 'http';
 import https from 'https';
-import { renderError, type ErrorRequest, type ErrorRenderer } from '../transformers';
-import { isHttpError, HttpError, NotFound } from '../signals';
-import { isStreamResult, type PipelineResult, type ResponseShape } from '../pipeline';
+import { renderError, type ErrorRequest } from '../transformers';
+import { isHttpError, HttpError } from '../signals';
 import type { Bus } from '../bus';
-import { buildSecurityHeaders, resolveCors, corsPreflightHeaders } from '../security';
+import { buildSecurityHeaders, resolveCors } from '../security';
 import { parseMultipart, extractBoundary, collapseDuplicates } from '../multipart';
-import { matchRoute, allowedMethods, parseQuery } from './router';
+import { matchRoute } from './router';
 import { readBody, deriveSecure, deriveIp } from './request';
-import { pickEncoder, pipeStream } from './stream';
+import { pipeStream } from './stream';
 import { attachWs } from './ws';
 import { mergeInjectedHeaders } from './headers';
+import { handle } from './core';
 import type { RouteDef, WsRouteDef, MatchedRoute, MeshControl, HttpOptions } from './types';
 
 interface HandlerConfig {
@@ -27,19 +27,6 @@ type BodyFailure = { fail: { status: number; headers: Record<string, string>; bo
 /** Builds the {@link ErrorRequest} handed to a user error renderer. */
 function errorRequest(req: http.IncomingMessage): ErrorRequest {
   return { method: req.method ?? 'GET', url: req.url ?? '/', headers: req.headers };
-}
-
-/** Renders an error (through the optional user hook) and writes it, merging any extra headers (e.g. `Allow`). */
-function sendError(
-  res: http.ServerResponse,
-  error: unknown,
-  req: http.IncomingMessage,
-  onError?: ErrorRenderer,
-  extraHeaders?: Record<string, string>,
-): void {
-  const rendered = renderError(error, errorRequest(req), onError);
-  res.writeHead(rendered.status, extraHeaders ? { ...rendered.headers, ...extraHeaders } : rendered.headers);
-  res.end(rendered.body);
 }
 
 /**
@@ -72,13 +59,20 @@ export function createHttpServer(
   return server;
 }
 
-/** Builds the request listener: security/CORS headers, routing, body parsing, then buffered or streamed response. */
+/**
+ * Builds the request listener: a thin Node adapter around the runtime-neutral {@link handle} core.
+ * Reads the body (Node-specific), delegates security/CORS/routing/error-rendering to `handle()`,
+ * then writes the result to `res` (buffered or streamed). The security-header monkeypatch is
+ * installed here — and stays the single source of truth for merging headers into every response —
+ * so `handle()`'s own `injected` is intentionally unused by this adapter.
+ */
 function createRequestHandler(cfg: HandlerConfig) {
   const { routes, bus, opts, maxBody, trustProxy } = cfg;
 
   return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     const url = req.url ?? '/';
     const path = url.split('?')[0];
+    const method = req.method ?? 'GET';
     // Install the security-header patch BEFORE any routing/response so every path
     // (200, 404, error, stream) writes headers through the same patched writeHead.
     const secure = deriveSecure(req, trustProxy);
@@ -89,61 +83,47 @@ function createRequestHandler(cfg: HandlerConfig) {
     // by reference at writeHead time, so keys added here still land on every response.
     if (opts?.cors) Object.assign(injected, resolveCors(opts.cors, req));
 
-    if (opts?.cors && req.method === 'OPTIONS' && req.headers['access-control-request-method']) {
-      res.writeHead(204, corsPreflightHeaders(opts.cors, req));
+    // Mirror handle()'s own preflight/route-match decision here, so we only read the body
+    // (below) for a request that actually reaches a route handler — matching prior behaviour.
+    const isPreflight = Boolean(opts?.cors && method === 'OPTIONS' && req.headers['access-control-request-method']);
+    const matched = isPreflight ? undefined : matchRoute(routes, method, path);
+
+    let body: unknown;
+
+    if (matched) {
+      const acquired = await acquireBody(req, matched, opts, maxBody);
+
+      if ('fail' in acquired) {
+        res.writeHead(acquired.fail.status, acquired.fail.headers);
+        res.end(acquired.fail.body);
+        return;
+      }
+
+      body = acquired.body;
+    }
+
+    const result = await handle(routes, opts, {
+      method,
+      url,
+      headers: req.headers,
+      body,
+      secure,
+      ip: deriveIp(req, trustProxy),
+    });
+
+    if ('preflight' in result) {
+      res.writeHead(204, result.preflight);
       res.end();
       return;
     }
 
-    const matched = matchRoute(routes, req.method ?? 'GET', path);
-
-    if (!matched) {
-      // Path matches a route under a different method → 405 with Allow; otherwise 404.
-      const allow = allowedMethods(routes, path);
-
-      if (allow.length) {
-        sendError(res, new HttpError(405, 'Method Not Allowed'), req, opts?.onError, { allow: allow.join(', ') });
-        return;
-      }
-
-      sendError(res, new NotFound('Not Found'), req, opts?.onError);
+    if (result.outcome.kind === 'stream') {
+      await pipeStream(res, result.outcome.stream, result.outcome.encoder, bus, matched?.def.pattern, opts?.streams);
       return;
     }
 
-    const acquired = await acquireBody(req, matched, opts, maxBody);
-
-    if ('fail' in acquired) {
-      res.writeHead(acquired.fail.status, acquired.fail.headers);
-      res.end(acquired.fail.body);
-      return;
-    }
-
-    let result: PipelineResult;
-
-    try {
-      result = await matched.def.handler({
-        method: req.method ?? 'GET',
-        url,
-        headers: req.headers,
-        params: matched.params,
-        query: parseQuery(url),
-        body: acquired.body,
-        protocol: secure ? 'https' : 'http',
-        ip: deriveIp(req, trustProxy),
-      });
-    } catch (error) {
-      result = renderError(error, errorRequest(req), opts?.onError);
-    }
-
-    if (isStreamResult(result)) {
-      const encoder = pickEncoder(matched.def.transport, String(req.headers.accept ?? ''));
-      await pipeStream(res, result.stream, encoder, bus, matched.def.pattern, opts?.streams);
-      return;
-    }
-
-    const response: ResponseShape = result;
-    res.writeHead(response.status, response.headers);
-    res.end(response.body);
+    res.writeHead(result.outcome.status, result.outcome.headers);
+    res.end(result.outcome.body);
   };
 }
 
