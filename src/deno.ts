@@ -6,12 +6,13 @@ import type { WsSocket, WsRequest } from './http/ws-core';
 // doesn't declare a global `WebSocket` either — so we ambient-declare just the shape we use
 // (both the instance interface and the `OPEN` static, mirroring the real WebSocket).
 interface WebSocketEventMap {
-  message: { data: unknown };
+  message: { data: string | ArrayBuffer };
   close: object;
   error: object;
 }
 interface WebSocket {
   readonly readyState: number;
+  binaryType: string;
   send(data: string): void;
   close(code?: number, reason?: string): void;
   addEventListener<K extends keyof WebSocketEventMap>(type: K, listener: (event: WebSocketEventMap[K]) => void): void;
@@ -58,7 +59,12 @@ function toWsRequest(request: Request, info: DenoServeHandlerInfo): WsRequest {
 function denoSocket(ws: WebSocket): WsSocket {
   const inbound = channel<unknown>();
   const ac = new AbortController();
-  ws.addEventListener('message', (e) => inbound.push(typeof e.data === 'string' ? e.data : String(e.data)));
+  ws.binaryType = 'arraybuffer';
+  const decoder = new TextDecoder();
+  ws.addEventListener('message', (e) => {
+    const data = e.data;
+    inbound.push(typeof data === 'string' ? data : decoder.decode(data as ArrayBuffer));
+  });
   ws.addEventListener('close', () => {
     inbound.close();
     ac.abort();

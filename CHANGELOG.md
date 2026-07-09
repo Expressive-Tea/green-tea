@@ -17,6 +17,12 @@ green-tea uses calendar versioning: `YY.MM.PATCH`.
 ### Changed
 - App-scope providers now boot exactly once (memoized): a second `app.listen()`
   call no longer re-runs provider factories or their side effects.
+- **`WsOpenCtx.req`** (available in `@Ws`/`@Sse` handlers) is now a neutral
+  `WsRequest` (`{ url, headers, protocol, ip }`) instead of the Node
+  `http.IncomingMessage`, so it works the same across Node and Deno. Node-only
+  fields such as `req.socket` / `req.rawHeaders` are no longer available on
+  `ctx.req`; use `ctx.protocol` / `ctx.ip` / `ctx.query` / `ctx.headers`
+  instead — all still provided.
 
 ## [26.7.0-beta.0] - 2026-07-07
 
