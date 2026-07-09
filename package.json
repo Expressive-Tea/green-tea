@@ -36,6 +36,16 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       }
+    },
+    "./deno": {
+      "import": {
+        "types": "./dist/deno.d.mts",
+        "default": "./dist/deno.mjs"
+      },
+      "require": {
+        "types": "./dist/deno.d.ts",
+        "default": "./dist/deno.js"
+      }
     }
   },
   "files": [
@@ -49,6 +59,7 @@
     "build": "tsup",
     "test": "vitest run",
     "test:dev": "vitest",
+    "test:deno": "deno test --allow-net --allow-read --no-check test/deno/",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "typecheck:bench": "tsc --noEmit -p bench/tsconfig.json",
     "lint": "eslint src",

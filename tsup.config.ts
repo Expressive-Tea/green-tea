@@ -4,7 +4,7 @@ import { defineConfig } from 'tsup';
 // tsup injects a createRequire shim into the ESM output so the lazy require('ws') / require('busboy')
 // (optional peer deps) keep working there. reflect-metadata and the peer deps stay external.
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: ['src/index.ts', 'src/deno.ts'],
   format: ['cjs', 'esm'],
   dts: true,
   clean: true,

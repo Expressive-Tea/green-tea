@@ -5,6 +5,7 @@ import type { GraphView } from '../graph-viz';
 import type { HttpMethod, Transport } from '../metadata';
 import type { ArgSpec } from '../params';
 import type { OpenApiDoc, OpenApiInfo } from '../openapi';
+import type { WsRequest, WsSocket } from '../http/ws-core';
 import { JsonTransformer } from '../transformers';
 
 /** One entry in an {@link App.inspect} listing: a provider, step or handler and where it came from. */
@@ -37,6 +38,8 @@ export interface App {
   close(): Promise<void>;
   /** Web-Standards handler: run a Fetch API Request through the graph and return a Response (Node/Deno/Bun/edge). WS not included. */
   fetch(request: Request): Promise<Response>;
+  /** Run a WebSocket upgrade through the graph using an adapter-provided socket (Deno/Bun/edge). Node uses its own listener path. */
+  upgrade(request: WsRequest, socket: WsSocket): Promise<void>;
   inspect(routePath: string): InspectLine[];
   graph(): GraphView;
   toMermaid(): string;

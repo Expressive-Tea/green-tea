@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "lib": ["deno.window", "deno.ns"]
+  },
+  "unstable": ["sloppy-imports"],
+  "imports": {
+    "http": "node:http",
+    "https": "node:https",
+    "crypto": "node:crypto",
+    "events": "node:events",
+    "stream": "node:stream"
+  },
+  "lint": { "exclude": ["dist", "node_modules"] }
+}

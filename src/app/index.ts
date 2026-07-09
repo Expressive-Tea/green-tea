@@ -7,6 +7,7 @@ import { runPipeline, PipelineStep } from '../pipeline';
 import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from '../http';
 import type { HttpOptions } from '../http';
 import { buildFetch } from '../http/web';
+import { matchWsRoute, runWsConnection, type WsRequest, type WsSocket } from '../http/ws-core';
 import { isAsyncIterable } from '../channel';
 import { JsonTransformer, type ErrorRenderer } from '../transformers';
 import { mountPlugin, Plugin, ScopeApi, ScopeNode } from '../plugin';
@@ -147,6 +148,13 @@ export function createApp(opts: {
     fetchOpts,
     bootAppProviders,
   );
+  const upgradeFn = buildAppUpgrade(
+    () => booted,
+    routePlans,
+    { providedSeed, planSteps, bus, onError: opts.onError },
+    streams,
+    bootAppProviders,
+  );
 
   const listen = async (port: number): Promise<http.Server> => {
     const deps: PipelineDeps = { providedSeed, planSteps, bus, onError: opts.onError };
@@ -203,6 +211,7 @@ export function createApp(opts: {
     listen,
     close,
     fetch: fetchFn,
+    upgrade: upgradeFn,
     inspect,
     graph,
     toMermaid: () => toMermaid(graph()),
@@ -643,6 +652,42 @@ function buildAppFetch(
   };
 }
 
+/**
+ * Builds `app.upgrade`: the neutral WebSocket entry over the same route table `listen()` uses, so
+ * Deno/Bun/edge adapters can drive ws connections without ever calling `listen()`. Node keeps its own
+ * `server.on('upgrade')` path (see `attachWs`) and never calls this.
+ * Mirrors {@link buildAppFetch}'s finalize guard exactly: non-mesh apps finalize eagerly, so
+ * `getBooted()` is already `true` and the ws route table builds on the first call; mesh apps defer
+ * finalize to `listen()`, so this throws until `listen()` finalizes, then works from the next call on.
+ */
+function buildAppUpgrade(
+  getBooted: () => boolean,
+  routePlans: RoutePlan[],
+  deps: PipelineDeps,
+  streams: Set<() => void>,
+  ensureBooted: () => Promise<void>,
+): (request: WsRequest, socket: WsSocket) => Promise<void> {
+  let wsRoutes: WsRouteDef[] | undefined;
+
+  return async (request: WsRequest, socket: WsSocket): Promise<void> => {
+    if (!wsRoutes) {
+      if (!getBooted()) throw new Error('upgrade() unavailable before listen() for mesh apps');
+      wsRoutes = buildWsRoutes(routePlans, deps);
+    }
+
+    await ensureBooted(); // idempotent: no-op if listen() already booted the providers
+    const path = request.url.split('?')[0];
+    const route = matchWsRoute(wsRoutes, path);
+
+    if (!route) {
+      socket.close(1008, 'no matching ws route');
+      return;
+    }
+
+    await runWsConnection(socket, request, route, deps.bus, streams);
+  };
+}
+
 /** The dev-only `/__graph__` route: serves the dependency graph as Mermaid text or an HTML viewer. */
 function devGraphRoute(graph: () => GraphView): RouteDef {
   return {
@@ -683,7 +728,8 @@ function buildWsRoutes(routePlans: RoutePlan[], deps: PipelineDeps): WsRouteDef[
       pattern: plan.pattern,
       open: async ({ params, inbound, abort, req }) => {
         const provided = await providedSeed(plan);
-        // ws upgrades come in on the raw Node req; trustProxy derivation for ws is out of scope here
+        // ws upgrades carry the neutral WsRequest (protocol/ip pre-derived by the runtime adapter);
+        // trustProxy derivation for ws is out of scope here
         // context is intentionally `any`: each step merges arbitrary keys into it
         let context: any = {
           ...provided,
@@ -694,8 +740,8 @@ function buildWsRoutes(routePlans: RoutePlan[], deps: PipelineDeps): WsRouteDef[
           headers: req.headers,
           inbound,
           abort,
-          protocol: (req.socket as any).encrypted ? 'https' : 'http',
-          ip: req.socket.remoteAddress ?? '',
+          protocol: req.protocol,
+          ip: req.ip,
         };
 
         for (const step of planSteps(plan)) {
