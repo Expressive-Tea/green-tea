@@ -3,6 +3,7 @@ import type { Transport } from '../metadata';
 import type { PipelineResult } from '../pipeline';
 import type { ErrorRenderer } from '../transformers';
 import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
+import type { WsRequest } from './ws-core';
 
 /** Per-request size and timeout ceilings applied by the server. */
 export interface RequestLimits {
@@ -54,12 +55,12 @@ export interface MatchedRoute {
   def: RouteDef;
 }
 
-/** Context passed to a WebSocket route's `open`: path params, inbound message stream, abort signal, and raw request. */
+/** Context passed to a WebSocket route's `open`: path params, inbound message stream, abort signal, and neutral request. */
 export interface WsOpenCtx {
   params: Record<string, string>;
   inbound: AsyncIterable<unknown>;
   abort: AbortSignal;
-  req: http.IncomingMessage;
+  req: WsRequest;
 }
 
 /** A registered WebSocket route: path pattern and an `open` that returns the outbound message stream. */
