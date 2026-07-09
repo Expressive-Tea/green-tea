@@ -104,12 +104,15 @@ export function graphHtml(view: GraphView): string {
   #legend .route { background:var(--tea); border-color:var(--tea); }
   #legend .ln { width:16px; height:0; border-top:3px solid; border-radius:0; }
   #legend .need { border-color:var(--need); } #legend .feed { border-color:var(--feed); }
+  #legend .tp { background:transparent; border-color:var(--dim); }
+  #legend .tp-http { border-style:solid; } #legend .tp-sse { border-style:dashed; }
+  #legend .tp-ws { border-style:double; border-width:3px; }
   #info { position:absolute; left:14px; bottom:14px; z-index:2; max-width:340px; padding:10px 12px;
     background:var(--panel); border:1px solid var(--line); border-radius:8px; white-space:pre-wrap; display:none; }
   #info .t { color:var(--tea); font-weight:700; } #info .k { color:var(--dim); }
 </style></head><body>
 <div id="bar"><b>🍵 green-tea</b> · <span>click a <b>route</b> for its slice · click a <b>provider/step</b> for its blast radius · drag to rearrange · click canvas to reset</span>
-<div id="legend"><span><i class="sw prov"></i>provider</span><span><i class="sw step"></i>step</span><span><i class="sw route"></i>endpoint</span><span><i class="ln need"></i>needs</span><span><i class="ln feed"></i>feeds endpoint</span></div></div>
+<div id="legend"><span><i class="sw prov"></i>provider</span><span><i class="sw step"></i>step</span><span><i class="ln need"></i>needs</span><span><i class="ln feed"></i>feeds endpoint</span><span><i class="sw tp tp-http"></i>HTTP</span><span><i class="sw tp tp-sse"></i>SSE</span><span><i class="sw tp tp-ws"></i>WS</span></div></div>
 <div id="cy"></div>
 <div id="info"></div>
 <script>
@@ -121,14 +124,19 @@ export function graphHtml(view: GraphView): string {
   var nid = function (s) { return 'n_' + s.replace(/[^a-zA-Z0-9]/g, '_'); };
   var rid = function (s) { return 'r_' + s.replace(/[^a-zA-Z0-9]/g, '_'); };
 
+  // HTTP method -> colour, so the endpoint type is visual, not just text.
+  var METHOD_COLORS = { GET: '#3fb950', POST: '#a371f7', PUT: '#d29922', PATCH: '#db61a2', DELETE: '#f85149', HEAD: '#8b949e', OPTIONS: '#8b949e' };
+  var methodColor = function (m) { return METHOD_COLORS[m] || '#8b949e'; };
+
   var els = [];
   DATA.nodes.forEach(function (n) {
     els.push({ data: { id: nid(n.name), label: n.name, kind: n.kind, origin: n.origin,
       needs: (n.needs || []).join(', '), provides: (n.provides || []).join(', ') } });
   });
   DATA.routes.forEach(function (r) {
-    els.push({ data: { id: rid(r.pattern), label: r.method + ' ' + r.pattern, kind: 'route',
-      method: r.method, transport: r.transport } });
+    var suffix = r.transport && r.transport !== 'buffer' ? '  · ' + r.transport : '';
+    els.push({ data: { id: rid(r.pattern), label: r.method + ' ' + r.pattern + suffix, kind: 'route',
+      method: r.method, transport: r.transport, color: methodColor(r.method) } });
   });
   DATA.nodes.forEach(function (n) {
     (n.needs || []).forEach(function (need) {
@@ -150,6 +158,15 @@ export function graphHtml(view: GraphView): string {
       .map(function (r) { return rid(r.pattern); });
   });
 
+  // Method colour chips in the legend — only for methods actually present.
+  var legend = document.getElementById('legend'), seenMethod = {};
+  DATA.routes.forEach(function (r) {
+    if (seenMethod[r.method]) return; seenMethod[r.method] = 1;
+    var s = document.createElement('span');
+    s.innerHTML = '<i class="sw" style="background:' + methodColor(r.method) + ';border-color:' + methodColor(r.method) + '"></i>' + r.method;
+    legend.appendChild(s);
+  });
+
   var cy = cytoscape({
     container: document.getElementById('cy'),
     elements: els,
@@ -159,13 +176,16 @@ export function graphHtml(view: GraphView): string {
         'padding': '10px', 'background-color': C('--panel'), 'border-width': 1.5, 'border-color': C('--tea'), 'shape': 'round-rectangle' } },
       { selector: 'node[kind = "provider"]', style: { 'shape': 'round-rectangle', 'background-color': C('--panel'), 'border-color': C('--prov') } },
       { selector: 'node[kind = "step"]', style: { 'shape': 'rectangle', 'border-color': C('--step') } },
-      { selector: 'node[kind = "route"]', style: { 'shape': 'tag', 'background-color': C('--tea'), 'color': '#fff', 'border-width': 0 } },
-      { selector: 'edge', style: { 'width': 1.6, 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'arrow-scale': 0.9 } },
+      { selector: 'node[kind = "route"]', style: { 'shape': 'round-rectangle', 'background-color': 'data(color)', 'color': '#fff', 'border-width': 1.5, 'border-color': '#fff', 'border-style': 'solid', 'font-weight': 'bold' } },
+      { selector: 'node[transport = "sse"]', style: { 'border-style': 'dashed', 'border-width': 2.5 } },
+      { selector: 'node[transport = "negotiate"]', style: { 'border-style': 'dotted', 'border-width': 2.5 } },
+      { selector: 'node[transport = "ws"]', style: { 'border-style': 'double', 'border-width': 4 } },
+      { selector: 'edge', style: { 'width': 1, 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'arrow-scale': 0.75 } },
       { selector: 'edge[rel = "need"]', style: { 'line-color': C('--need'), 'target-arrow-color': C('--need') } },
       { selector: 'edge[rel = "feed"]', style: { 'line-color': C('--feed'), 'target-arrow-color': C('--feed') } },
       { selector: '.dim', style: { 'opacity': 0.1 } },
       { selector: 'node.hot', style: { 'border-width': 3 } },
-      { selector: 'edge.hot', style: { 'width': 3, 'opacity': 1 } }
+      { selector: 'edge.hot', style: { 'width': 1.9, 'opacity': 1 } }
     ]
   });
 
