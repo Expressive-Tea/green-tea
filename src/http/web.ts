@@ -146,7 +146,13 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
       ip: headers['x-forwarded-for'] ?? '',
     });
 
-    if ('preflight' in result) return new Response(null, { status: 204, headers: result.preflight });
+    // Mirrors the Node adapter, where `result.preflight` is written through the writeHead patch and
+    // so picks up the same authoritative security headers `injected` carries (Node's writeHead patch
+    // merges every response — including the 204 preflight — with `injected`; this adapter must too).
+    if ('preflight' in result) {
+      return new Response(null, { status: 204, headers: mergeInjectedHeaders(result.preflight, injected) });
+    }
+
     return outcomeToResponse(result);
   };
 }
