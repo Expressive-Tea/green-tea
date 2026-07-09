@@ -683,7 +683,8 @@ function buildWsRoutes(routePlans: RoutePlan[], deps: PipelineDeps): WsRouteDef[
       pattern: plan.pattern,
       open: async ({ params, inbound, abort, req }) => {
         const provided = await providedSeed(plan);
-        // ws upgrades come in on the raw Node req; trustProxy derivation for ws is out of scope here
+        // ws upgrades carry the neutral WsRequest (protocol/ip pre-derived by the runtime adapter);
+        // trustProxy derivation for ws is out of scope here
         // context is intentionally `any`: each step merges arbitrary keys into it
         let context: any = {
           ...provided,
@@ -694,8 +695,8 @@ function buildWsRoutes(routePlans: RoutePlan[], deps: PipelineDeps): WsRouteDef[
           headers: req.headers,
           inbound,
           abort,
-          protocol: (req.socket as any).encrypted ? 'https' : 'http',
-          ip: req.socket.remoteAddress ?? '',
+          protocol: req.protocol,
+          ip: req.ip,
         };
 
         for (const step of planSteps(plan)) {
