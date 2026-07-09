@@ -7,7 +7,14 @@ green-tea uses calendar versioning: `YY.MM.PATCH`.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **`app.fetch(request): Promise<Response>`** — a Web-Standards handler so the
+  same app runs HTTP and SSE on Deno/Bun/edge runtimes via the Fetch API
+  (WebSocket and mesh remain Node-only).
+
+### Changed
+- App-scope providers now boot exactly once (memoized): a second `app.listen()`
+  call no longer re-runs provider factories or their side effects.
 
 ## [26.7.0-beta.0] - 2026-07-07
 

@@ -28,3 +28,7 @@ and body for the same request (enforced by a parity test suite).
 **Not yet on non-Node runtimes:** WebSocket (`@Ws`) and mesh — Node-only for now; cross-runtime
 WebSocket is on the roadmap. `app.listen()` and TLS are Node-only; on Deno/Bun/edge you get
 `app.fetch`.
+
+**Body-size enforcement differs slightly:** on `app.fetch`, an oversized body is read in full
+before the `413` is returned, whereas Node aborts mid-stream once the limit is hit — so on
+non-Node runtimes, also bound request size at the platform/runtime layer.
