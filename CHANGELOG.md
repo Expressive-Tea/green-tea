@@ -11,6 +11,8 @@ green-tea uses calendar versioning: `YY.MM.PATCH`.
 - **`app.fetch(request): Promise<Response>`** — a Web-Standards handler so the
   same app runs HTTP and SSE on Deno/Bun/edge runtimes via the Fetch API
   (WebSocket and mesh remain Node-only).
+- **Deno adapter** (`@green-tea/core/deno`): `serveDeno(app)` runs HTTP + SSE + WebSocket on Deno.
+- **`app.upgrade(request, socket)`**: neutral WebSocket entry point for non-Node runtimes, built on a shared `WsSocket` capability. WebSocket logic is now runtime-agnostic (`src/http/ws-core.ts`).
 
 ### Changed
 - App-scope providers now boot exactly once (memoized): a second `app.listen()`
