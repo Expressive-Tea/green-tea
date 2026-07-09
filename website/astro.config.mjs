@@ -41,6 +41,7 @@ export default defineConfig({
             { label: 'Plugins & observability', slug: 'guides/plugins' },
             { label: 'Graph introspection', slug: 'guides/introspection' },
             { label: 'OpenAPI', slug: 'guides/openapi' },
+            { label: 'Runtimes', slug: 'guides/runtimes' },
             { label: 'Testing', slug: 'guides/testing' },
             { label: 'Mesh (alpha)', slug: 'guides/mesh', badge: { text: 'alpha', variant: 'caution' } },
           ],
