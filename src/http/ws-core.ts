@@ -64,7 +64,7 @@ async function pumpOutbound(socket: WsSocket, iterator: AsyncIterator<unknown>):
 /** Closes with 4000+status for HttpErrors, 1011 otherwise. */
 function closeOnError(socket: WsSocket, err: unknown): void {
   if (isHttpError(err)) {
-    const reason = Buffer.from(String(err.message)).subarray(0, 120).toString();
+    const reason = new TextDecoder().decode(new TextEncoder().encode(String(err.message)).subarray(0, 120));
 
     try {
       socket.close(4000 + err.status, reason);
@@ -91,8 +91,13 @@ export async function runWsConnection(
   const { closer } = trackConnection(socket, streams);
   const name = route.def.pattern;
   let iterator: AsyncIterator<unknown> | undefined;
-  const cancelOutbound = () => void Promise.resolve(iterator?.return?.()).catch(() => {});
-  socket.abort.addEventListener('abort', cancelOutbound, { once: true });
+
+  const onAbort = () => {
+    streams?.delete(closer);
+    void Promise.resolve(iterator?.return?.()).catch(() => {});
+  };
+
+  socket.abort.addEventListener('abort', onAbort, { once: true });
   bus?.emit('stream:open', { name });
 
   try {
@@ -108,7 +113,6 @@ export async function runWsConnection(
     bus?.emit('stream:error', { name, error: err });
     closeOnError(socket, err);
   } finally {
-    streams?.delete(closer);
     bus?.emit('stream:close', { name });
   }
 }
