@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createApp, Provider, Route, Get, Post, Module, needs, body } from '../src/index';
+import { createApp, Provider, Route, Get, Post, Module, needs, body, ctx } from '../src/index';
 
 @Provider({ provides: 'store' })
 class Store {
@@ -80,6 +80,33 @@ describe('app.fetch', () => {
     );
     expect(res.status).toBe(400);
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+});
+
+@Route('/ip')
+class IpCtl {
+  @Get('/whoami') whoami(@ctx() c: any) {
+    return { ip: c.ip };
+  }
+}
+@Module({ mountpoint: '/', controllers: [IpCtl] })
+class IpModule {}
+
+describe('app.fetch trustProxy gates x-forwarded-for', () => {
+  it('honors x-forwarded-for (first hop) when trustProxy is true', async () => {
+    const trustingApp = createApp({ modules: [IpModule], trustProxy: true });
+    const res = await trustingApp.fetch(
+      new Request('http://x/ip/whoami', { headers: { 'x-forwarded-for': '9.9.9.9, 1.1.1.1' } }),
+    );
+    expect(await res.json()).toEqual({ ip: '9.9.9.9' });
+  });
+
+  it('ignores x-forwarded-for when trustProxy is off (default)', async () => {
+    const untrustingApp = createApp({ modules: [IpModule] });
+    const res = await untrustingApp.fetch(
+      new Request('http://x/ip/whoami', { headers: { 'x-forwarded-for': '9.9.9.9, 1.1.1.1' } }),
+    );
+    expect(await res.json()).toEqual({ ip: '' });
   });
 });
 

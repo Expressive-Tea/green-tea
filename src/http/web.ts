@@ -143,7 +143,14 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
       headers,
       body,
       secure,
-      ip: headers['x-forwarded-for'] ?? '',
+      // Mirrors Node's `deriveIp` (src/http/request.ts): only trust `x-forwarded-for` when the proxy is
+      // trusted, and take its first hop — an untrusted XFF is client-spoofable, and there's no socket
+      // peer address to fall back to on the fetch path, so the untrusted case is simply ''.
+      ip: opts?.trustProxy
+        ? String(headers['x-forwarded-for'] ?? '')
+            .split(',')[0]
+            .trim()
+        : '',
     });
 
     // Mirrors the Node adapter, where `result.preflight` is written through the writeHead patch and
