@@ -35,6 +35,21 @@ export interface Preflight {
 }
 
 /**
+ * Computes the security + CORS headers that get injected into every response for a request — the same
+ * authoritative set {@link handle} applies to its outcomes. Shared with `buildFetch` (src/http/web.ts)
+ * so early-failure responses (413/400/501, before a route even matches) carry the same headers Node's
+ * `patchResponseHeaders` would have installed up-front.
+ */
+export function computeInjected(
+  opts: HttpOptions | undefined,
+  req: { secure: boolean; headers: Record<string, string | string[] | undefined> },
+): Record<string, string> {
+  const injected: Record<string, string> = { ...buildSecurityHeaders(opts?.security ?? true, req.secure) };
+  if (opts?.cors) Object.assign(injected, resolveCors(opts.cors, req));
+  return injected;
+}
+
+/**
  * Runtime-neutral request handler: security/CORS headers, preflight short-circuit, route match / 404 / 405,
  * route-handler invocation with error rendering, and the buffered-vs-stream decision. Does no I/O — the
  * caller (a Node adapter, a fetch adapter, …) reads/writes the actual request/response.
@@ -45,8 +60,7 @@ export async function handle(
   req: NeutralRequest,
 ): Promise<HandleResult | Preflight> {
   const path = req.url.split('?')[0];
-  const injected: Record<string, string> = { ...buildSecurityHeaders(opts?.security ?? true, req.secure) };
-  if (opts?.cors) Object.assign(injected, resolveCors(opts.cors, req));
+  const injected = computeInjected(opts, req);
 
   if (opts?.cors && req.method === 'OPTIONS' && req.headers['access-control-request-method']) {
     return { preflight: corsPreflightHeaders(opts.cors, req) };

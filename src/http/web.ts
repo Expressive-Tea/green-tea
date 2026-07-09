@@ -1,5 +1,5 @@
 import type { StreamEncoder } from '../encoders';
-import { handle, type HandleResult } from './core';
+import { handle, computeInjected, type HandleResult } from './core';
 import { mergeInjectedHeaders } from './headers';
 import { parseRequestBody } from './server';
 import { matchRoute } from './router';
@@ -43,9 +43,15 @@ function headersToRecord(headers: Headers): Record<string, string> {
   return out;
 }
 
-/** Turns a rendered error (or any {status, headers, body}) into a web `Response`. */
-function errorResponse(rendered: ErrorResponse): Response {
-  return new Response(rendered.body, { status: rendered.status, headers: rendered.headers });
+/**
+ * Turns a rendered error (or any {status, headers, body}) into a web `Response`, merging in the
+ * authoritative `injected` security/CORS headers — mirrors the Node adapter, where
+ * `patchResponseHeaders` installs these before body acquisition even runs, so early failures
+ * (413/400/501) carry them too.
+ */
+function errorResponse(rendered: ErrorResponse, injected: Record<string, string>): Response {
+  const headers = mergeInjectedHeaders(rendered.headers, injected);
+  return new Response(rendered.body, { status: rendered.status, headers });
 }
 
 /**
@@ -59,6 +65,7 @@ async function acquireFetchBody(
   path: string,
   maxBody: number,
   opts: HttpOptions | undefined,
+  injected: Record<string, string>,
 ): Promise<{ body: unknown } | { response: Response }> {
   const errReq: ErrorRequest = { method: request.method, url: path, headers };
   let buf: Buffer | undefined;
@@ -68,7 +75,9 @@ async function acquireFetchBody(
     const bodyLimit = matched.def.maxBodyBytes ?? maxBody;
 
     if (arrayBuffer.byteLength > bodyLimit) {
-      return { response: errorResponse(renderError(new HttpError(413, 'Payload Too Large'), errReq, opts?.onError)) };
+      return {
+        response: errorResponse(renderError(new HttpError(413, 'Payload Too Large'), errReq, opts?.onError), injected),
+      };
     }
 
     buf = arrayBuffer.byteLength === 0 ? undefined : Buffer.from(arrayBuffer);
@@ -81,7 +90,10 @@ async function acquireFetchBody(
 
   if ('error' in parsed) {
     return {
-      response: errorResponse(renderError(new HttpError(parsed.status ?? 400, parsed.error), errReq, opts?.onError)),
+      response: errorResponse(
+        renderError(new HttpError(parsed.status ?? 400, parsed.error), errReq, opts?.onError),
+        injected,
+      ),
     };
   }
 
@@ -112,10 +124,15 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
     const path = url.pathname + url.search;
     const headers = headersToRecord(request.headers);
     const matched = matchRoute(routes, request.method, url.pathname);
+    const secure = url.protocol === 'https:';
+    // Computed up-front from the same inputs `handle()` uses, so early-failure responses (413/400/501,
+    // before a route handler even runs) carry the same security/CORS headers Node's writeHead patch
+    // would have installed before body acquisition.
+    const injected = computeInjected(opts, { secure, headers });
     let body: unknown;
 
     if (matched) {
-      const acquired = await acquireFetchBody(request, matched, headers, path, maxBody, opts);
+      const acquired = await acquireFetchBody(request, matched, headers, path, maxBody, opts, injected);
       if ('response' in acquired) return acquired.response;
       body = acquired.body;
     }
@@ -125,7 +142,7 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
       url: path,
       headers,
       body,
-      secure: url.protocol === 'https:',
+      secure,
       ip: headers['x-forwarded-for'] ?? '',
     });
 

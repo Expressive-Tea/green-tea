@@ -141,7 +141,7 @@ export function createApp(opts: {
     onError: opts.onError,
   };
   const fetchFn = buildAppFetch(
-    booted,
+    () => booted,
     routePlans,
     { providedSeed, planSteps, bus, onError: opts.onError },
     fetchOpts,
@@ -617,22 +617,27 @@ function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps
 /**
  * Builds `app.fetch`: a Web-Standards handler over the same route table `listen()` uses, so
  * `Deno.serve(app.fetch)` / `Bun.serve({ fetch: app.fetch })` work without ever calling `listen()`.
- * Non-mesh apps finalize eagerly, so `booted` is already `true` and the route table is ready
- * immediately. Mesh apps defer finalize to `listen()` (remote scopes must splice into the graph
- * first), so the returned function throws until then — mirroring the explain()/graph()/inspect()
- * "unavailable before listen()" guard.
+ * Non-mesh apps finalize eagerly, so `getBooted()` is already `true` and the route table is built
+ * on the very first call. Mesh apps defer finalize to `listen()` (remote scopes must splice into the
+ * graph first): `getBooted` reads the outer `booted` flag *live* on every call — exactly like
+ * `explain()`/`graph()`/`inspect()` do — so the returned function throws until `listen()` finalizes,
+ * then starts working from the next call on, without ever needing to be rebuilt.
  */
 function buildAppFetch(
-  booted: boolean,
+  getBooted: () => boolean,
   routePlans: RoutePlan[],
   deps: PipelineDeps,
   fetchOpts: HttpOptions,
   ensureBooted: () => Promise<void>,
 ): (request: Request) => Promise<Response> {
-  const handler = booted ? buildFetch(buildHttpRoutes(routePlans, [], deps), fetchOpts) : undefined;
+  let handler: ((request: Request) => Promise<Response>) | undefined;
 
   return async (request: Request): Promise<Response> => {
-    if (!handler) throw new Error('fetch() unavailable before listen() for mesh apps');
+    if (!handler) {
+      if (!getBooted()) throw new Error('fetch() unavailable before listen() for mesh apps');
+      handler = buildFetch(buildHttpRoutes(routePlans, [], deps), fetchOpts);
+    }
+
     await ensureBooted(); // idempotent: no-op if listen() already booted the providers
     return handler(request);
   };
