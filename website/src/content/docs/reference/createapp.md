@@ -23,6 +23,9 @@ const app = createApp(options);
 | `cors` | `CorsOptions` | — | CORS handling |
 | `bodyDuplicates` | `'array' \| 'last'` | `'last'` | policy for repeated form fields |
 | `onError` | `ErrorRenderer` | — | render errors your way ([error handling](/guides/errors/)); returns a response or `undefined` to fall back to JSON |
+| `views` | `string` | `process.cwd()` | base dir `@Html('file.html')` paths resolve against — relative paths join it, absolute paths are used as-is ([HTML & views](/guides/html/)) |
+| `viewEngine` | `(source: string, data: unknown) => string` | built-in `render` | swap in your own template engine for `@Html(..., { template: true })`; template mode only ([HTML & views](/guides/html/)) |
+| `static` | `boolean \| string` | — | serve a directory as a `GET`/`HEAD` fallback (after declared routes, before `404`); `true` → `./public`, a string → that dir; path-traversal-safe; needs a filesystem — Node/Deno/Bun only ([HTML & views](/guides/html/)) |
 | `mesh` | `MeshConfig` | — | distributed DI — **requires `experimental: true`** ([mesh](/guides/mesh/)) |
 | `experimental` | `boolean` | `false` | opt in to alpha features (currently gates `mesh`) |
 

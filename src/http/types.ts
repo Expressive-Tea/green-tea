@@ -4,6 +4,7 @@ import type { PipelineResult } from '../pipeline';
 import type { ErrorRenderer } from '../transformers';
 import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
 import type { WsRequest } from './ws-core';
+import type { StaticResolver } from '../views';
 
 /** Per-request size and timeout ceilings applied by the server. */
 export interface RequestLimits {
@@ -24,6 +25,7 @@ export interface HttpOptions {
   cors?: CorsOptions;
   bodyDuplicates?: 'array' | 'last';
   onError?: ErrorRenderer;
+  static?: StaticResolver;
 }
 
 /** Handler for a matched HTTP route; receives a normalized request and resolves to a pipeline result. */

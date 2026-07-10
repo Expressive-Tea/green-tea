@@ -69,6 +69,18 @@ export async function handle(
   const matched = matchRoute(routes, req.method, path);
 
   if (!matched) {
+    if ((req.method === 'GET' || req.method === 'HEAD') && opts?.static) {
+      const hit = await opts.static(path);
+
+      if (hit) {
+        const body = req.method === 'HEAD' ? '' : hit.body;
+        return {
+          injected,
+          outcome: { kind: 'buffered', status: 200, headers: { 'content-type': hit.contentType }, body },
+        };
+      }
+    }
+
     // Path matches a route under a different method → 405 with Allow; otherwise 404.
     const allow = allowedMethods(routes, path);
     const err = allow.length ? new HttpError(405, 'Method Not Allowed') : new NotFound('Not Found');

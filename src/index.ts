@@ -18,8 +18,26 @@ export type { GraphView } from './graph-viz';
 export { buildOpenApi } from './openapi';
 export type { OpenApiDoc, OpenApiInfo, OpenApiRoute } from './openapi';
 
+// Views
+export { render } from './views';
+
 // Routing & decorators
-export { Provider, Step, Route, Get, Module, Transformer, Sse, Ws, Stream, Post, Put, Patch, Delete } from './metadata';
+export {
+  Provider,
+  Step,
+  Route,
+  Get,
+  Module,
+  Transformer,
+  Sse,
+  Ws,
+  Stream,
+  Post,
+  Put,
+  Patch,
+  Delete,
+  Html,
+} from './metadata';
 export type { Transport, HttpMethod } from './metadata';
 export type { Plugin } from './plugin';
 

@@ -11,7 +11,19 @@ import { matchWsRoute, runWsConnection, type WsRequest, type WsSocket } from '..
 import { isAsyncIterable } from '../channel';
 import { JsonTransformer, type ErrorRenderer } from '../transformers';
 import { mountPlugin, Plugin, ScopeApi, ScopeNode } from '../plugin';
-import { Ctor, getModuleMeta, getProviderMeta, getStepMeta, getRoutes, getTransformer, joinPath } from '../metadata';
+import {
+  Ctor,
+  getModuleMeta,
+  getProviderMeta,
+  getStepMeta,
+  getRoutes,
+  getTransformer,
+  getHtmlMeta,
+  joinPath,
+  type RouteMeta,
+  type TransformerFn,
+} from '../metadata';
+import { buildHtmlTransformer, buildStaticResolver, type ViewsContext } from '../views';
 import { getArgs, getHandlerNeeds, resolveArgs } from '../params';
 import { buildOpenApi, type OpenApiInfo } from '../openapi';
 import { connectLink, type Link } from '../mesh/link';
@@ -69,6 +81,12 @@ export function createApp(opts: {
   bodyDuplicates?: 'array' | 'last';
   /** Render errors your own way (HTML, custom JSON, …); return a response or undefined to fall back to JSON. */
   onError?: ErrorRenderer;
+  /** Base directory `@Html('file.html')` paths resolve against (default: `process.cwd()`). */
+  views?: string;
+  /** Bring-your-own template engine for `@Html(..., { template: true })`; defaults to the built-in `render`. */
+  viewEngine?: (source: string, data: unknown) => string;
+  /** Serve a static directory as a GET/HEAD fallback (after declared routes, before 404). `true` → `./public`. */
+  static?: boolean | string;
   /** Opt in to alpha features whose API may still change. Currently gates `mesh`. */
   experimental?: boolean;
 }): App {
@@ -86,7 +104,8 @@ export function createApp(opts: {
   const degradedProviders: string[] = []; // optional providers that failed to boot (running degraded)
 
   // Collect declarations from modules, then splice in plugin- and built-in-provided nodes.
-  const registry = collectModules(opts.modules);
+  const viewsCtx: ViewsContext = { views: opts.views, viewEngine: opts.viewEngine };
+  const registry = collectModules(opts.modules, viewsCtx);
   const { providerNodes, stepNodes, runners, providerMeta, routePlans } = registry;
   mountPlugins(opts.plugins, bus, registry);
   provideBuiltins(registry);
@@ -141,6 +160,8 @@ export function createApp(opts: {
     degradedProviders,
   );
 
+  const staticResolver = opts.static ? buildStaticResolver(opts.static) : undefined;
+
   const fetchOpts: HttpOptions = {
     limits: opts.limits,
     tls: opts.tls,
@@ -149,6 +170,7 @@ export function createApp(opts: {
     cors: opts.cors,
     bodyDuplicates: opts.bodyDuplicates,
     onError: opts.onError,
+    static: staticResolver,
   };
   const fetchFn = buildAppFetch(
     () => booted,
@@ -201,6 +223,7 @@ export function createApp(opts: {
       cors: opts.cors,
       bodyDuplicates: opts.bodyDuplicates,
       onError: opts.onError,
+      static: staticResolver,
     });
     server.on('close', () => closeLinks(meshLinks));
     await new Promise<void>((resolve) => server!.listen(port, resolve));
@@ -278,7 +301,13 @@ function collectSteps(steps: Ctor[], origin: string, registry: Registry): void {
 }
 
 /** Registers each `@Route` handler on a module's controllers as a {@link RoutePlan}. */
-function collectControllers(controllers: Ctor[], mountpoint: string, origin: string, registry: Registry): void {
+function collectControllers(
+  controllers: Ctor[],
+  mountpoint: string,
+  origin: string,
+  registry: Registry,
+  viewsCtx: ViewsContext,
+): void {
   for (const ControllerClass of controllers) {
     for (const route of getRoutes(ControllerClass)) {
       const instance: any = new ControllerClass();
@@ -290,6 +319,8 @@ function collectControllers(controllers: Ctor[], mountpoint: string, origin: str
         registry.exportedRoutes.push({ method: route.method, pattern });
       }
 
+      const transformer = resolveTransformer(ControllerClass, route, pattern, viewsCtx);
+
       registry.routePlans.push({
         pattern,
         method: route.method,
@@ -300,7 +331,7 @@ function collectControllers(controllers: Ctor[], mountpoint: string, origin: str
         handlerName: route.handlerName,
         needs: getHandlerNeeds(argSpecs),
         run: async (context: any) => instance[route.handlerName](...(await resolveArgs(argSpecs, context))),
-        transformer: getTransformer(ControllerClass, route.handlerName) ?? JsonTransformer,
+        transformer,
         duplicates: route.duplicates,
         maxBodyBytes: route.maxBodyBytes,
         maxParts: route.maxParts,
@@ -310,8 +341,34 @@ function collectControllers(controllers: Ctor[], mountpoint: string, origin: str
   }
 }
 
+/**
+ * Resolves the response transformer for a route: `@Html` metadata builds an HTML transformer (after
+ * validating placement — buffered GET/POST only, and not combined with `@Transformer`); otherwise the
+ * user's `@Transformer` wins, falling back to {@link JsonTransformer}.
+ */
+function resolveTransformer(
+  ControllerClass: Ctor,
+  route: RouteMeta,
+  pattern: string,
+  viewsCtx: ViewsContext,
+): TransformerFn {
+  const html = getHtmlMeta(ControllerClass, route.handlerName);
+  const userTransformer = getTransformer(ControllerClass, route.handlerName);
+  if (!html) return userTransformer ?? JsonTransformer;
+
+  if (route.transport !== 'buffer' || (route.method !== 'GET' && route.method !== 'POST')) {
+    throw new Error(
+      `@Html on ${route.method} ${pattern} is not allowed — @Html only supports buffered GET/POST routes (not SSE/WS/PUT/PATCH/DELETE)`,
+    );
+  }
+
+  if (userTransformer) throw new Error(`@Html and @Transformer on ${pattern} conflict — use one`);
+
+  return buildHtmlTransformer(html, viewsCtx);
+}
+
 /** Reads every module's metadata into a fresh {@link Registry} of graph nodes, runners and exports. */
-function collectModules(modules: Ctor[]): Registry {
+function collectModules(modules: Ctor[], viewsCtx: ViewsContext): Registry {
   const registry = emptyRegistry();
 
   for (const mod of modules) {
@@ -320,7 +377,7 @@ function collectModules(modules: Ctor[]): Registry {
     const origin = `module:${mod.name}`;
     collectProviders(moduleMeta.providers ?? [], origin, registry);
     collectSteps(moduleMeta.steps ?? [], origin, registry);
-    collectControllers(moduleMeta.controllers ?? [], moduleMeta.mountpoint, origin, registry);
+    collectControllers(moduleMeta.controllers ?? [], moduleMeta.mountpoint, origin, registry, viewsCtx);
   }
 
   return registry;

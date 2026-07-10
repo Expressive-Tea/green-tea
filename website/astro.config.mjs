@@ -37,6 +37,7 @@ export default defineConfig({
             { label: 'Error handling', slug: 'guides/errors' },
             { label: 'Streaming & real-time', slug: 'guides/streaming' },
             { label: 'File uploads', slug: 'guides/uploads' },
+            { label: 'HTML & views', slug: 'guides/html' },
             { label: 'Transport security', slug: 'guides/security' },
             { label: 'Plugins & observability', slug: 'guides/plugins' },
             { label: 'Graph introspection', slug: 'guides/introspection' },

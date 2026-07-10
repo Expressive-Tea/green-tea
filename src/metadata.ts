@@ -5,6 +5,11 @@ export type Ctor = new (...args: any[]) => any;
 /** Serializes a handler's return value into an HTTP response envelope. */
 export type TransformerFn = (value: unknown) => { status?: number; headers?: Record<string, string>; body: string };
 
+/** Metadata attached by `@Html`: optional file path and whether it is a template. */
+export interface HtmlMeta {
+  path?: string;
+  template?: boolean;
+}
 /** Metadata attached by `@Provider`: what it provides, what it needs, and its visibility. */
 export interface ProviderMeta {
   provides: string;
@@ -49,6 +54,7 @@ const K = {
   routes: Symbol('gt:routes'),
   module: Symbol('gt:module'),
   transformer: Symbol('gt:transformer'),
+  html: Symbol('gt:html'),
 };
 
 /** Marks a class as a provider: a lazily-built dependency addressable by its `provides` key. */
@@ -145,6 +151,35 @@ export function Module(opts: ModuleOptions): ClassDecorator {
   return (target) => {
     Reflect.defineMetadata(K.module, opts, target);
   };
+}
+
+/**
+ * Marks a buffered GET/POST handler as serving HTML. Bare `@Html` sends the handler's string return as
+ * `text/html`. `@Html('file.html')` serves that file (return ignored). `@Html('file.html', { template: true })`
+ * renders the file with the handler's returned data. Placement is validated at boot (buffered GET/POST only).
+ */
+export function Html(path: string, opts?: { template?: boolean }): MethodDecorator;
+export function Html(target: object, propertyKey: string | symbol): void;
+
+export function Html(a: unknown, b?: unknown): MethodDecorator | void {
+  if (typeof a !== 'string') {
+    // Bare usage: TS calls (prototype, propertyKey, descriptor?).
+    Reflect.defineMetadata(K.html, {}, (a as { constructor: Ctor }).constructor, String(b));
+    return;
+  }
+
+  const path = a;
+  const opts = b as { template?: boolean } | undefined;
+
+  return (target, propertyKey) => {
+    const meta: HtmlMeta = { path, template: opts?.template };
+    Reflect.defineMetadata(K.html, meta, (target as { constructor: Ctor }).constructor, String(propertyKey));
+  };
+}
+
+/** Reads the `@Html` metadata registered for a handler method, if any. */
+export function getHtmlMeta(cls: Ctor, methodName: string): HtmlMeta | undefined {
+  return Reflect.getMetadata(K.html, cls, methodName);
 }
 
 /** Reads the `@Provider` metadata off a class, if any. */
