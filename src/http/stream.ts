@@ -1,4 +1,4 @@
-import http from 'http';
+import type http from 'http';
 import { once } from 'events';
 import { sseEncoder, ndjsonEncoder, StreamEncoder } from '../encoders';
 import type { Transport } from '../metadata';

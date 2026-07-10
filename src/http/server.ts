@@ -1,5 +1,5 @@
-import http from 'http';
-import https from 'https';
+import type http from 'http';
+import type https from 'https';
 import { renderError, type ErrorRequest } from '../transformers';
 import { isHttpError, HttpError } from '../signals';
 import type { Bus } from '../bus';
@@ -48,10 +48,17 @@ export function createHttpServer(
   const trustProxy = opts?.trustProxy ?? false;
   const handler = createRequestHandler({ routes, bus, opts, maxBody, trustProxy });
 
+  // Node http/https are loaded lazily so importing createApp stays edge/workerd-safe
+  // (workerd's nodejs_compat provides no node:http/node:https). This path only runs under listen().
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const nodeHttp = require('http') as typeof import('http');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const nodeHttps = require('https') as typeof import('https');
+
   // runtime-compatible; only @types differ (https.Server lacks the http-only timeout props)
   const server: http.Server = (opts?.tls
-    ? https.createServer(opts.tls as https.ServerOptions, handler)
-    : http.createServer(handler)) as unknown as http.Server;
+    ? nodeHttps.createServer(opts.tls as https.ServerOptions, handler)
+    : nodeHttp.createServer(handler)) as unknown as http.Server;
   server.requestTimeout = opts?.limits?.requestTimeoutMs ?? 30_000;
   server.headersTimeout = opts?.limits?.headersTimeoutMs ?? 10_000;
   server.keepAliveTimeout = opts?.limits?.keepAliveTimeoutMs ?? 5_000;

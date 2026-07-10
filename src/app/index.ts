@@ -1,4 +1,4 @@
-import http from 'http';
+import type http from 'http';
 import { Bus } from '../bus';
 import { Container } from '../container';
 import { topoSort, subgraphFor, GraphNode, nearest } from '../graph';

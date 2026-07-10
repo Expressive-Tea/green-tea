@@ -1,4 +1,4 @@
-import http from 'http';
+import type http from 'http';
 import { HttpError } from '../signals';
 
 /** Reads the full request body, enforcing the max-bytes ceiling (throws 413 if exceeded). */

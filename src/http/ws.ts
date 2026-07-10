@@ -1,4 +1,4 @@
-import http from 'http';
+import type http from 'http';
 import { channel } from '../channel';
 import type { Bus } from '../bus';
 import { runWsConnection, matchWsRoute, type WsSocket, type WsRequest } from './ws-core';
