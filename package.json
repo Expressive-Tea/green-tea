@@ -56,6 +56,16 @@
         "types": "./dist/bun.d.ts",
         "default": "./dist/bun.js"
       }
+    },
+    "./edge": {
+      "import": {
+        "types": "./dist/edge.d.mts",
+        "default": "./dist/edge.mjs"
+      },
+      "require": {
+        "types": "./dist/edge.d.ts",
+        "default": "./dist/edge.js"
+      }
     }
   },
   "files": [
