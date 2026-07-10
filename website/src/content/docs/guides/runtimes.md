@@ -117,3 +117,18 @@ this flag; without it, the Worker fails to load.
 Durable Objects and WebSocket Hibernation are **not** used — `edgeHandler` accepts
 WebSockets with the standard `WebSocketPair` model, so a Worker holds the connection
 open for its lifetime rather than hibernating between messages.
+
+## Filesystem features — Node/Deno/Bun only
+
+A few [HTML & views](/guides/html/) features read from disk, so they need a runtime with
+a filesystem:
+
+- `@Html('file.html')` — reads and caches the file at boot.
+- `@Html('file.html', { template: true })` — same, then renders it per request.
+- `createApp({ static })` — serves a directory of files.
+
+All three throw at boot (`createApp()`/route-build time) on a runtime without a
+filesystem, rather than failing per-request. On the edge, use bare `@Html` returning a
+string instead — pair it with the exported `render` over a template string you `import`
+as a module (so it ships in the bundle, no disk read), and serve other assets (images,
+CSS, JS) from a CDN in front of the Worker.

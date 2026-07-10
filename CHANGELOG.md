@@ -8,6 +8,10 @@ green-tea uses calendar versioning: `YY.MM.PATCH`.
 ## [Unreleased]
 
 ### Added
+- **HTML / views:** `@Html` decorator (string, file, and template modes), a zero-dep built-in
+  template engine (`{{ }}` escaped / `{{{ }}}` raw, exported as `render`) with a `viewEngine`
+  bring-your-own hook, and zero-config `static` directory serving (`createApp({ static: true })`).
+  File and static serving require a filesystem (Node/Deno/Bun); string-mode `@Html` runs everywhere.
 - **`app.fetch(request): Promise<Response>`** — a Web-Standards handler so the
   same app runs HTTP and SSE on Deno/Bun/edge runtimes via the Fetch API
   (WebSocket and mesh remain Node-only).
