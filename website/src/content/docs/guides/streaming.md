@@ -104,11 +104,14 @@ Same `@Route`, same handler shape, same `AsyncIterable` — real-time is not a s
 
 `rooms` is the built-in shared `Rooms` primitive (one instance app-wide). A typical chat handler pumps the `@inbound()` channel into `rooms.room(name)` and returns that same room as its outbound channel, so every joined socket multicasts to the others. A handshake `@Step` can read `?token=` and throw `Unauthorized` — which closes the socket with code **4401** (`4000 + status`). See [security](/guides/security/) for handshake authentication.
 
-## The one rule to remember
+## Transport is declared, not inferred
 
-```
-return a VALUE          → buffered response (transformer → JSON)
-return an AsyncIterable → stream (SSE / WS)
-```
+A route streams **because** it's declared `@Sse`, `@Stream`, or `@Ws` — never because a handler happened to return an `AsyncIterable`. In most frameworks the return type decides the wire format; in green-tea the decorator decides, and the return value is enforced against it:
 
-Return a value and you get a buffered JSON response; return an `AsyncIterable` and you get a stream. That's the whole contract.
+| Declare | Handler must return | Otherwise |
+|---|---|---|
+| `@Get` / `@Post` / `@Put` / `@Patch` / `@Delete` (buffered) | a value | returning an `AsyncIterable` fails with a 500 `TransportMismatchError` |
+| `@Sse` / `@Ws` (streaming) | an `AsyncIterable` | returning a plain value fails with a 500 `TransportMismatchError` |
+| `@Stream` (negotiate) | either | the client picks via `Accept` / `Upgrade` — no mismatch |
+
+This is the anti-Express guarantee: your wire contract is what you **declared**, never a surprise sprung by a return value. A buffered route can't accidentally start streaming because someone returned a generator; a streaming route can't silently downgrade to a buffered response because someone forgot a `yield`. Declare `@Sse` / `@Stream` / `@Ws` to stream — the return value never changes a route's transport.
