@@ -35,7 +35,7 @@ Most frameworks make you keep the whole request in your head: which middleware r
     `app.explain('/users/:id')` prints the ordered chain; `GET /__graph__` renders it as a live diagram. Onboarding and audits are reading, not archaeology.
   </Card>
   <Card title="One primitive for real-time" icon="rocket">
-    Return an `AsyncIterable` and the transport streams it — SSE, ndjson, or a WebSocket duplex — with backpressure and cleanup handled. No separate gateway.
+    Declare `@Sse`, `@Stream`, or `@Ws` and return an `AsyncIterable` — the transport streams it (SSE, ndjson, or a WebSocket duplex) with backpressure and cleanup handled. No separate gateway.
   </Card>
 </CardGrid>
 

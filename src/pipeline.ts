@@ -1,7 +1,8 @@
 import { Bus } from './bus';
 import { renderError, type ErrorRenderer } from './transformers';
 import { isAsyncIterable } from './channel';
-import type { TransformerFn } from './metadata';
+import type { TransformerFn, Transport } from './metadata';
+import { TransportMismatchError } from './signals';
 
 /** A single step in a request pipeline: a named unit whose `run` merges its output into the shared context. */
 export interface PipelineStep {
@@ -22,6 +23,18 @@ export interface StreamResult {
 /** The outcome of {@link runPipeline}: either a buffered response or a stream. */
 export type PipelineResult = ResponseShape | StreamResult;
 
+/** What a route's declared transport requires its handler to return. */
+export type ReturnContract = 'buffer' | 'stream' | 'either';
+
+/** Return contract per transport. A new transport just adds a row. `ws` never reaches runPipeline (filtered earlier). */
+export const TRANSPORT_RETURN: Record<Transport, ReturnContract> = {
+  buffer: 'buffer',
+  sse: 'stream',
+  ndjson: 'stream',
+  ws: 'stream',
+  negotiate: 'either',
+};
+
 /** Type guard narrowing a {@link PipelineResult} to a {@link StreamResult}. */
 export function isStreamResult(result: PipelineResult): result is StreamResult {
   return 'stream' in result;
@@ -38,9 +51,10 @@ export async function runPipeline(args: {
   transformer: TransformerFn;
   seed: Record<string, unknown>;
   bus: Bus;
+  transport: Transport;
   onError?: ErrorRenderer;
 }): Promise<PipelineResult> {
-  const { steps, handler, transformer, seed, bus, onError } = args;
+  const { steps, handler, transformer, seed, bus, transport, onError } = args;
   // context is intentionally `any`: each step merges arbitrary keys into the accumulator
   let context: any = { ...seed };
 
@@ -53,7 +67,18 @@ export async function runPipeline(args: {
     }
 
     const result = await handler(context);
-    if (isAsyncIterable(result)) return { stream: result }; // stream path: transformer bypassed
+    const streaming = isAsyncIterable(result);
+    const contract = TRANSPORT_RETURN[transport];
+
+    if (contract === 'buffer' && streaming) {
+      throw new TransportMismatchError(transport, 'stream', context.req as { method?: string; url?: string });
+    }
+
+    if (contract === 'stream' && !streaming) {
+      throw new TransportMismatchError(transport, 'value', context.req as { method?: string; url?: string });
+    }
+
+    if (streaming) return { stream: result }; // stream path: transformer bypassed
     const transformed = transformer(result);
     return { status: transformed.status ?? 200, headers: transformed.headers ?? {}, body: transformed.body };
   } catch (error) {

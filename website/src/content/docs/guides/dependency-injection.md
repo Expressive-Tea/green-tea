@@ -143,4 +143,4 @@ receive `undefined`. Boot fails loudly, so you never serve `undefined`.
 - Everything a handler can inject: [Argument decorators](/guides/arguments/) and the
   [decorator reference](/reference/decorators/).
 - Coerce and validate injected values with Standard Schema: [Validation](/guides/validation/).
-- Return an `AsyncIterable` to push data over time: [Streaming](/guides/streaming/).
+- Declare `@Sse` and return an `AsyncIterable` to push data over time: [Streaming](/guides/streaming/).

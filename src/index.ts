@@ -44,7 +44,15 @@ export type { Plugin } from './plugin';
 // Transformers & error signals
 export { JsonTransformer } from './transformers';
 export type { ErrorRenderer, ErrorRequest, ErrorResponse } from './transformers';
-export { HttpError, Unauthorized, NotFound, Redirect, NotModified, ValidationError } from './signals';
+export {
+  HttpError,
+  Unauthorized,
+  NotFound,
+  Redirect,
+  NotModified,
+  ValidationError,
+  TransportMismatchError,
+} from './signals';
 
 // Bus & flow
 export { Bus } from './bus';

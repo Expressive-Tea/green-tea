@@ -62,10 +62,13 @@ class UserController {
 
 Same filesystem requirement as file mode: Node/Deno/Bun only.
 
-:::caution[Return a string or data, never an `AsyncIterable`]
-An `@Html` handler must return a string (bare mode) or a data object (template mode). Don't
-return an `AsyncIterable` — the pipeline detects async-iterable returns and streams them raw,
-bypassing the HTML transformer entirely, so your markup never gets wrapped or rendered.
+:::caution[Return the right shape for each mode — never an `AsyncIterable`]
+`@Html` is a buffered route, so its return contract follows the mode: bare `@Html` returns a
+`string`; `@Html('file.html', { template: true })` returns the data object rendered into the
+template; `@Html('file.html')` (no template) ignores the return entirely — annotate it `: void`
+by convention, e.g. `page(@needs('x')): void {}`. Returning an `AsyncIterable` from any `@Html`
+handler is the same buffered-route mismatch as any other `@Get`/`@Post`/`@Put`/`@Patch`/`@Delete`
+handler: a 500 `TransportMismatchError`, not a silent raw stream.
 :::
 
 ## The `views` base directory

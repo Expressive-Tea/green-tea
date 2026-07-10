@@ -34,6 +34,11 @@ green-tea uses calendar versioning: `YY.MM.PATCH`.
   fields such as `req.socket` / `req.rawHeaders` are no longer available on
   `ctx.req`; use `ctx.protocol` / `ctx.ip` / `ctx.query` / `ctx.headers`
   instead — all still provided.
+- **Breaking (pre-1.0): transport is now enforced by declaration.** A buffered route
+  (`@Get`/`@Post`/`@Put`/`@Patch`/`@Delete`) whose handler returns an `AsyncIterable`, or a streaming
+  route (`@Sse`/`@Ws`) whose handler returns a plain value, now fails with a 500 `TransportMismatchError`
+  instead of silently switching behavior. `@Stream` still negotiates both. Declare `@Sse`/`@Stream`/`@Ws`
+  to stream — a return value no longer changes a route's wire contract.
 
 ## [26.7.0-beta.0] - 2026-07-07
 
