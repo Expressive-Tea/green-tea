@@ -16,6 +16,11 @@ green-tea uses calendar versioning: `YY.MM.PATCH`.
 - **Cloudflare Workers / edge adapter** (`@green-tea/core/edge`): `edgeHandler(app)` runs HTTP + SSE + WebSocket on workerd, reusing the neutral `app.upgrade` / `WsSocket` capability. Requires the `nodejs_compat` compatibility flag. Green Tea now runs on Node, Deno, Bun, and the edge — with identical WebSocket, rooms, and channel behaviour on all four.
 - **`app.upgrade(request, socket)`**: neutral WebSocket entry point for non-Node runtimes, built on a shared `WsSocket` capability. WebSocket logic is now runtime-agnostic (`src/http/ws-core.ts`).
 
+### Fixed
+- The opt-in dev routes `/__graph__` (graph viewer) and `/__openapi__` are now
+  served over `app.fetch` too, so they work on every runtime (Deno/Bun/edge),
+  not only the Node `app.listen()` path.
+
 ### Changed
 - App-scope providers now boot exactly once (memoized): a second `app.listen()`
   call no longer re-runs provider factories or their side effects.
