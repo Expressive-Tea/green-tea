@@ -28,7 +28,7 @@ Streaming bypasses the response transformer — the transport frames each value 
 
 ## Streaming — SSE
 
-Return an `AsyncIterable` and the pipeline streams it (the transformer is bypassed; the transport frames it, handles backpressure, and cleans up on disconnect).
+A route decorated `@Sse` streams — that's what triggers it, not the return value. It must return an `AsyncIterable`; the transport frames each value as an SSE event, handles backpressure, and cleans up on disconnect (the transformer is bypassed).
 
 ```typescript
 import { Route, Sse } from '@green-tea/core';
