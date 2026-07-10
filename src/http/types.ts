@@ -1,4 +1,4 @@
-import http from 'http';
+import type http from 'http';
 import type { Transport } from '../metadata';
 import type { PipelineResult } from '../pipeline';
 import type { ErrorRenderer } from '../transformers';

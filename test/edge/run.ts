@@ -5,60 +5,32 @@
 //
 // Run with: npm run test:edge
 //
-// NODEJS_COMPAT FRICTION (found by running this against real Miniflare — see
-// project-docs/.superpowers/sdd/task-2-report.md for full detail): the barrel
-// (`src/index.ts` -> `createApp` -> `src/app/index.ts` -> `src/http/server.ts`) statically
-// imports Node's `http`/`https` as VALUES (for the Node `listen()`/`http.createServer` path),
-// even though `edgeHandler`'s request path never touches them. workerd's `nodejs_compat`
-// genuinely does NOT implement `node:http`/`node:https` (confirmed in isolation: `node:crypto`,
-// `node:stream`, `node:net`, `node:tls`, `node:events`, `node:util`, `node:buffer` all load
-// fine under the same flags/compat date; only `http`/`https` fail with
-// "Uncaught Error: No such module 'node:http'" at worker LOAD time, regardless of
-// compatibilityDate 2023-05-01..2024-11-01 or alias tweaks) — this is a real platform gap,
-// not a bundler misconfiguration.
-//
-// To let this test actually exercise edgeHandler's real HTTP+WS behavior on workerd (rather
-// than stopping at "the barrel doesn't load"), the two Node-only server builtins are stubbed
-// at BUNDLE TIME (esbuild plugin below) with inert objects whose `createServer` throws if
-// ever called. This only satisfies static module resolution for code edgeHandler never
-// executes; it does not change src/edge.ts or core, and does not touch the WS assertion.
-// It is a TEST-ONLY workaround, not proof that `node:http`/`node:https` work under workerd —
-// they don't. See the report for the recommended follow-up (lazy-defer those imports behind
-// `listen()` in src/app/index.ts / src/http/server.ts so the barrel is edge-safe without a
-// bundle-time shim).
+// NODEJS_COMPAT: workerd's `nodejs_compat` genuinely does NOT implement `node:http`/
+// `node:https` (confirmed in isolation: `node:crypto`, `node:stream`, `node:net`, `node:tls`,
+// `node:events`, `node:util`, `node:buffer` all load fine under the same flags/compat date;
+// only `http`/`https` fail with "Uncaught Error: No such module 'node:http'" at worker LOAD
+// time) — a real platform gap, not a bundler misconfiguration. The barrel used to statically
+// VALUE-import `http`/`https` for the Node `listen()` path even though `edgeHandler` never
+// touches them, which broke worker load with no shim. The fix (see src/http/server.ts,
+// src/app/index.ts, and the other src/http/*.ts files) converts every `http`/`https` import
+// to `import type` (zero runtime code) and lazy-`require()`s them only inside
+// `createHttpServer`, which the edge path never calls. That means the real barrel now loads
+// on workerd with no test-time stub — this run exercises it as-is.
 import { strict as assert } from 'node:assert';
-import { build, type Plugin } from 'esbuild';
+import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
 
 const BUNDLE = 'test/edge/_worker.mjs';
 
-// Stubs Node's `http`/`https` (unsupported by workerd's nodejs_compat) with inert modules.
-// edgeHandler's request path never calls these; they exist in the barrel only for the Node
-// `listen()` path. Any call would throw clearly rather than resolve to a wrong behavior.
-const stubUnsupportedNodeServerModules: Plugin = {
-  name: 'stub-unsupported-node-server-modules',
-  setup(pluginBuild) {
-    pluginBuild.onResolve({ filter: /^(http|https)$/ }, (args) => ({
-      path: args.path,
-      namespace: 'edge-test-stub',
-    }));
-    pluginBuild.onLoad({ filter: /.*/, namespace: 'edge-test-stub' }, (args) => ({
-      contents: `
-        function createServer() {
-          throw new Error(${JSON.stringify(args.path)} + '.createServer is not available in the edge runtime (no nodejs_compat support; edgeHandler never calls it)');
-        }
-        export default { createServer };
-        export { createServer };
-      `,
-      loader: 'js',
-    }));
-  },
-};
-
 async function main() {
   // Bundle the worker for workerd: ESM, Node builtins left external + aliased to node:*
-  // so workerd's nodejs_compat provides them (not esbuild) — except http/https, which
-  // workerd genuinely doesn't implement (see comment above); those are stubbed instead.
+  // so workerd's nodejs_compat provides them (not esbuild). `http`/`https` are no longer
+  // imported as VALUES by the barrel at module-eval time (see comment above) — they're now
+  // `import type` (erased) plus a lazy `require()` reached only from `createHttpServer`,
+  // which `edgeHandler` never calls. esbuild still needs a resolution for that bare
+  // `require('http')`/`require('https')` text even though it's dead code on this path, so
+  // they're marked external here (left unresolved, exactly like the `node:*` builtins) rather
+  // than stubbed — no fake implementation is provided, and the real barrel is what's tested.
   await build({
     entryPoints: ['test/edge/worker.ts'],
     bundle: true,
@@ -66,9 +38,9 @@ async function main() {
     outfile: BUNDLE,
     platform: 'browser', // workerd is not node; keep esbuild from injecting node shims
     target: 'esnext',
-    // Leave Node builtins for workerd's nodejs_compat to resolve:
-    external: ['node:*'],
-    plugins: [stubUnsupportedNodeServerModules],
+    // Leave Node builtins for workerd's nodejs_compat to resolve; http/https are external
+    // too (unresolved, never called by edgeHandler) since workerd has no node:http/https.
+    external: ['node:*', 'http', 'https'],
     alias: {
       crypto: 'node:crypto',
       stream: 'node:stream',
