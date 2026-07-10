@@ -119,6 +119,15 @@ export function createApp(opts: {
       info,
     );
 
+  // Dev-only introspection routes (opt-in). Shared by BOTH listen() and app.fetch so the
+  // graph viewer + OpenAPI doc are served on every runtime (Node/Deno/Bun/edge), not Node alone.
+  const devRoutes = (): RouteDef[] => {
+    const routes: RouteDef[] = [];
+    if (opts.devGraph) routes.push(devGraphRoute(graph));
+    if (opts.devOpenapi) routes.push(openApiRoute(openapi));
+    return routes;
+  };
+
   const providedSeed = (plan: RoutePlan) => seedProviders(container, plan);
   const planSteps = (plan: RoutePlan) => compilePlanSteps(runners, plan);
 
@@ -147,6 +156,7 @@ export function createApp(opts: {
     { providedSeed, planSteps, bus, onError: opts.onError },
     fetchOpts,
     bootAppProviders,
+    devRoutes,
   );
   const upgradeFn = buildAppUpgrade(
     () => booted,
@@ -179,9 +189,7 @@ export function createApp(opts: {
       deps,
     });
 
-    const httpRoutes = buildHttpRoutes(routePlans, remoteRoutes, deps);
-    if (opts.devGraph) httpRoutes.push(devGraphRoute(graph));
-    if (opts.devOpenapi) httpRoutes.push(openApiRoute(openapi));
+    const httpRoutes = [...buildHttpRoutes(routePlans, remoteRoutes, deps), ...devRoutes()];
     const wsRoutes = buildWsRoutes(routePlans, deps);
 
     server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, {
@@ -638,13 +646,14 @@ function buildAppFetch(
   deps: PipelineDeps,
   fetchOpts: HttpOptions,
   ensureBooted: () => Promise<void>,
+  devRoutes: () => RouteDef[],
 ): (request: Request) => Promise<Response> {
   let handler: ((request: Request) => Promise<Response>) | undefined;
 
   return async (request: Request): Promise<Response> => {
     if (!handler) {
       if (!getBooted()) throw new Error('fetch() unavailable before listen() for mesh apps');
-      handler = buildFetch(buildHttpRoutes(routePlans, [], deps), fetchOpts);
+      handler = buildFetch([...buildHttpRoutes(routePlans, [], deps), ...devRoutes()], fetchOpts);
     }
 
     await ensureBooted(); // idempotent: no-op if listen() already booted the providers

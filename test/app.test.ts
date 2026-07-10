@@ -398,6 +398,30 @@ describe('devGraph endpoint', () => {
     expect(res.status).toBe(404);
     s.close();
   });
+
+  it('serves /__graph__ and /__openapi__ over app.fetch too (runtime-agnostic dev tools)', async () => {
+    @Route('/u')
+    class Ctl {
+      @Get('/me') me() {
+        return { ok: 1 };
+      }
+    }
+    @Module({ mountpoint: '/api', controllers: [Ctl] })
+    class M {}
+    const app = createApp({ modules: [M], devGraph: true, devOpenapi: true });
+
+    const graph = await app.fetch(new Request('http://x/__graph__'));
+    expect(graph.status).toBe(200);
+    expect(await graph.text()).toContain('cytoscape');
+
+    const openapi = await app.fetch(new Request('http://x/__openapi__'));
+    expect(openapi.status).toBe(200);
+    expect(((await openapi.json()) as { openapi: string }).openapi).toBe('3.1.0');
+
+    // still absent when the flags are off, on the fetch path too
+    const off = createApp({ modules: [M] });
+    expect((await off.fetch(new Request('http://x/__graph__'))).status).toBe(404);
+  });
 });
 
 describe('graceful shutdown', () => {
