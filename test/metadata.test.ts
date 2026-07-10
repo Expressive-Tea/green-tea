@@ -74,3 +74,24 @@ describe('mesh export flags', () => {
     expect(byName.priv.export).toBe(false);
   });
 });
+
+import { Html, getHtmlMeta } from '../src/metadata';
+
+describe('@Html', () => {
+  it('records empty meta for bare @Html', () => {
+    class A { @Html m() { return ''; } }
+    expect(getHtmlMeta(A, 'm')).toEqual({});
+  });
+  it('records path and template for called @Html', () => {
+    class B {
+      @Html('views/x.html') a() {}
+      @Html('views/y.html', { template: true }) c() { return {}; }
+    }
+    expect(getHtmlMeta(B, 'a')).toEqual({ path: 'views/x.html', template: undefined });
+    expect(getHtmlMeta(B, 'c')).toEqual({ path: 'views/y.html', template: true });
+  });
+  it('returns undefined when @Html is absent', () => {
+    class C { m() {} }
+    expect(getHtmlMeta(C, 'm')).toBeUndefined();
+  });
+});
