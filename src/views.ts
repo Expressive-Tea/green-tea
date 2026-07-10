@@ -76,6 +76,60 @@ function readViewFile(views: string | undefined, path: string): string {
   }
 }
 
+/** A static-file hit: the raw bytes and the content-type to send. */
+export interface StaticHit {
+  body: Buffer;
+  contentType: string;
+}
+
+/** Resolves a URL path to a static file under a fixed root, or `undefined` for a miss. */
+export type StaticResolver = (urlPath: string) => Promise<StaticHit | undefined>;
+
+/**
+ * Builds a static-file resolver rooted at `root` (`true` → `./public`). Requires a filesystem: throws at
+ * boot on a runtime without one (edge). Path-traversal-safe — a resolved path outside the root is a miss.
+ */
+export function buildStaticResolver(root: string | true): StaticResolver {
+  let fs: typeof import('node:fs');
+  let nodePath: typeof import('node:path');
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    fs = require('node:fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    nodePath = require('node:path');
+  } catch {
+    throw new Error(
+      '`static` needs a filesystem and is unavailable on this runtime (edge). Remove it or serve assets from a CDN.',
+    );
+  }
+
+  const abs = nodePath.resolve(process.cwd(), root === true ? 'public' : root);
+
+  return async (urlPath) => {
+    let rel: string;
+
+    try {
+      rel = decodeURIComponent(urlPath.split('?')[0]);
+    } catch {
+      return undefined;
+    }
+
+    if (rel === '' || rel.endsWith('/')) rel += 'index.html';
+    const full = nodePath.resolve(abs, '.' + (rel.startsWith('/') ? rel : '/' + rel));
+    if (full !== abs && !full.startsWith(abs + nodePath.sep)) return undefined; // traversal guard
+
+    try {
+      const stat = await fs.promises.stat(full);
+      const target = stat.isDirectory() ? nodePath.join(full, 'index.html') : full;
+      const body = await fs.promises.readFile(target);
+      return { body, contentType: contentTypeFor(nodePath.extname(target)) };
+    } catch {
+      return undefined;
+    }
+  };
+}
+
 /** Turns `@Html` metadata into a response transformer at boot. String mode is fs-free; path/template modes read+cache the file. */
 export function buildHtmlTransformer(meta: HtmlMeta, ctx: ViewsContext): TransformerFn {
   if (!meta.path) {

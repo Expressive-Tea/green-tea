@@ -23,7 +23,7 @@ import {
   type RouteMeta,
   type TransformerFn,
 } from '../metadata';
-import { buildHtmlTransformer, type ViewsContext } from '../views';
+import { buildHtmlTransformer, buildStaticResolver, type ViewsContext } from '../views';
 import { getArgs, getHandlerNeeds, resolveArgs } from '../params';
 import { buildOpenApi, type OpenApiInfo } from '../openapi';
 import { connectLink, type Link } from '../mesh/link';
@@ -85,6 +85,8 @@ export function createApp(opts: {
   views?: string;
   /** Bring-your-own template engine for `@Html(..., { template: true })`; defaults to the built-in `render`. */
   viewEngine?: (source: string, data: unknown) => string;
+  /** Serve a static directory as a GET/HEAD fallback (after declared routes, before 404). `true` → `./public`. */
+  static?: boolean | string;
   /** Opt in to alpha features whose API may still change. Currently gates `mesh`. */
   experimental?: boolean;
 }): App {
@@ -158,6 +160,8 @@ export function createApp(opts: {
     degradedProviders,
   );
 
+  const staticResolver = opts.static ? buildStaticResolver(opts.static) : undefined;
+
   const fetchOpts: HttpOptions = {
     limits: opts.limits,
     tls: opts.tls,
@@ -166,6 +170,7 @@ export function createApp(opts: {
     cors: opts.cors,
     bodyDuplicates: opts.bodyDuplicates,
     onError: opts.onError,
+    static: staticResolver,
   };
   const fetchFn = buildAppFetch(
     () => booted,
@@ -218,6 +223,7 @@ export function createApp(opts: {
       cors: opts.cors,
       bodyDuplicates: opts.bodyDuplicates,
       onError: opts.onError,
+      static: staticResolver,
     });
     server.on('close', () => closeLinks(meshLinks));
     await new Promise<void>((resolve) => server!.listen(port, resolve));
