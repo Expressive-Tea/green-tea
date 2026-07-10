@@ -16,6 +16,7 @@ interface BunWebSocketHandler {
   open?(ws: BunServerWebSocket): void;
   message(ws: BunServerWebSocket, message: string | Uint8Array): void;
   close?(ws: BunServerWebSocket, code: number, reason: string): void;
+  error?(ws: BunServerWebSocket, error?: unknown): void;
 }
 interface BunServer {
   port: number;
@@ -31,6 +32,8 @@ interface BunServeOptions {
 }
 type BunServeShortOptions = { port?: number; hostname?: string };
 declare const Bun: { serve(options: BunServeOptions): BunServer };
+
+const decoder = new TextDecoder();
 
 /** Per-connection state stashed on ws.data between fetch (upgrade) and the open/message/close callbacks. */
 interface BunConnData {
@@ -119,11 +122,16 @@ export function serveBun(app: App, options?: BunServeShortOptions): BunServer {
       message(ws, message) {
         const { inbound } = ws.data as BunConnData;
         // decode binary to UTF-8 to match Node's Buffer.toString() (cross-adapter parity)
-        inbound.push(typeof message === 'string' ? message : new TextDecoder().decode(message));
+        inbound.push(typeof message === 'string' ? message : decoder.decode(message));
       },
       close(ws) {
         const { inbound, ac } = ws.data as BunConnData;
         inbound.close();
+        ac.abort();
+      },
+      error(ws) {
+        const { inbound, ac } = ws.data as BunConnData;
+        inbound.fail(new Error('websocket error'));
         ac.abort();
       },
     },
