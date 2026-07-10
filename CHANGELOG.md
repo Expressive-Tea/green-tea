@@ -12,6 +12,7 @@ green-tea uses calendar versioning: `YY.MM.PATCH`.
   same app runs HTTP and SSE on Deno/Bun/edge runtimes via the Fetch API
   (WebSocket and mesh remain Node-only).
 - **Deno adapter** (`@green-tea/core/deno`): `serveDeno(app)` runs HTTP + SSE + WebSocket on Deno.
+- **Bun adapter** (`@green-tea/core/bun`): `serveBun(app)` runs HTTP + SSE + WebSocket on Bun, reusing the neutral `app.upgrade` / `WsSocket` capability. WebSocket, rooms, and channels behave identically to Node and Deno.
 - **`app.upgrade(request, socket)`**: neutral WebSocket entry point for non-Node runtimes, built on a shared `WsSocket` capability. WebSocket logic is now runtime-agnostic (`src/http/ws-core.ts`).
 
 ### Changed

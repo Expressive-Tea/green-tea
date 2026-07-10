@@ -46,6 +46,16 @@
         "types": "./dist/deno.d.ts",
         "default": "./dist/deno.js"
       }
+    },
+    "./bun": {
+      "import": {
+        "types": "./dist/bun.d.mts",
+        "default": "./dist/bun.mjs"
+      },
+      "require": {
+        "types": "./dist/bun.d.ts",
+        "default": "./dist/bun.js"
+      }
     }
   },
   "files": [
@@ -60,6 +70,7 @@
     "test": "vitest run",
     "test:dev": "vitest",
     "test:deno": "deno test --allow-net --allow-read --no-check test/deno/",
+    "test:bun": "bun test test/bun/",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "typecheck:bench": "tsc --noEmit -p bench/tsconfig.json",
     "lint": "eslint src",
