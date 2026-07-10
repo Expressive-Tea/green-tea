@@ -635,6 +635,7 @@ function buildMeshControl(
       transformer: plan.transformer,
       bus,
       onError,
+      transport: plan.transport,
       seed: { ...provided, req: env, params: env.params, query: env.query, body: env.body, headers: env.headers },
     });
 
@@ -671,6 +672,7 @@ function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps
           transformer: plan.transformer,
           bus,
           onError,
+          transport: plan.transport,
           seed: {
             ...provided,
             req,

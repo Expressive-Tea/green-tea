@@ -50,6 +50,19 @@ export class ValidationError extends HttpError {
   }
 }
 
+/** Thrown when a handler's return value contradicts its route's declared transport (a programming error). */
+export class TransportMismatchError extends HttpError {
+  constructor(transport: string, got: 'stream' | 'value', req?: { method?: string; url?: string }) {
+    const where = req?.method && req?.url ? ` (${req.method} ${req.url})` : '';
+    const expected = got === 'stream' ? 'return a value' : 'return an AsyncIterable';
+    const fix =
+      got === 'stream'
+        ? 'buffered routes (@Get/@Post/@Put/@Patch/@Delete) must return a value — to stream, declare @Sse, @Stream, or @Ws'
+        : 'streaming routes (@Sse/@Ws) must return an AsyncIterable (e.g. an async generator or channel())';
+    super(500, `Transport '${transport}'${where} must ${expected}, but the handler returned a ${got}. ${fix}.`);
+  }
+}
+
 /** Type guard: true if `error` is an {@link HttpError}. */
 export function isHttpError(error: unknown): error is HttpError {
   return error instanceof HttpError;
