@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createApp, Route, Get, Post, Sse, Transformer, Html, Module } from '../src/index';
+import { createApp, Route, Get, Sse, Transformer, Html, Module } from '../src/index';
 
 const dir = join(tmpdir(), 'gt-views-test');
 mkdirSync(dir, { recursive: true });

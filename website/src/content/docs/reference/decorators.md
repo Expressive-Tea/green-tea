@@ -46,6 +46,18 @@ A request-scope transform that merges keys into the context. Same options as `@P
 
 Method decorator. Turns a handler's return value into `{ status?, headers?, body }`. `JsonTransformer` is the default.
 
+### `@Html` / `@Html(path, opts?)`
+
+Method decorator. Marks a buffered `GET`/`POST` handler as serving HTML instead of going through the JSON transformer. Three modes ([details](/guides/html/)):
+
+| Form | Behavior |
+|---|---|
+| `@Html` (bare) | sends the handler's returned string as `text/html` |
+| `@Html('file.html')` | serves that file verbatim; the handler's return value is ignored |
+| `@Html('file.html', { template: true })` | renders the file with the handler's returned data, via the built-in `render` engine or `viewEngine` ([createApp](/reference/createapp/)) |
+
+Only buffered `GET`/`POST` routes are supported, and `@Html` can't be combined with `@Transformer` on the same handler — both are validated at boot, not per-request.
+
 ## Routes
 
 Method decorators on a controller. All accept `(path, opts?)` where `opts = { export?: boolean, duplicates?: 'array' | 'last', maxBodyBytes?: number, maxParts?: number }`. `maxBodyBytes` / `maxParts` override the server-wide [`limits`](/reference/createapp/) for this route only.

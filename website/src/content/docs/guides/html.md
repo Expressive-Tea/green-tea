@@ -62,6 +62,12 @@ class UserController {
 
 Same filesystem requirement as file mode: Node/Deno/Bun only.
 
+:::caution[Return a string or data, never an `AsyncIterable`]
+An `@Html` handler must return a string (bare mode) or a data object (template mode). Don't
+return an `AsyncIterable` — the pipeline detects async-iterable returns and streams them raw,
+bypassing the HTML transformer entirely, so your markup never gets wrapped or rendered.
+:::
+
 ## The `views` base directory
 
 `@Html('file.html')` paths resolve against `createApp({ views })` — a relative path joins `views`, an absolute path is used as-is (handy for a template stored outside the project, e.g. on an NFS mount). `views` defaults to `process.cwd()` when unset.
