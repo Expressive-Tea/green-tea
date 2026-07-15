@@ -2,8 +2,6 @@ import type { Bus } from '../bus';
 import { HttpError } from '../signals';
 import { encode, decode, type Manifest, type RequestEnvelope, type Frame } from './protocol';
 
-let connSeq = 0; // module-level: deterministic unique connection-id prefix (no Date.now/Math.random)
-
 /** Client handle to a remote mesh server: its manifest, an RPC caller, and a close(). */
 export interface Link {
   manifest: Manifest;
@@ -56,19 +54,15 @@ function sendRpc(
 }
 
 /** Assemble the client-facing Link once the manifest arrives. */
-function buildLink(
-  ws: any,
-  pending: Map<string, PendingEntry>,
-  manifest: Manifest,
-  connId: string,
-  timeoutMs: number,
-): Link {
+function buildLink(ws: any, pending: Map<string, PendingEntry>, manifest: Manifest, timeoutMs: number): Link {
+  // ids only need to be unique within this link: `pending` is per-connection, so a
+  // per-link counter suffices (no module-global sequence, no test-order coupling).
   let counter = 0;
 
   return {
     manifest,
     rpc(kind, name, ctx) {
-      const id = `${connId}:${counter++}`;
+      const id = String(counter++);
 
       return sendRpc(ws, pending, id, kind, name, ctx, timeoutMs);
     },
@@ -103,7 +97,6 @@ export function connectLink(args: { url: string; secret: string; timeoutMs?: num
   const WS = loadWs();
   const ws = new WS(args.url);
   const pending = new Map<string, PendingEntry>();
-  const connId = `c${connSeq++}`;
   let manifest: Manifest | undefined;
 
   return new Promise<Link>((resolve, reject) => {
@@ -134,7 +127,7 @@ export function connectLink(args: { url: string; secret: string; timeoutMs?: num
         manifest = { scopes: frame.scopes, routes: frame.routes };
         clearTimeout(connectTimer);
         args.bus?.emit('mesh:connect', { name: args.url });
-        resolve(buildLink(ws, pending, manifest, connId, timeoutMs));
+        resolve(buildLink(ws, pending, manifest, timeoutMs));
         return;
       }
 

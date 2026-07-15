@@ -6,11 +6,25 @@ import type { Bus } from '../bus';
 
 const PING_MS = 15_000;
 
-/** Selects the stream encoder for a transport, falling back to the client's `Accept` header for `stream`. */
+/**
+ * Stream encoder per transport, or `null` for transports that never produce an HTTP stream.
+ * A new transport must add a row — the compiler fails until it does, so it can't silently
+ * inherit ndjson framing.
+ */
+const STREAM_ENCODERS: Record<Transport, ((accept: string) => StreamEncoder) | null> = {
+  buffer: null, // a buffered handler returning a stream throws TransportMismatchError before reaching here
+  ws: null, // not an HTTP response; ws routes are served via upgrade, not handle()
+  sse: () => sseEncoder,
+  ndjson: () => ndjsonEncoder,
+  negotiate: (accept) => (accept.includes('text/event-stream') ? sseEncoder : ndjsonEncoder),
+};
+
+/** Selects the stream encoder for a transport, falling back to the client's `Accept` header for `negotiate`. */
 export function pickEncoder(transport: Transport, accept: string): StreamEncoder {
-  if (transport === 'sse') return sseEncoder;
-  if (transport === 'ndjson') return ndjsonEncoder;
-  return accept.includes('text/event-stream') ? sseEncoder : ndjsonEncoder;
+  const pick = STREAM_ENCODERS[transport];
+  if (!pick) throw new Error(`transport '${transport}' does not produce an HTTP stream`);
+
+  return pick(accept);
 }
 
 /** Pipes an async-iterable result to the response as an HTTP stream, with keep-alive pings and backpressure handling. */
