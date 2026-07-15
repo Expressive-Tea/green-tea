@@ -41,6 +41,25 @@ export function isStreamResult(result: PipelineResult): result is StreamResult {
 }
 
 /**
+ * Run `steps` in order, merging each step's output into the context and emitting
+ * `request:step:enter`/`leave` on the bus. The single place steps are executed — every
+ * transport (HTTP, ws, mesh) goes through here so observability is uniform by construction.
+ */
+export async function runSteps(steps: PipelineStep[], seed: Record<string, unknown>, bus: Bus): Promise<any> {
+  // context is intentionally `any`: each step merges arbitrary keys into the accumulator
+  let context: any = seed;
+
+  for (const step of steps) {
+    bus.emit('request:step:enter', { name: step.name, scope: step.origin });
+    const output = await step.run(context);
+    context = { ...context, ...output };
+    bus.emit('request:step:leave', { name: step.name, scope: step.origin });
+  }
+
+  return context;
+}
+
+/**
  * Run `steps` in order over a context seeded from `seed`, then invoke `handler`.
  * An async-iterable handler result becomes a stream; anything else is run through `transformer`.
  * Errors are caught, emitted on `bus`, and converted to an error response.
@@ -59,13 +78,7 @@ export async function runPipeline(args: {
   let context: any = { ...seed };
 
   try {
-    for (const step of steps) {
-      bus.emit('request:step:enter', { name: step.name, scope: step.origin });
-      const output = await step.run(context);
-      context = { ...context, ...output };
-      bus.emit('request:step:leave', { name: step.name, scope: step.origin });
-    }
-
+    context = await runSteps(steps, context, bus);
     const result = await handler(context);
     const streaming = isAsyncIterable(result);
     const contract = TRANSPORT_RETURN[transport];

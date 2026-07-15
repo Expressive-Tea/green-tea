@@ -3,7 +3,7 @@ import { Bus } from '../bus';
 import { Container } from '../container';
 import { topoSort, subgraphFor, GraphNode, nearest } from '../graph';
 import { toMermaid, toDOT, graphHtml, type GraphView } from '../graph-viz';
-import { runPipeline, PipelineStep } from '../pipeline';
+import { runPipeline, runSteps, PipelineStep } from '../pipeline';
 import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from '../http';
 import type { HttpOptions } from '../http';
 import { buildFetch } from '../http/web';
@@ -606,15 +606,13 @@ function buildMeshControl(
 
   const resolveScope = async (name: string, env: RequestEnvelope): Promise<unknown> => {
     // context is intentionally `any`: providers and steps merge arbitrary keys into it
-    let context: any = { req: env, params: env.params, query: env.query, body: env.body, headers: env.headers };
+    const seed: any = { req: env, params: env.params, query: env.query, body: env.body, headers: env.headers };
 
     for (const provider of orderedProviders)
-      if (container.has(provider.name)) Object.assign(context, await container.resolve(provider.name));
+      if (container.has(provider.name)) Object.assign(seed, await container.resolve(provider.name));
 
-    for (const step of orderedSteps) {
-      const runner = runners.get(step.name)!;
-      context = { ...context, ...(await runner(context)) };
-    }
+    const steps = orderedSteps.map((step) => ({ name: step.name, origin: step.origin, run: runners.get(step.name)! }));
+    const context = await runSteps(steps, seed, bus);
 
     return context[name];
   };
@@ -788,7 +786,7 @@ function openApiRoute(openapi: () => unknown): RouteDef {
 
 /** Compiles every ws/negotiate route plan into a WebSocket route that seeds context and runs its steps + handler. */
 function buildWsRoutes(routePlans: RoutePlan[], deps: PipelineDeps): WsRouteDef[] {
-  const { providedSeed, planSteps } = deps;
+  const { providedSeed, planSteps, bus } = deps;
 
   return routePlans
     .filter((plan) => plan.transport === 'ws' || plan.transport === 'negotiate')
@@ -798,23 +796,22 @@ function buildWsRoutes(routePlans: RoutePlan[], deps: PipelineDeps): WsRouteDef[
         const provided = await providedSeed(plan);
         // ws upgrades carry the neutral WsRequest (protocol/ip pre-derived by the runtime adapter);
         // trustProxy derivation for ws is out of scope here
-        // context is intentionally `any`: each step merges arbitrary keys into it
-        let context: any = {
-          ...provided,
-          req,
-          params,
-          query: parseQuery(req.url ?? ''),
-          body: undefined,
-          headers: req.headers,
-          inbound,
-          abort,
-          protocol: req.protocol,
-          ip: req.ip,
-        };
-
-        for (const step of planSteps(plan)) {
-          context = { ...context, ...(await step.run(context)) };
-        }
+        const context = await runSteps(
+          planSteps(plan),
+          {
+            ...provided,
+            req,
+            params,
+            query: parseQuery(req.url ?? ''),
+            body: undefined,
+            headers: req.headers,
+            inbound,
+            abort,
+            protocol: req.protocol,
+            ip: req.ip,
+          },
+          bus,
+        );
 
         const result = await plan.run(context);
         if (!isAsyncIterable(result)) throw new Error(`@Ws handler '${plan.handlerName}' must return an AsyncIterable`);

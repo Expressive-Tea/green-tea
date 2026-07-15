@@ -42,7 +42,7 @@ mesh activity without touching the pipeline itself:
 ```typescript
 api.bus.on('boot:provider:ready', (p: any) => { /* ... */ });
 api.bus.on('request:step:enter', (p: any) => { /* ... */ });
-api.bus.on('request:step:exit',  (p: any) => { /* ... */ });
+api.bus.on('request:step:leave', (p: any) => { /* ... */ });
 ```
 
 The full event vocabulary:
