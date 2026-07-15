@@ -27,8 +27,9 @@ and body for the same request (enforced by a parity test suite).
 
 **All four runtimes now have full WebSocket support:** Node, Deno, and Bun via `serveDeno` /
 `serveBun`, and Cloudflare Workers / edge via `edgeHandler` (see below) — same graph, same
-`@Ws` handlers, same rooms/channels everywhere. `app.listen()`, TLS, per-request timeouts,
-and mesh remain Node-only; on Deno/Bun/edge you get `app.fetch` + the runtime's adapter.
+`@Ws` handlers, same rooms/channels everywhere. `app.listen()`, TLS and per-request timeouts
+remain Node-only; on Deno/Bun/edge you get `app.fetch` + the runtime's adapter. **Mesh (alpha)
+runs on Node, Deno and Bun** — teapot and teacup, in any combination — but not on edge.
 
 **Body-size enforcement differs slightly:** on `app.fetch`, an oversized body is read in full
 before the `413` is returned, whereas Node aborts mid-stream once the limit is hit — so on
@@ -58,8 +59,9 @@ Any runtime can build a `WsSocket` capability (`inbound`, `abort`, `isOpen`, `se
 `close`, `terminate`) and drive the graph — `serveBun` and `edgeHandler` build on the
 same primitive (see below).
 
-**Still Node-only:** `app.listen()`, TLS, per-request timeouts, and mesh. On Deno you
-get `app.fetch` + `serveDeno`.
+**Still Node-only:** `app.listen()`, TLS and per-request timeouts. On Deno you get
+`app.fetch` + `serveDeno`. [Mesh](/guides/mesh/) works here: the control channel is
+served through `app.upgrade` and the teacup connects with Deno's global `WebSocket`.
 
 ## WebSocket on Bun
 
@@ -80,8 +82,8 @@ serveBun(app, { port: 8000 });
 `app.upgrade` — the same graph, the same `@Ws` handlers, the same rooms/channels you
 run on Node and Deno. Behaviour matches the Node reference.
 
-**Still Node-only:** `app.listen()`, TLS, per-request timeouts, and mesh. On Bun you
-get `app.fetch` + `serveBun`.
+**Still Node-only:** `app.listen()`, TLS and per-request timeouts. On Bun you get
+`app.fetch` + `serveBun`. [Mesh](/guides/mesh/) works here too.
 
 ## Cloudflare Workers / edge
 
@@ -113,7 +115,9 @@ compatibility_date = "2024-09-23" # or later
 Green Tea's core statically imports Node built-ins that workerd only provides under
 this flag; without it, the Worker fails to load.
 
-**Still Node-only:** `app.listen()`, TLS, per-request timeouts, and mesh. Cloudflare's
+**Still Node-only:** `app.listen()`, TLS and per-request timeouts. [Mesh](/guides/mesh/)
+is **not** supported on edge: the teapot's secret comparison needs `node:crypto`'s
+`timingSafeEqual`, which `nodejs_compat` does not provide. Cloudflare's
 Durable Objects and WebSocket Hibernation are **not** used — `edgeHandler` accepts
 WebSockets with the standard `WebSocketPair` model, so a Worker holds the connection
 open for its lifetime rather than hibernating between messages.

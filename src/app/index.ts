@@ -503,6 +503,19 @@ async function spliceRemoteScopes(
         }
 
         routeOwners.set(key, teapot.url);
+
+        // Local routes are merged ahead of remote ones (see buildHttpRoutes), so a local twin
+        // wins. That precedence is deliberate — your own code beats an imported one, and it is
+        // how you override a teapot — but silently shadowing an export looks exactly like a
+        // broken teapot from the outside. Warn and let the developer decide.
+        if (registry.routePlans.some((plan) => plan.method === route.method && plan.pattern === route.pattern)) {
+          console.warn(
+            `[green-tea] mesh: route '${key}' is exported by teapot ${teapot.url} but also declared locally — ` +
+              'the local route takes precedence and the remote one will not be reached. ' +
+              'Remove one if that is not what you meant.',
+          );
+        }
+
         remoteRoutes.push({
           method: route.method,
           pattern: route.pattern,

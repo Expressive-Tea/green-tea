@@ -13,17 +13,41 @@ green-tea uses calendar versioning: `YY.MM.PATCH`.
   bring-your-own hook, and zero-config `static` directory serving (`createApp({ static: true })`).
   File and static serving require a filesystem (Node/Deno/Bun); string-mode `@Html` runs everywhere.
 - **`app.fetch(request): Promise<Response>`** — a Web-Standards handler so the
-  same app runs HTTP and SSE on Deno/Bun/edge runtimes via the Fetch API
-  (WebSocket and mesh remain Node-only).
+  same app runs HTTP and SSE on Deno/Bun/edge runtimes via the Fetch API.
 - **Deno adapter** (`@green-tea/core/deno`): `serveDeno(app)` runs HTTP + SSE + WebSocket on Deno.
 - **Bun adapter** (`@green-tea/core/bun`): `serveBun(app)` runs HTTP + SSE + WebSocket on Bun, reusing the neutral `app.upgrade` / `WsSocket` capability. WebSocket, rooms, and channels behave identically to Node and Deno.
 - **Cloudflare Workers / edge adapter** (`@green-tea/core/edge`): `edgeHandler(app)` runs HTTP + SSE + WebSocket on workerd, reusing the neutral `app.upgrade` / `WsSocket` capability. Requires the `nodejs_compat` compatibility flag. Green Tea now runs on Node, Deno, Bun, and the edge — with identical WebSocket, rooms, and channel behaviour on all four.
 - **`app.upgrade(request, socket)`**: neutral WebSocket entry point for non-Node runtimes, built on a shared `WsSocket` capability. WebSocket logic is now runtime-agnostic (`src/http/ws-core.ts`).
+- **Mesh (alpha) runs on Node, Deno and Bun** — teapot *and* teacup, in any combination
+  (a Deno teapot can serve a Node teacup). It no longer needs `app.listen()`: the graph boots on
+  first use, so `serveDeno`/`serveBun` work through `app.fetch`/`app.upgrade`. Edge is **not**
+  supported — the teapot's secret comparison needs `node:crypto`'s `timingSafeEqual`, which
+  `nodejs_compat` does not provide.
+- **`MESH_PROTOCOL_VERSION`**: the mesh wire is versioned. Peers exchange it in the `hello`/`manifest`
+  frames and refuse a mismatch, naming both versions, instead of misreading each other's frames.
+  The teapot checks the version *before* the secret — a skewed peer is not an auth failure.
+- **`HttpError` accepts `headers`**, so a custom error can carry its own response headers
+  (`retry-after`, `etag`, …) without a special case in the error renderer.
 
 ### Fixed
 - The opt-in dev routes `/__graph__` (graph viewer) and `/__openapi__` are now
   served over `app.fetch` too, so they work on every runtime (Deno/Bun/edge),
   not only the Node `app.listen()` path.
+- **`request:step:enter`/`leave` are now emitted for `@Ws` and mesh routes.** Only HTTP routes
+  emitted them, so a logging plugin silently observed nothing on a WebSocket route — a gap in a
+  documented plugin API. All transports now run their steps through one path.
+- **A mesh route exported by two teapots now fails the boot**, naming the route and both teapots,
+  instead of silently serving whichever connected first and leaving the other dead. There is no
+  load balancing to fall back on, so green-tea will not pick for you.
+- **A local route shadowing a remote one now warns.** Local still takes precedence — that is how you
+  override a teapot — but a silently shadowed export used to look like a broken teapot.
+- **`app.close()` closes mesh links even with no server**, so a mesh app booted through `app.fetch`
+  (every Deno/Bun deployment) no longer leaks its teapot connections.
+- **WebSocket frames arriving during boot are no longer dropped.** `app.upgrade` awaited the boot
+  before handing the socket to a consumer, and the inbound channel is fan-out, so a peer that spoke
+  first lost those frames — for mesh, that was the handshake itself.
+- The plugins guide documented a `request:step:exit` event that has never existed; the bus emits
+  `request:step:leave`.
 
 ### Changed
 - App-scope providers now boot exactly once (memoized): a second `app.listen()`
