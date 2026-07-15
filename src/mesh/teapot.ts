@@ -182,16 +182,23 @@ async function serveFrames(
 }
 
 /** Build a control handler that authenticates peers and serves scope/route RPCs from the manifest. */
-export function createMeshControl(deps: MeshControlDeps): { path: string; handle: (socket: WsSocket) => void } {
+export function createMeshControl(deps: MeshControlDeps): {
+  path: string;
+  handle: (socket: WsSocket) => Promise<void>;
+} {
   const exportedScopes = new Set(deps.manifest.scopes.map((scope) => scope.token));
   const exportedRoutes = new Set(deps.manifest.routes.map((route) => `${route.method} ${route.pattern}`));
 
   return {
     path: MESH_CONTROL_PATH,
-    handle(socket: WsSocket) {
-      // `channel` is fan-out and subscribes when the async iterator is created, which
-      // `for await` does synchronously — so the loop is live before any frame can arrive.
-      void serveFrames(socket, deps, exportedScopes, exportedRoutes);
+    /**
+     * Resolves when the connection ends, mirroring `runWsConnection` — so `app.upgrade` can await
+     * the control channel's lifetime the same way it awaits a regular ws route's.
+     * `channel` is fan-out and subscribes when the async iterator is created, which `for await`
+     * does synchronously, so the loop is live before any frame can arrive.
+     */
+    handle(socket: WsSocket): Promise<void> {
+      return serveFrames(socket, deps, exportedScopes, exportedRoutes);
     },
   };
 }

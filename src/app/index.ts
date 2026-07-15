@@ -30,7 +30,7 @@ import { connectLink, type Link } from '../mesh/link';
 import { Rooms } from '../rooms';
 import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
 import { buildRemote } from '../mesh/teacup';
-import { buildManifest, createMeshControl } from '../mesh/teapot';
+import { buildManifest, createMeshControl, MESH_CONTROL_PATH } from '../mesh/teapot';
 import type { MeshControl } from '../http';
 import type { RequestEnvelope, RouteEntry } from '../mesh/protocol';
 import type { App, InspectLine, Explain, RoutePlan, MeshConfig } from './types';
@@ -127,14 +127,28 @@ export function createApp(opts: {
 
   if (!opts.mesh) finalize();
 
-  // mesh teacup: connect remote teapots and splice their scopes/routes in, then finalize.
-  const prepareGraph = async (): Promise<void> => {
-    if (!opts.mesh || booted) return;
+  const providedSeed = (plan: RoutePlan) => seedProviders(container, plan);
+  const planSteps = (plan: RoutePlan) => compilePlanSteps(runners, plan);
+  const pipelineDeps: PipelineDeps = { providedSeed, planSteps, bus, onError: opts.onError };
+  let meshControl: MeshControl | undefined;
 
-    const spliced = await spliceRemoteScopes(opts.mesh, bus, registry);
-    remoteRoutes = spliced.remoteRoutes;
-    meshLinks.push(...spliced.meshLinks);
-    finalize();
+  // mesh teacup: connect remote teapots and splice their scopes/routes in, then finalize.
+  // mesh teapot: build the control channel — it captures the *finalized* ordered nodes, so it
+  // can only be built here, after finalize(), and never at construction time.
+  const prepareGraph = async (): Promise<void> => {
+    if (opts.mesh && !booted) {
+      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry);
+      remoteRoutes = spliced.remoteRoutes;
+      meshLinks.push(...spliced.meshLinks);
+      finalize();
+    }
+
+    meshControl = buildMeshControl(opts.mesh, registry, {
+      container,
+      orderedProviders,
+      orderedSteps,
+      deps: pipelineDeps,
+    });
   };
 
   const inspect = (routePath: string): InspectLine[] => inspectRoute(routePlans, routePath, booted);
@@ -159,9 +173,6 @@ export function createApp(opts: {
     if (opts.devOpenapi) routes.push(openApiRoute(openapi));
     return routes;
   };
-
-  const providedSeed = (plan: RoutePlan) => seedProviders(container, plan);
-  const planSteps = (plan: RoutePlan) => compilePlanSteps(runners, plan);
 
   // Boots exactly once, however first triggered (app.fetch, app.upgrade or listen()); calling
   // several never double-boots (which would re-run provider factories and their side effects).
@@ -194,25 +205,14 @@ export function createApp(opts: {
     devRoutes,
     () => remoteRoutes,
   );
-  const upgradeFn = buildAppUpgrade(
-    routePlans,
-    { providedSeed, planSteps, bus, onError: opts.onError },
-    streams,
-    bootApp,
-  );
+  const upgradeFn = buildAppUpgrade(routePlans, pipelineDeps, streams, bootApp, () => meshControl);
 
   const listen = async (port: number): Promise<http.Server> => {
-    const deps: PipelineDeps = { providedSeed, planSteps, bus, onError: opts.onError };
+    const deps = pipelineDeps;
 
-    // the same gate app.fetch uses: splices remote mesh scopes, finalizes, boots providers
+    // the same gate app.fetch uses: splices remote mesh scopes, finalizes, boots providers,
+    // and builds the mesh control channel — so Node and Deno/Bun serve an identical graph
     await bootApp();
-
-    const meshControl = buildMeshControl(opts.mesh, registry, {
-      container,
-      orderedProviders,
-      orderedSteps,
-      deps,
-    });
 
     const httpRoutes = [...buildHttpRoutes(routePlans, remoteRoutes, deps), ...devRoutes()];
     const wsRoutes = buildWsRoutes(routePlans, deps);
@@ -235,7 +235,13 @@ export function createApp(opts: {
 
   const close = (): Promise<void> =>
     new Promise<void>((resolve) => {
+      // before the server check: a mesh app booted through app.fetch (Deno/Bun, where listen()
+      // never runs) has links but no server, and would otherwise leak every teapot connection.
+      // Closing a link rejects its in-flight RPCs via the socket's abort.
+      closeLinks(meshLinks);
+
       if (!server) return resolve();
+
       server.close(() => resolve()); // waits for in-flight buffered to drain
       for (const closeStream of streams) closeStream(); // force-close long-lived SSE/WS so close() resolves
       server.closeIdleConnections(); // Node >=18.2: drop idle keep-alive
@@ -735,23 +741,49 @@ function buildAppUpgrade(
   deps: PipelineDeps,
   streams: Set<() => void>,
   ensureBooted: () => Promise<void>,
+  getMeshControl: () => MeshControl | undefined,
 ): (request: WsRequest, socket: WsSocket) => Promise<void> {
   let wsRoutes: WsRouteDef[] | undefined;
 
   return async (request: WsRequest, socket: WsSocket): Promise<void> => {
+    // Subscribe to inbound BEFORE awaiting the boot. `channel` is fan-out: a frame pushed with no
+    // subscriber is dropped, so anything the peer sends while providers are still booting would be
+    // lost. For the mesh control channel that is the `hello` itself — the handshake would hang
+    // until timeout against a teapot whose providers happened to boot slowly.
+    const frames = socket.inbound[Symbol.asyncIterator]();
+    const ready: WsSocket = Object.create(socket, {
+      inbound: { value: { [Symbol.asyncIterator]: () => frames } },
+    }) as WsSocket;
+
     await ensureBooted(); // idempotent: no-op once any of fetch/upgrade/listen has booted
 
-    if (!wsRoutes) wsRoutes = buildWsRoutes(routePlans, deps);
-
     const path = request.url.split('?')[0];
-    const route = matchWsRoute(wsRoutes, path);
+    const meshControl = getMeshControl();
 
-    if (!route) {
-      socket.close(1008, 'no matching ws route');
+    // The reserved mesh path, checked before route matching: this is what lets a teapot export
+    // its scopes from Deno/Bun, where the Node `server.on('upgrade')` path does not exist.
+    if (path === MESH_CONTROL_PATH) {
+      // an explicit refusal, not "no matching ws route": the path is reserved either way, and a
+      // peer that reached a teapot with nothing exported deserves to be told which it was
+      if (!meshControl) {
+        ready.close(1008, 'mesh control channel not enabled: this app exports nothing, or has no mesh.secret');
+        return;
+      }
+
+      await meshControl.handle(ready);
       return;
     }
 
-    await runWsConnection(socket, request, route, deps.bus, streams);
+    if (!wsRoutes) wsRoutes = buildWsRoutes(routePlans, deps);
+
+    const route = matchWsRoute(wsRoutes, path);
+
+    if (!route) {
+      ready.close(1008, 'no matching ws route');
+      return;
+    }
+
+    await runWsConnection(ready, request, route, deps.bus, streams);
   };
 }
 

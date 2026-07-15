@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createApp, Provider, Step, Route, Get, Module, needs } from '../../src/index';
+import { channel } from '../../src/channel';
+import { encode, decode, MESH_PROTOCOL_VERSION } from '../../src/mesh/protocol';
+import type { WsSocket, WsRequest } from '../../src/http/ws-core';
 
 const SECRET = 's3cr3t';
 
@@ -28,7 +31,42 @@ class LocalCtl {
 @Module({ mountpoint: '/api', controllers: [LocalCtl] })
 class TeacupModule {}
 
+@Route('/plain')
+class PlainCtl {
+  @Get('/ok')
+  ok() {
+    return { ok: true };
+  }
+}
+@Module({ mountpoint: '/', controllers: [PlainCtl] })
+class PlainModule {}
+
 const teapotUrl = (port: number) => `ws://127.0.0.1:${port}/__mesh__/control`;
+
+/** A neutral socket, exactly what serveDeno/serveBun hand to app.upgrade. */
+const fakePeer = () => {
+  const inbound = channel<unknown>();
+  const ac = new AbortController();
+  const sent: any[] = [];
+  const closed: { code?: number; reason?: string }[] = [];
+  const socket: WsSocket = {
+    inbound,
+    abort: ac.signal,
+    isOpen: true,
+    send: (data: string) => {
+      sent.push(decode(data));
+    },
+    close: (code, reason) => {
+      closed.push({ code, reason });
+      inbound.close();
+      ac.abort();
+    },
+    terminate: () => ac.abort(),
+  };
+  return { socket, sent, closed, inbound };
+};
+
+const controlReq = (): WsRequest => ({ url: '/__mesh__/control', headers: {}, protocol: 'http', ip: '' });
 
 /**
  * A mesh teacup driven purely through `app.fetch` — the entry point Deno/Bun/edge use.
@@ -104,6 +142,30 @@ describe('mesh over app.fetch (no listen)', () => {
     tServer.close();
   });
 
+  it('closes the teapot links, even with no server to hang the close off', async () => {
+    const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
+    const tServer = await teapot.listen(0);
+    const url = teapotUrl((tServer.address() as any).port);
+
+    const teacup = createApp({
+      modules: [TeacupModule],
+      experimental: true,
+      mesh: { teapots: [{ url, secret: SECRET }] },
+    });
+    const disconnects: string[] = [];
+    teacup.bus.on('mesh:disconnect', (p) => disconnects.push(p.name));
+
+    await teacup.fetch(new Request('http://x/api/local/who'));
+    expect(disconnects).toEqual([]);
+
+    // listen() never ran, so there is no server whose 'close' could reap the links
+    await teacup.close();
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(disconnects).toEqual([url]);
+    tServer.close();
+  });
+
   it('surfaces a failed mesh boot as a request error, not a silent success', async () => {
     const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
     const tServer = await teapot.listen(0);
@@ -119,5 +181,53 @@ describe('mesh over app.fetch (no listen)', () => {
 
     await teacup.close();
     tServer.close();
+  });
+});
+
+/**
+ * A teapot *exporting* over app.upgrade — the path serveDeno/serveBun drive. Without this the
+ * control channel only existed on Node's server.on('upgrade'), so a teapot could not run off Node
+ * and "mesh on 3 runtimes" would have meant consuming only.
+ */
+describe('mesh control over app.upgrade (no listen)', () => {
+  it('serves the handshake to a peer that never touched a Node server', async () => {
+    const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
+    const peer = fakePeer();
+
+    void teapot.upgrade(controlReq(), peer.socket);
+    peer.inbound.push(encode({ type: 'hello', v: MESH_PROTOCOL_VERSION, secret: SECRET }));
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(peer.sent[0]).toMatchObject({
+      type: 'manifest',
+      v: MESH_PROTOCOL_VERSION,
+      scopes: expect.arrayContaining([{ token: 'config', scope: 'app' }]),
+    });
+    await teapot.close();
+  });
+
+  it('rejects a bad secret over app.upgrade too', async () => {
+    const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
+    const peer = fakePeer();
+
+    void teapot.upgrade(controlReq(), peer.socket);
+    peer.inbound.push(encode({ type: 'hello', v: MESH_PROTOCOL_VERSION, secret: 'WRONG' }));
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(peer.sent).toEqual([]);
+    expect(peer.closed[0].code).toBe(1008);
+    await teapot.close();
+  });
+
+  it('refuses the reserved path explicitly on an app that exports nothing', async () => {
+    // a plain, self-contained app: the path is reserved regardless, so say so rather than
+    // let it fall through to the generic "no matching ws route"
+    const plain = createApp({ modules: [PlainModule] });
+    const peer = fakePeer();
+
+    await plain.upgrade(controlReq(), peer.socket);
+
+    expect(peer.closed[0].code).toBe(1008);
+    expect(peer.closed[0].reason).toMatch(/mesh control channel not enabled/i);
   });
 });

@@ -76,6 +76,7 @@ export interface MeshControl {
   /**
    * Serves one control connection over the neutral socket — the same capability every other ws
    * consumer takes, so Node (via `nodeSocket`) and Deno/Bun (via `app.upgrade`) both feed it.
+   * Resolves when the connection ends, like `runWsConnection`.
    */
-  handle(socket: WsSocket): void;
+  handle(socket: WsSocket): Promise<void>;
 }
