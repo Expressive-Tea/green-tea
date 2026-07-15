@@ -2,7 +2,15 @@ import crypto from 'crypto';
 import type { Bus } from '../bus';
 import type { ResponseShape } from '../pipeline';
 import { isHttpError } from '../signals';
-import { encode, decode, type Manifest, type RequestEnvelope, type RouteEntry, type Frame } from './protocol';
+import {
+  encode,
+  decode,
+  MESH_PROTOCOL_VERSION,
+  type Manifest,
+  type RequestEnvelope,
+  type RouteEntry,
+  type Frame,
+} from './protocol';
 
 /** WebSocket path where a teapot exposes its mesh control channel. */
 export const MESH_CONTROL_PATH = '/__mesh__/control';
@@ -49,18 +57,44 @@ function notExported(name: string): Error {
   return error;
 }
 
-/** Validate an unauthenticated hello frame; reply with the manifest on success or close on mismatch. */
+/**
+ * Validate an unauthenticated hello frame; reply with the manifest on success or close on mismatch.
+ * The version is checked *before* the secret: a skewed peer is not an auth failure, and telling it
+ * "wrong secret" would send its operator hunting the wrong bug.
+ */
 function handleHandshake(ws: any, frame: Frame, deps: MeshControlDeps): boolean {
-  if (frame.type === 'hello' && safeEqual(frame.secret, deps.secret)) {
-    ws.send(encode({ type: 'manifest', scopes: deps.manifest.scopes, routes: deps.manifest.routes }));
-    deps.bus?.emit('mesh:connect', { name: 'teapot' });
+  if (frame.type !== 'hello') {
+    ws.close(1008);
 
-    return true;
+    return false;
   }
 
-  ws.close(1008);
+  if (frame.v !== MESH_PROTOCOL_VERSION) {
+    ws.close(
+      1008,
+      `mesh protocol version mismatch: peer speaks v${frame.v}, this teapot speaks v${MESH_PROTOCOL_VERSION}`,
+    );
 
-  return false;
+    return false;
+  }
+
+  if (!safeEqual(frame.secret, deps.secret)) {
+    ws.close(1008);
+
+    return false;
+  }
+
+  ws.send(
+    encode({
+      type: 'manifest',
+      v: MESH_PROTOCOL_VERSION,
+      scopes: deps.manifest.scopes,
+      routes: deps.manifest.routes,
+    }),
+  );
+  deps.bus?.emit('mesh:connect', { name: 'teapot' });
+
+  return true;
 }
 
 /** Resolve an authenticated rpc-req against the exported scopes/routes, enforcing export gating. */

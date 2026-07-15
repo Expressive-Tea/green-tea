@@ -1,6 +1,6 @@
 import type { Bus } from '../bus';
 import { HttpError } from '../signals';
-import { encode, decode, type Manifest, type RequestEnvelope, type Frame } from './protocol';
+import { encode, decode, MESH_PROTOCOL_VERSION, type Manifest, type RequestEnvelope, type Frame } from './protocol';
 
 /** Client handle to a remote mesh server: its manifest, an RPC caller, and a close(). */
 export interface Link {
@@ -105,7 +105,7 @@ export function connectLink(args: { url: string; secret: string; timeoutMs?: num
       reject(new Error(`mesh connect timeout: ${args.url}`));
     }, timeoutMs);
 
-    ws.on('open', () => ws.send(encode({ type: 'hello', secret: args.secret })));
+    ws.on('open', () => ws.send(encode({ type: 'hello', v: MESH_PROTOCOL_VERSION, secret: args.secret })));
     ws.on('error', (error: unknown) => reject(error));
     ws.on('close', () => {
       clearTimeout(connectTimer);
@@ -124,8 +124,19 @@ export function connectLink(args: { url: string; secret: string; timeoutMs?: num
       }
 
       if (frame.type === 'manifest') {
-        manifest = { scopes: frame.scopes, routes: frame.routes };
         clearTimeout(connectTimer);
+
+        if (frame.v !== MESH_PROTOCOL_VERSION) {
+          ws.close();
+          reject(
+            new Error(
+              `mesh protocol version mismatch at ${args.url}: teapot speaks v${frame.v}, this teacup speaks v${MESH_PROTOCOL_VERSION}`,
+            ),
+          );
+          return;
+        }
+
+        manifest = { scopes: frame.scopes, routes: frame.routes };
         args.bus?.emit('mesh:connect', { name: args.url });
         resolve(buildLink(ws, pending, manifest, timeoutMs));
         return;
