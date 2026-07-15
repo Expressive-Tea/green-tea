@@ -112,10 +112,13 @@ export function createApp(opts: {
 
   // For each route, resolve which providers/steps feed it via topo order.
   // MVP: every route depends on every declared step + provider in the app graph.
-  // For mesh apps, finalize is DEFERRED to listen() so remote scopes can join the graph first.
+  // For mesh apps, finalize is DEFERRED to the boot gate so remote scopes can join the graph
+  // first — connecting to teapots is network I/O, so it cannot happen during construction.
   let orderedProviders: GraphNode[] = [];
   let orderedSteps: GraphNode[] = [];
   let booted = false;
+  let remoteRoutes: RouteDef[] = [];
+  const meshLinks: Link[] = [];
 
   const finalize = (): void => {
     ({ orderedProviders, orderedSteps } = finalizeGraph(registry));
@@ -123,6 +126,16 @@ export function createApp(opts: {
   };
 
   if (!opts.mesh) finalize();
+
+  // mesh teacup: connect remote teapots and splice their scopes/routes in, then finalize.
+  const prepareGraph = async (): Promise<void> => {
+    if (!opts.mesh || booted) return;
+
+    const spliced = await spliceRemoteScopes(opts.mesh, bus, registry);
+    remoteRoutes = spliced.remoteRoutes;
+    meshLinks.push(...spliced.meshLinks);
+    finalize();
+  };
 
   const inspect = (routePath: string): InspectLine[] => inspectRoute(routePlans, routePath, booted);
   const graph = (): GraphView => buildGraphView(providerNodes, stepNodes, routePlans, booted);
@@ -150,14 +163,15 @@ export function createApp(opts: {
   const providedSeed = (plan: RoutePlan) => seedProviders(container, plan);
   const planSteps = (plan: RoutePlan) => compilePlanSteps(runners, plan);
 
-  // Boots app-scope providers exactly once, however first triggered (app.fetch or listen()); calling
-  // both never double-boots (which would re-run provider factories and their side effects).
-  const bootAppProviders = makeProviderBooter(
+  // Boots exactly once, however first triggered (app.fetch, app.upgrade or listen()); calling
+  // several never double-boots (which would re-run provider factories and their side effects).
+  const bootApp = makeAppBooter(
     registry,
     opts.overrides,
     () => orderedProviders,
     { runners, container, providerMeta, bus },
     degradedProviders,
+    prepareGraph,
   );
 
   const staticResolver = opts.static ? buildStaticResolver(opts.static) : undefined;
@@ -173,36 +187,25 @@ export function createApp(opts: {
     static: staticResolver,
   };
   const fetchFn = buildAppFetch(
-    () => booted,
     routePlans,
     { providedSeed, planSteps, bus, onError: opts.onError },
     fetchOpts,
-    bootAppProviders,
+    bootApp,
     devRoutes,
+    () => remoteRoutes,
   );
   const upgradeFn = buildAppUpgrade(
-    () => booted,
     routePlans,
     { providedSeed, planSteps, bus, onError: opts.onError },
     streams,
-    bootAppProviders,
+    bootApp,
   );
 
   const listen = async (port: number): Promise<http.Server> => {
     const deps: PipelineDeps = { providedSeed, planSteps, bus, onError: opts.onError };
 
-    // mesh teacup: connect remote teapots, splice their scopes/routes into the graph, then finalize
-    let remoteRoutes: RouteDef[] = [];
-    const meshLinks: Link[] = [];
-
-    if (opts.mesh && !booted) {
-      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry);
-      remoteRoutes = spliced.remoteRoutes;
-      meshLinks.push(...spliced.meshLinks);
-      finalize();
-    }
-
-    await bootAppProviders();
+    // the same gate app.fetch uses: splices remote mesh scopes, finalizes, boots providers
+    await bootApp();
 
     const meshControl = buildMeshControl(opts.mesh, registry, {
       container,
@@ -547,11 +550,13 @@ async function bootProviders(
 }
 
 /**
- * Returns a memoized boot function: applies overrides and boots app-scope providers exactly once,
- * however first triggered — {@link buildAppFetch}'s handler or `listen()` may both call it, and the
- * memoization guarantees only the first call actually runs (and warns about) the boot sequence.
+ * Returns a memoized boot function: prepares the graph, applies overrides and boots app-scope
+ * providers exactly once, however first triggered — `app.fetch`, `app.upgrade` and `listen()` may
+ * all call it, and the memoization guarantees only the first runs the sequence. This is the single
+ * place an app becomes ready, which is what lets a mesh app boot on any runtime rather than only
+ * where `listen()` (a Node http.Server) can be built.
  */
-function makeProviderBooter(
+function makeAppBooter(
   registry: Registry,
   overrides: Record<string, unknown> | undefined,
   getOrderedProviders: () => GraphNode[],
@@ -562,10 +567,13 @@ function makeProviderBooter(
     bus: Bus;
   },
   degradedProviders: string[],
+  /** Splices remote mesh scopes in and finalizes the graph. Must precede providers: remote nodes join the topo sort. */
+  prepareGraph: () => Promise<void>,
 ): () => Promise<void> {
   let bootPromise: Promise<void> | undefined;
 
   const runBoot = async (): Promise<void> => {
+    await prepareGraph();
     applyOverrides(overrides, registry);
     degradedProviders.length = 0;
     degradedProviders.push(...(await bootProviders(getOrderedProviders(), deps)));
@@ -691,29 +699,27 @@ function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps
 /**
  * Builds `app.fetch`: a Web-Standards handler over the same route table `listen()` uses, so
  * `Deno.serve(app.fetch)` / `Bun.serve({ fetch: app.fetch })` work without ever calling `listen()`.
- * Non-mesh apps finalize eagerly, so `getBooted()` is already `true` and the route table is built
- * on the very first call. Mesh apps defer finalize to `listen()` (remote scopes must splice into the
- * graph first): `getBooted` reads the outer `booted` flag *live* on every call — exactly like
- * `explain()`/`graph()`/`inspect()` do — so the returned function throws until `listen()` finalizes,
- * then starts working from the next call on, without ever needing to be rebuilt.
+ * The boot is awaited *before* the route table is built: for a mesh app the table is not knowable
+ * until remote scopes have spliced in, and the boot is what does that. Both are memoized, so this
+ * costs one flag check per request after the first.
  */
 function buildAppFetch(
-  getBooted: () => boolean,
   routePlans: RoutePlan[],
   deps: PipelineDeps,
   fetchOpts: HttpOptions,
   ensureBooted: () => Promise<void>,
   devRoutes: () => RouteDef[],
+  getRemoteRoutes: () => RouteDef[],
 ): (request: Request) => Promise<Response> {
   let handler: ((request: Request) => Promise<Response>) | undefined;
 
   return async (request: Request): Promise<Response> => {
+    await ensureBooted(); // idempotent: no-op once any of fetch/upgrade/listen has booted
+
     if (!handler) {
-      if (!getBooted()) throw new Error('fetch() unavailable before listen() for mesh apps');
-      handler = buildFetch([...buildHttpRoutes(routePlans, [], deps), ...devRoutes()], fetchOpts);
+      handler = buildFetch([...buildHttpRoutes(routePlans, getRemoteRoutes(), deps), ...devRoutes()], fetchOpts);
     }
 
-    await ensureBooted(); // idempotent: no-op if listen() already booted the providers
     return handler(request);
   };
 }
@@ -722,12 +728,9 @@ function buildAppFetch(
  * Builds `app.upgrade`: the neutral WebSocket entry over the same route table `listen()` uses, so
  * Deno/Bun/edge adapters can drive ws connections without ever calling `listen()`. Node keeps its own
  * `server.on('upgrade')` path (see `attachWs`) and never calls this.
- * Mirrors {@link buildAppFetch}'s finalize guard exactly: non-mesh apps finalize eagerly, so
- * `getBooted()` is already `true` and the ws route table builds on the first call; mesh apps defer
- * finalize to `listen()`, so this throws until `listen()` finalizes, then works from the next call on.
+ * Mirrors {@link buildAppFetch}: the boot is awaited before the ws route table is built.
  */
 function buildAppUpgrade(
-  getBooted: () => boolean,
   routePlans: RoutePlan[],
   deps: PipelineDeps,
   streams: Set<() => void>,
@@ -736,12 +739,10 @@ function buildAppUpgrade(
   let wsRoutes: WsRouteDef[] | undefined;
 
   return async (request: WsRequest, socket: WsSocket): Promise<void> => {
-    if (!wsRoutes) {
-      if (!getBooted()) throw new Error('upgrade() unavailable before listen() for mesh apps');
-      wsRoutes = buildWsRoutes(routePlans, deps);
-    }
+    await ensureBooted(); // idempotent: no-op once any of fetch/upgrade/listen has booted
 
-    await ensureBooted(); // idempotent: no-op if listen() already booted the providers
+    if (!wsRoutes) wsRoutes = buildWsRoutes(routePlans, deps);
+
     const path = request.url.split('?')[0];
     const route = matchWsRoute(wsRoutes, path);
 
