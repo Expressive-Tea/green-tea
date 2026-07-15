@@ -466,6 +466,7 @@ async function spliceRemoteScopes(
 ): Promise<{ remoteRoutes: RouteDef[]; meshLinks: Link[] }> {
   const remoteRoutes: RouteDef[] = [];
   const meshLinks: Link[] = [];
+  const routeOwners = new Map<string, string>(); // "METHOD /pattern" -> the teapot that exported it
 
   try {
     for (const teapot of mesh.teapots ?? []) {
@@ -486,6 +487,22 @@ async function spliceRemoteScopes(
       }
 
       for (const route of routes) {
+        const key = `${route.method} ${route.pattern}`;
+        const owner = routeOwners.get(key);
+
+        // Fail the boot rather than pick one. Route matching keeps the first of two identical
+        // patterns, so the loser would be silently dead — and callers could come to depend on
+        // "first teapot wins", which would make adding balancing later a breaking change.
+        // Scope tokens already fail this way in setRunner; routes now match.
+        if (owner) {
+          throw new Error(
+            `mesh: route '${key}' is exported by more than one teapot (${owner} and ${teapot.url}) — ` +
+              'load balancing across teapots is not implemented yet, so green-tea will not choose one for you. ' +
+              'Export it from a single teapot.',
+          );
+        }
+
+        routeOwners.set(key, teapot.url);
         remoteRoutes.push({
           method: route.method,
           pattern: route.pattern,
