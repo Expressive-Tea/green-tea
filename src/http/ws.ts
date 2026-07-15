@@ -38,7 +38,9 @@ function handleMeshUpgrade(
     return true;
   }
 
-  wss.handleUpgrade(req, socket, head, (ws: any) => meshControl.handle(ws, req));
+  // nodeSocket, not the raw ws: the control channel is the last consumer that spoke the
+  // `ws` EventEmitter API directly. It now takes the same neutral socket every route does.
+  wss.handleUpgrade(req, socket, head, (ws: any) => meshControl.handle(nodeSocket(ws)));
   return true;
 }
 
