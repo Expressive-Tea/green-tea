@@ -79,7 +79,7 @@
     "build": "tsup",
     "test": "vitest run",
     "test:dev": "vitest",
-    "test:deno": "deno test --allow-net --allow-read --no-check test/deno/",
+    "test:deno": "deno test --allow-net --allow-read --allow-run --allow-env --no-check test/deno/",
     "test:bun": "bun test test/bun/",
     "test:edge": "tsx test/edge/run.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
