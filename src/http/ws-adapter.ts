@@ -41,8 +41,8 @@ export interface EventfulSocket {
   send(data: string): void;
   close(code?: number, reason?: string): void;
   addEventListener(
-    type: 'message' | 'close' | 'error',
-    listener: (event: { data?: string | ArrayBuffer }) => void,
+    type: 'open' | 'message' | 'close' | 'error',
+    listener: (event: { data?: string | ArrayBuffer; error?: unknown }) => void,
   ): void;
 }
 
@@ -105,6 +105,48 @@ export function neutralSocket(
       }
     },
   };
+}
+
+/** Constructs a host WebSocket *client*. Both the platform global and the `ws` package satisfy it. */
+export type SocketCtor = new (url: string) => EventfulSocket;
+
+/**
+ * The WebSocket client implementation: the platform global where it exists (Deno, Bun, and
+ * Node >= 22), else the `ws` optional peer — Node 18-21, our declared floor, has no global.
+ *
+ * Both expose the same `addEventListener` API and deliver text frames as `event.data` strings,
+ * so one bridge covers both. That is verified rather than assumed: `ws` implements the
+ * browser-compatible event API alongside its EventEmitter one.
+ */
+export function loadWebSocketCtor(): SocketCtor {
+  const platform = (globalThis as { WebSocket?: SocketCtor }).WebSocket;
+
+  if (platform) return platform;
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('ws') as SocketCtor;
+}
+
+/**
+ * Opens a client connection and wraps it as a neutral {@link WsSocket}. `opened` resolves once
+ * the socket is live (the caller's cue to send its first frame) and rejects if it never opens.
+ *
+ * `Ctor` is injectable so both implementations can be exercised on one runtime — otherwise CI
+ * on a single Node version would silently cover only one of the two paths.
+ */
+export function connectSocket(
+  url: string,
+  Ctor: SocketCtor = loadWebSocketCtor(),
+): { socket: WsSocket; opened: Promise<void> } {
+  const host = new Ctor(url);
+  // registered before eventSocket's own error listener, so a connect failure rejects `opened`
+  // with the host's real error rather than eventSocket's generic one
+  const opened = new Promise<void>((resolve, reject) => {
+    host.addEventListener('open', () => resolve());
+    host.addEventListener('error', (event) => reject(event?.error ?? new Error(`websocket error: ${url}`)));
+  });
+
+  return { socket: eventSocket(host), opened };
 }
 
 /**

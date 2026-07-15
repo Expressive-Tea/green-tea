@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { WebSocketServer } from 'ws';
+import WS, { WebSocketServer } from 'ws';
 import { connectLink } from '../../src/mesh/link';
+import { loadWebSocketCtor, type SocketCtor } from '../../src/http/ws-adapter';
 import { encode, decode, MESH_PROTOCOL_VERSION } from '../../src/mesh/protocol';
 
 const V = MESH_PROTOCOL_VERSION;
@@ -52,6 +53,31 @@ function startSkewedTeapot() {
   const port = (wss.address() as any).port;
   return { url: `ws://127.0.0.1:${port}/__mesh__/control`, close: () => wss.close() };
 }
+
+/**
+ * Both client implementations, exercised on whatever Node runs the suite. `ws` is always in the
+ * list: it is the Node 18-21 path, and on a modern CI the platform global would otherwise be the
+ * only one ever covered — the fallback would rot unnoticed until someone ran the declared floor.
+ */
+const platform = (globalThis as { WebSocket?: SocketCtor }).WebSocket;
+const CTORS: [string, SocketCtor][] = [['the ws package (Node < 22 path)', WS as unknown as SocketCtor]];
+if (platform) CTORS.push(['the platform global WebSocket', platform]);
+
+describe('WebSocket client implementations', () => {
+  it.each(CTORS)('handshakes and serves RPC over %s', async (_label, Ctor) => {
+    const t = startTeapot();
+    const link = await connectLink({ url: t.url, secret: 'good', Ctor });
+
+    expect(link.manifest.scopes).toEqual([{ token: 'auth', scope: 'request' }]);
+    expect(await link.rpc('scope', 'auth', env)).toEqual({ got: 'auth' });
+    link.close();
+    t.close();
+  });
+
+  it('prefers the platform global when it exists, else falls back to the ws package', () => {
+    expect(loadWebSocketCtor()).toBe(platform ?? (WS as unknown as SocketCtor));
+  });
+});
 
 describe('connectLink', () => {
   it('sends its protocol version in the hello', async () => {
