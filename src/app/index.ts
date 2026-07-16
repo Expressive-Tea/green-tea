@@ -7,7 +7,7 @@ import { runPipeline, runSteps, PipelineStep } from '../pipeline';
 import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from '../http';
 import type { HttpOptions } from '../http';
 import { buildFetch } from '../http/web';
-import { matchWsRoute, runWsConnection, type WsRequest, type WsSocket } from '../http/ws-core';
+import { matchWsRoute, runWsConnection, trackUntil, type WsRequest, type WsSocket } from '../http/ws-core';
 import { isAsyncIterable } from '../channel';
 import { JsonTransformer, type ErrorRenderer } from '../transformers';
 import { mountPlugin, Plugin, ScopeApi, ScopeNode } from '../plugin';
@@ -491,7 +491,13 @@ async function spliceRemoteScopes(
 
   try {
     for (const teapot of mesh.teapots ?? []) {
-      const link = await connectLink({ url: teapot.url, secret: teapot.secret, timeoutMs: mesh.timeoutMs, bus });
+      const link = await connectLink({
+        url: teapot.url,
+        secret: teapot.secret,
+        timeoutMs: mesh.timeoutMs,
+        heartbeatMs: mesh.heartbeatMs,
+        bus,
+      });
       meshLinks.push(link);
       const { providers, steps, routes } = buildRemote(link);
       const origin = `mesh:${teapot.url}`;
@@ -816,7 +822,7 @@ function buildAppUpgrade(
         return;
       }
 
-      await meshControl.handle(ready);
+      await trackUntil(ready, meshControl.handle(ready), streams);
       return;
     }
 

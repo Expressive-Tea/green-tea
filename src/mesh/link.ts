@@ -18,11 +18,15 @@ type PendingEntry = {
   timer: ReturnType<typeof setTimeout>;
 };
 
-/** Reject and clear every in-flight RPC — used when the link closes. */
+/**
+ * Reject and clear every in-flight RPC — used when the link closes.
+ * 503, not a bare Error: a dead upstream is not "this service broke", and the status is what
+ * tells a caller it may retry and an operator where to look. A bare Error renders as a 500.
+ */
 function rejectAllPending(pending: Map<string, PendingEntry>, reason: string): void {
   for (const [, entry] of pending) {
     clearTimeout(entry.timer);
-    entry.reject(new Error(reason));
+    entry.reject(new HttpError(503, reason));
   }
 
   pending.clear();
@@ -38,10 +42,19 @@ function sendRpc(
   ctx: RequestEnvelope,
   timeoutMs: number,
 ): Promise<unknown> {
+  // Answer now rather than in timeoutMs. A closed socket cannot deliver the frame, so waiting
+  // would make every request to a downed teapot hang for the full timeout (30s by default)
+  // before failing anyway — the caller pays for a verdict already known.
+  if (!socket.isOpen) {
+    return Promise.reject(new HttpError(503, `mesh link is down: cannot resolve '${name}'`));
+  }
+
   return new Promise((resolveCall, rejectCall) => {
+    // 504: the link is alive but the teapot did not answer in time — a gateway timeout,
+    // which is a different operational story from a link that is down.
     const timer = setTimeout(() => {
       pending.delete(id);
-      rejectCall(new Error(`mesh rpc timeout: ${name}`));
+      rejectCall(new HttpError(504, `mesh rpc timeout: ${name}`));
     }, timeoutMs);
 
     pending.set(id, { resolve: resolveCall, reject: rejectCall, timer });
@@ -87,6 +100,50 @@ function settleRpcResponse(
   }
 }
 
+/** Default gap between heartbeat pings. Two missed rounds close the link. */
+const HEARTBEAT_MS = 15_000;
+
+/**
+ * Close code for a link we hang up on because its teapot went quiet.
+ *
+ * Not 1011: a *client* may only send 1000 or 3000-4999 — anything else throws `invalid code`,
+ * and our neutral close swallows throws, so a reserved code would leave the link open while
+ * looking like it closed. 4000+ is the application range, so 4011 mirrors 1011's meaning.
+ */
+const CLOSE_HEARTBEAT_TIMEOUT = 4011;
+
+/**
+ * Pings the teapot on an interval and closes the link if a round goes unanswered.
+ *
+ * A TCP connection can die without either side noticing — a dropped route, a killed container,
+ * a NAT timing out — leaving the socket "open" with nobody home. Without this, a teacup only
+ * learns on the next request, which pays the full rpc timeout before failing. Closing the socket
+ * turns that into an immediate 503 from the dead-link guard, and emits `mesh:disconnect`.
+ *
+ * The interval is unref'd, so a heartbeat never holds the process open by itself.
+ */
+function startHeartbeat(socket: WsSocket, everyMs: number): { stop: () => void; markAlive: () => void } {
+  let answered = true;
+
+  const timer = setInterval(() => {
+    if (!answered) {
+      socket.close(CLOSE_HEARTBEAT_TIMEOUT, 'mesh heartbeat timeout'); // aborts -> disconnect + reject pending
+      return;
+    }
+
+    answered = false;
+    socket.send(encode({ type: 'ping' }));
+  }, everyMs);
+  timer.unref?.();
+
+  return {
+    stop: () => clearInterval(timer),
+    markAlive: () => {
+      answered = true;
+    },
+  };
+}
+
 /** Handle for the in-flight handshake, so the frame loop can settle `connectLink`'s promise. */
 interface Handshake {
   url: string;
@@ -97,6 +154,7 @@ interface Handshake {
   resolve: (link: Link) => void;
   reject: (error: unknown) => void;
   onManifest: () => void;
+  onPong: () => void;
 }
 
 /** Settle the handshake from a `manifest` frame: refuse a version mismatch, else build the Link. */
@@ -129,6 +187,7 @@ async function readFrames(hs: Handshake): Promise<void> {
     }
 
     if (frame.type === 'manifest') settleManifest(frame, hs);
+    else if (frame.type === 'pong') hs.onPong();
     else if (frame.type === 'rpc-res') settleRpcResponse(hs.pending, frame, hs.bus);
   }
 }
@@ -141,6 +200,7 @@ export function connectLink(args: {
   url: string;
   secret: string;
   timeoutMs?: number;
+  heartbeatMs?: number;
   bus?: Bus;
   Ctor?: SocketCtor;
 }): Promise<Link> {
@@ -148,6 +208,7 @@ export function connectLink(args: {
   const { socket, opened } = connectSocket(args.url, args.Ctor ?? undefined);
   const pending = new Map<string, PendingEntry>();
   let manifest = false;
+  let heartbeat: { stop: () => void; markAlive: () => void } | undefined;
 
   return new Promise<Link>((resolve, reject) => {
     const connectTimer = setTimeout(() => {
@@ -166,7 +227,10 @@ export function connectLink(args: {
       onManifest: () => {
         manifest = true;
         clearTimeout(connectTimer);
+        // started only once authenticated: an unauthenticated peer should not be pinging
+        heartbeat = startHeartbeat(socket, args.heartbeatMs ?? HEARTBEAT_MS);
       },
+      onPong: () => heartbeat?.markAlive(),
     };
 
     opened.then(
@@ -180,8 +244,9 @@ export function connectLink(args: {
       'abort',
       () => {
         clearTimeout(connectTimer);
+        heartbeat?.stop();
         args.bus?.emit('mesh:disconnect', { name: args.url });
-        rejectAllPending(pending, 'mesh link closed');
+        rejectAllPending(pending, `mesh link to ${args.url} is down`);
         if (!manifest) reject(new Error(`mesh handshake failed: ${args.url}`));
       },
       { once: true },

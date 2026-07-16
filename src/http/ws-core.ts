@@ -31,6 +31,25 @@ export function matchWsRoute(
     .find((entry) => entry.params);
 }
 
+/**
+ * Runs `connection` with the socket registered for force-close on shutdown, unregistering it
+ * when the connection ends. Without this a long-lived socket keeps `server.close()` waiting for
+ * a peer that has no reason to hang up — the mesh control channel is exactly that shape.
+ */
+export async function trackUntil(
+  socket: WsSocket,
+  connection: Promise<void>,
+  streams?: Set<() => void>,
+): Promise<void> {
+  const { closer } = trackConnection(socket, streams);
+
+  try {
+    await connection;
+  } finally {
+    streams?.delete(closer);
+  }
+}
+
 /** Registers the connection with the stream registry so it can be force-closed on shutdown. */
 function trackConnection(socket: WsSocket, streams?: Set<() => void>): { closer: () => void } {
   const closer = () => {
