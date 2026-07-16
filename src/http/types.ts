@@ -1,9 +1,8 @@
-import type http from 'http';
 import type { Transport } from '../metadata';
 import type { PipelineResult } from '../pipeline';
 import type { ErrorRenderer } from '../transformers';
 import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
-import type { WsRequest } from './ws-core';
+import type { WsRequest, WsSocket } from './ws-core';
 import type { StaticResolver } from '../views';
 
 /** Per-request size and timeout ceilings applied by the server. */
@@ -74,5 +73,10 @@ export interface WsRouteDef {
 /** Hook for a mesh gateway to take over WebSocket upgrades on a fixed path. */
 export interface MeshControl {
   path: string;
-  handle(ws: any, req: http.IncomingMessage): void;
+  /**
+   * Serves one control connection over the neutral socket — the same capability every other ws
+   * consumer takes, so Node (via `nodeSocket`) and Deno/Bun (via `app.upgrade`) both feed it.
+   * Resolves when the connection ends, like `runWsConnection`.
+   */
+  handle(socket: WsSocket): Promise<void>;
 }

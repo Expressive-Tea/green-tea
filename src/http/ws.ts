@@ -38,7 +38,10 @@ function handleMeshUpgrade(
     return true;
   }
 
-  wss.handleUpgrade(req, socket, head, (ws: any) => meshControl.handle(ws, req));
+  // nodeSocket, not the raw ws: the control channel is the last consumer that spoke the
+  // `ws` EventEmitter API directly. It now takes the same neutral socket every route does.
+  // serveFrames swallows its own failures, so the floating promise cannot reject
+  wss.handleUpgrade(req, socket, head, (ws: any) => void meshControl.handle(nodeSocket(ws)));
   return true;
 }
 

@@ -5,7 +5,7 @@ import { createHttpServer, type MeshControl } from '../../src/http';
 describe('mesh control upgrade', () => {
   it('routes the reserved path to meshControl.handle and leaves wsRoutes intact', async () => {
     let handled = false;
-    const meshControl: MeshControl = { path: '/__mesh__/control', handle: (ws) => { handled = true; ws.send('hi'); } };
+    const meshControl: MeshControl = { path: '/__mesh__/control', handle: async (ws) => { handled = true; ws.send('hi'); } };
     const server = createHttpServer([], [], undefined, meshControl);
     await new Promise<void>((r) => server.listen(0, r));
     const port = (server.address() as any).port;

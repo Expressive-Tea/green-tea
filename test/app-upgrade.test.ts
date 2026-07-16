@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createApp, Route, Ws, Module, ctx } from '../src/index';
+import { createApp, Route, Ws, Module, ctx, Step, needs } from '../src/index';
 import { channel } from '../src/channel';
 import type { WsSocket, WsRequest } from '../src/http/ws-core';
 
@@ -15,6 +15,24 @@ class Rt {
 @Module({ mountpoint: '/', controllers: [Rt] })
 class M {}
 const app = createApp({ modules: [M] });
+
+@Step({ provides: 'tag' })
+class Tagger {
+  run() {
+    return { tag: 't' };
+  }
+}
+@Route('/tagged')
+class TaggedCtl {
+  @Ws('/echo')
+  echo(@needs('tag') tag: string, @ctx() { inbound }: any) {
+    return (async function* () {
+      for await (const msg of inbound) yield `${tag}:${msg}`;
+    })();
+  }
+}
+@Module({ mountpoint: '/', steps: [Tagger], controllers: [TaggedCtl] })
+class Tagged {}
 
 function fakeSocket() {
   const inbound = channel<unknown>();
@@ -44,6 +62,25 @@ describe('app.upgrade', () => {
     inbound.close();
     await run;
     expect(sent).toEqual(['echo:hi']);
+  });
+
+  it('emits request:step:enter/leave for ws steps, like HTTP routes do', async () => {
+    const seen: string[] = [];
+    const logger = (api: any) => {
+      api.bus.on('request:step:enter', (p: any) => seen.push(`enter:${p.name}`));
+      api.bus.on('request:step:leave', (p: any) => seen.push(`leave:${p.name}`));
+    };
+    const wsApp = createApp({ modules: [Tagged], plugins: [logger] });
+    const { socket, inbound, sent } = fakeSocket();
+    const req: WsRequest = { url: '/tagged/echo', headers: {}, protocol: 'http', ip: '' };
+    const run = wsApp.upgrade(req, socket);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    inbound.push('hi');
+    inbound.close();
+    await run;
+
+    expect(sent).toEqual(['t:hi']);
+    expect(seen).toEqual(['enter:tag', 'leave:tag']);
   });
 
   it('closes 1008 on an unknown ws path', async () => {

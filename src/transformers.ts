@@ -1,4 +1,4 @@
-import { isHttpError, Redirect, ValidationError } from './signals';
+import { isHttpError, ValidationError } from './signals';
 import type { TransformerFn } from './metadata';
 import { flattenPath } from './standard-schema';
 
@@ -47,8 +47,7 @@ export function errorToResponse(error: unknown): ErrorResponse {
   }
 
   if (isHttpError(error)) {
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
-    if (error instanceof Redirect) headers.location = error.location;
+    const headers = { 'content-type': 'application/json', ...error.headers };
     const payload = error.body !== undefined ? error.body : { error: error.message };
     return { status: error.status, headers, body: JSON.stringify(payload) };
   }

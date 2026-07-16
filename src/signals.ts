@@ -1,11 +1,16 @@
 import type { StandardIssue } from './standard-schema';
 
-/** Error carrying an HTTP status code and optional response body. Base of all signals. */
+/**
+ * Error carrying an HTTP status code and optional response body. Base of all signals.
+ * A subclass needing response headers (e.g. `location`, `retry-after`) sets `headers`
+ * rather than requiring a special case in the error renderer.
+ */
 export class HttpError extends Error {
   constructor(
     readonly status: number,
     message?: string,
     readonly body?: unknown,
+    readonly headers?: Record<string, string>,
   ) {
     super(message ?? `HTTP ${status}`);
     this.name = new.target.name;
@@ -36,7 +41,7 @@ export class NotModified extends HttpError {
 /** 302 redirect to `location`. */
 export class Redirect extends HttpError {
   constructor(readonly location: string) {
-    super(302);
+    super(302, undefined, undefined, { location });
   }
 }
 

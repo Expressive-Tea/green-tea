@@ -1,10 +1,11 @@
 import type { ArgSpec } from './params';
+import type { Transport } from './metadata';
 
 /** Minimal per-route input the OpenAPI projection needs, derived from a route plan. */
 export interface OpenApiRoute {
   method: string;
   pattern: string;
-  transport: string;
+  transport: Transport;
   args: ArgSpec[];
 }
 
@@ -55,17 +56,23 @@ function argParams(args: ArgSpec[]): Parameter[] {
   return params;
 }
 
-/** The success/error responses documented for a route, keyed by transport and whether any input is validated. */
-function responses(route: OpenApiRoute): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
+/**
+ * The documented `200` per transport. `ws` is absent by construction — ws routes are not
+ * HTTP request/response and are filtered out before this runs. A new transport adds a row,
+ * and the compiler fails until it does.
+ */
+type HttpTransport = Exclude<Transport, 'ws'>;
 
-  if (route.transport === 'sse') {
-    result['200'] = { description: 'Event stream', content: { 'text/event-stream': {} } };
-  } else if (route.transport === 'ndjson' || route.transport === 'negotiate') {
-    result['200'] = { description: 'Stream', content: { 'application/x-ndjson': {} } };
-  } else {
-    result['200'] = { description: 'OK', content: { 'application/json': { schema: {} } } };
-  }
+const TRANSPORT_OK: Record<HttpTransport, Record<string, unknown>> = {
+  buffer: { description: 'OK', content: { 'application/json': { schema: {} } } },
+  sse: { description: 'Event stream', content: { 'text/event-stream': {} } },
+  ndjson: { description: 'Stream', content: { 'application/x-ndjson': {} } },
+  negotiate: { description: 'Stream', content: { 'application/x-ndjson': {} } },
+};
+
+/** The success/error responses documented for a route, keyed by transport and whether any input is validated. */
+function responses(route: OpenApiRoute, transport: HttpTransport): Record<string, unknown> {
+  const result: Record<string, unknown> = { '200': TRANSPORT_OK[transport] };
 
   if (route.args.some((arg) => arg.schema)) result['422'] = { description: 'Validation failed' };
   result['500'] = { description: 'Internal Server Error' };
@@ -73,9 +80,9 @@ function responses(route: OpenApiRoute): Record<string, unknown> {
 }
 
 /** Builds a single OpenAPI operation object for a route. */
-function operation(route: OpenApiRoute): Record<string, unknown> {
+function operation(route: OpenApiRoute, transport: HttpTransport): Record<string, unknown> {
   const parameters = [...pathParams(route.pattern), ...argParams(route.args)];
-  const op: Record<string, unknown> = { responses: responses(route) };
+  const op: Record<string, unknown> = { responses: responses(route, transport) };
 
   if (parameters.length) op.parameters = parameters;
 
@@ -95,9 +102,10 @@ export function buildOpenApi(routes: OpenApiRoute[], info?: OpenApiInfo): OpenAp
   const paths: Record<string, Record<string, unknown>> = {};
 
   for (const route of routes) {
-    if (route.transport === 'ws') continue; // not an HTTP request/response
+    const transport = route.transport;
+    if (transport === 'ws') continue; // not an HTTP request/response; narrows to HttpTransport below
     const path = templatePath(route.pattern);
-    (paths[path] ??= {})[route.method.toLowerCase()] = operation(route);
+    (paths[path] ??= {})[route.method.toLowerCase()] = operation(route, transport);
   }
 
   return {

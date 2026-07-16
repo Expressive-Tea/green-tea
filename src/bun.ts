@@ -2,6 +2,7 @@ import { channel } from './channel';
 import type { Channel } from './channel';
 import type { App } from './app/types';
 import type { WsSocket, WsRequest } from './http/ws-core';
+import { decodeMessage, neutralSocket, toWsRequest, upgradeSafely } from './http/ws-adapter';
 
 // Minimal ambient for the Bun globals we use — avoids a @types/bun devDep.
 // Mirrors the real Bun.serve / server.upgrade / ServerWebSocket signatures we call.
@@ -33,8 +34,6 @@ interface BunServeOptions {
 type BunServeShortOptions = { port?: number; hostname?: string };
 declare const Bun: { serve(options: BunServeOptions): BunServer };
 
-const decoder = new TextDecoder();
-
 /** Per-connection state stashed on ws.data between fetch (upgrade) and the open/message/close callbacks. */
 interface BunConnData {
   wsReq: WsRequest;
@@ -42,48 +41,15 @@ interface BunConnData {
   ac: AbortController;
 }
 
-/** Builds a neutral WsRequest from a Bun request + server (for the client IP). */
-function toWsRequest(request: Request, server: BunServer): WsRequest {
-  const url = new URL(request.url);
-  const headers: Record<string, string> = {};
-  request.headers.forEach((v, k) => {
-    headers[k] = v;
-  });
-  return {
-    url: url.pathname + url.search,
-    headers,
-    protocol: url.protocol === 'https:' ? 'https' : 'http',
-    ip: server.requestIP(request)?.address ?? '',
-  };
-}
-
-/** Wraps a Bun ServerWebSocket (+ its stashed channel/abort) as a neutral WsSocket. */
+/**
+ * Wraps a Bun ServerWebSocket as a neutral WsSocket. Unlike Deno/edge, Bun delivers socket
+ * events to a server-level handler rather than the socket, so the channel and abort are
+ * created during the upgrade and stashed on ws.data — there is nothing here to wire up.
+ */
 function bunSocket(ws: BunServerWebSocket): WsSocket {
   const { inbound, ac } = ws.data as BunConnData;
-  return {
-    inbound,
-    abort: ac.signal,
-    get isOpen() {
-      return ws.readyState === 1; // 1 = OPEN
-    },
-    send: (data) => {
-      ws.send(data);
-    },
-    close: (code, reason) => {
-      try {
-        ws.close(code, reason);
-      } catch {
-        /* already closed */
-      }
-    },
-    terminate: () => {
-      try {
-        (ws.terminate ?? ws.close).call(ws);
-      } catch {
-        /* already closed */
-      }
-    },
-  };
+
+  return neutralSocket(ws, inbound, ac);
 }
 
 /**
@@ -98,7 +64,8 @@ export function serveBun(app: App, options?: BunServeShortOptions): BunServer {
       if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
         const inbound = channel();
         const ac = new AbortController();
-        const data: BunConnData = { wsReq: toWsRequest(request, server), inbound, ac };
+        const wsReq = toWsRequest(request, server.requestIP(request)?.address ?? '');
+        const data: BunConnData = { wsReq, inbound, ac };
         if (server.upgrade(request, { data })) return undefined;
         return new Response('WebSocket upgrade failed', { status: 400 });
       }
@@ -108,21 +75,13 @@ export function serveBun(app: App, options?: BunServeShortOptions): BunServer {
     websocket: {
       open(ws) {
         const { wsReq } = ws.data as BunConnData;
-        // fire-and-forget: app.upgrade can reject before runWsConnection's try/catch
-        // (mesh-before-listen, provider boot failure); guard it or an uncaught rejection
-        // could crash the Bun process.
-        void app.upgrade(wsReq, bunSocket(ws)).catch(() => {
-          try {
-            ws.close(1011, 'internal error');
-          } catch {
-            /* already closed */
-          }
-        });
+
+        void upgradeSafely(app, wsReq, bunSocket(ws));
       },
       message(ws, message) {
         const { inbound } = ws.data as BunConnData;
-        // decode binary to UTF-8 to match Node's Buffer.toString() (cross-adapter parity)
-        inbound.push(typeof message === 'string' ? message : decoder.decode(message));
+
+        inbound.push(decodeMessage(message));
       },
       close(ws) {
         const { inbound, ac } = ws.data as BunConnData;

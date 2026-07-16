@@ -110,17 +110,36 @@ describe('app.fetch trustProxy gates x-forwarded-for', () => {
   });
 });
 
-describe('app.fetch mesh gating (live `booted` read)', () => {
-  it('throws before listen() and starts working after listen() finalizes', async () => {
+describe('app.fetch on a mesh app', () => {
+  // Previously this asserted fetch() *threw* until listen() ran, which made mesh Node-only:
+  // Deno/Bun/edge serve through app.fetch and can never call listen() (it builds an http.Server).
+  // The boot gate now finalizes the mesh graph on first use, whoever triggers it.
+  it('serves without ever calling listen()', async () => {
     const meshApp = createApp({ modules: [MeshModule], experimental: true, mesh: { secret: 's3cr3t' } });
 
-    await expect(meshApp.fetch(new Request('http://x/api/mesh/ping'))).rejects.toThrow(/unavailable before listen/);
+    const res = await meshApp.fetch(new Request('http://x/api/mesh/ping'));
 
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ pong: true });
+    await meshApp.close();
+  });
+
+  it('does not re-boot when listen() follows a fetch', async () => {
+    const meshApp = createApp({ modules: [MeshModule], experimental: true, mesh: { secret: 's3cr3t' } });
+    let booted = 0;
+    meshApp.bus.on('boot:provider:start', () => {
+      booted += 1;
+    });
+
+    await meshApp.fetch(new Request('http://x/api/mesh/ping'));
+    const bootsAfterFetch = booted;
     const server = await meshApp.listen(0);
+
     try {
       const res = await meshApp.fetch(new Request('http://x/api/mesh/ping'));
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ pong: true });
+      // listen() shares fetch's memoized gate: provider factories must not run twice
+      expect(booted).toBe(bootsAfterFetch);
     } finally {
       server.close();
     }
