@@ -31,13 +31,21 @@ export interface Manifest {
   routes: RouteEntry[];
 }
 
-/** Discriminated union of every message on the mesh wire. The handshake frames carry `v`. */
+/**
+ * Discriminated union of every message on the mesh wire. The handshake frames carry `v`.
+ *
+ * `ping`/`pong` are application frames rather than WebSocket protocol pings on purpose: the `ws`
+ * package exposes `ws.ping()`, but the platform `WebSocket` that Deno and Bun provide does not,
+ * so a protocol-level heartbeat could not work on every runtime mesh claims to support.
+ */
 export type Frame =
   | { type: 'hello'; v: number; secret: string }
   | { type: 'manifest'; v: number; scopes: ScopeEntry[]; routes: RouteEntry[] }
   | { type: 'rpc-req'; id: string; kind: 'scope' | 'route'; name: string; ctx: RequestEnvelope }
   | { type: 'rpc-res'; id: string; ok: true; result: unknown }
-  | { type: 'rpc-res'; id: string; ok: false; error: { message: string; status?: number } };
+  | { type: 'rpc-res'; id: string; ok: false; error: { message: string; status?: number } }
+  | { type: 'ping' }
+  | { type: 'pong' };
 
 const isString = (value: unknown): value is string => typeof value === 'string';
 const isNumber = (value: unknown): boolean => typeof value === 'number';
@@ -70,6 +78,12 @@ const SHAPE: Record<Frame['type'], ShapeCheck> = {
     if (!isString(frame.id)) bad('id must be a string');
     if (typeof frame.ok !== 'boolean') bad('ok must be a boolean');
     if (frame.ok === false && !isObject(frame.error)) bad('error must be an object when ok is false');
+  },
+  ping: () => {
+    /* the tag is the whole frame */
+  },
+  pong: () => {
+    /* the tag is the whole frame */
   },
 };
 

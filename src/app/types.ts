@@ -86,5 +86,12 @@ export interface RoutePlan {
 export interface MeshConfig {
   secret?: string;
   teapots?: Array<{ url: string; secret: string }>;
+  /** How long an RPC may wait for its teapot before failing with 504 (default: 30s). */
   timeoutMs?: number;
+  /**
+   * Gap between heartbeat pings to each teapot (default: 15s). Two unanswered rounds close the
+   * link, so a half-open connection surfaces as an immediate 503 instead of every request paying
+   * `timeoutMs` first. Lower it to notice a dead teapot sooner, at the cost of more chatter.
+   */
+  heartbeatMs?: number;
 }

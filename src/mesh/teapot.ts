@@ -167,6 +167,12 @@ async function serveFrames(
         continue;
       }
 
+      // answered only after the handshake: an unauthenticated peer gets no signal at all
+      if (frame.type === 'ping') {
+        socket.send(encode({ type: 'pong' }));
+        continue;
+      }
+
       if (frame.type !== 'rpc-req') continue;
 
       // deliberately not awaited: RPCs overlap, exactly as they did under the `ws.on('message')`

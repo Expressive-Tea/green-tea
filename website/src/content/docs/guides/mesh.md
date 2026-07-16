@@ -112,6 +112,28 @@ declared locally — the local route takes precedence and the remote one will no
 reached. Remove one if that is not what you meant.
 ```
 
+## When a teapot goes away
+
+A dead upstream is not a broken service, and the status says which:
+
+| What happened | Status |
+| --- | --- |
+| The link is down (closed, or the heartbeat gave up) | **503** Service Unavailable |
+| The link is up but the teapot didn't answer in `timeoutMs` | **504** Gateway Timeout |
+| The teapot answered with an error | whatever it said |
+
+503 arrives **immediately** — a closed socket cannot deliver the frame, so waiting `timeoutMs` (30s by default) would just make the caller pay for a verdict already known.
+
+Each teacup pings its teapots every `heartbeatMs` (15s by default) and closes a link after two unanswered rounds. This is what catches a **half-open** connection — a dropped route, a killed container, a NAT that timed out — where the socket still looks open with nobody home. Without it, a teacup only finds out on the next request, which pays the full timeout first.
+
+```typescript
+mesh: { teapots: [...], heartbeatMs: 5000 }   // notice sooner, chatter more
+```
+
+Ping and pong are ordinary mesh frames rather than WebSocket protocol pings, because the platform `WebSocket` on Deno and Bun does not expose `ws.ping()` — a protocol-level heartbeat could not work on every runtime mesh supports.
+
+**An app-scope export survives its teapot.** It is resolved once and memoised, so a provider keeps answering from cache after the link drops — with a value that can go stale. Reconnect reconciliation is a known gap.
+
 ## Protocol version
 
 Peers are separate processes on separate deploy cadences, so the wire is versioned: `MESH_PROTOCOL_VERSION` travels in the `hello` and `manifest` frames, and a mismatch is refused on both sides with both versions named. A teapot checks the version **before** the secret — a skewed peer is not an authentication failure, and reporting it as one would send you hunting the wrong bug.

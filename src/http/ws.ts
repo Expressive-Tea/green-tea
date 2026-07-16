@@ -1,7 +1,7 @@
 import type http from 'http';
 import { channel } from '../channel';
 import type { Bus } from '../bus';
-import { runWsConnection, matchWsRoute, type WsSocket, type WsRequest } from './ws-core';
+import { runWsConnection, matchWsRoute, trackUntil, type WsSocket, type WsRequest } from './ws-core';
 import type { WsRouteDef, MeshControl } from './types';
 
 /** Lazily loads the optional `ws` peer dependency's `WebSocketServer`, or null when it is not installed. */
@@ -30,6 +30,7 @@ function handleMeshUpgrade(
   req: http.IncomingMessage,
   socket: any,
   head: Buffer,
+  streams?: Set<() => void>,
 ): boolean {
   if (path !== meshControl.path) return false;
 
@@ -40,8 +41,14 @@ function handleMeshUpgrade(
 
   // nodeSocket, not the raw ws: the control channel is the last consumer that spoke the
   // `ws` EventEmitter API directly. It now takes the same neutral socket every route does.
-  // serveFrames swallows its own failures, so the floating promise cannot reject
-  wss.handleUpgrade(req, socket, head, (ws: any) => void meshControl.handle(nodeSocket(ws)));
+  // Tracked like any other long-lived socket: a connected teacup has no reason to hang up, so
+  // an untracked control channel leaves the teapot's server.close() waiting on it forever.
+  // serveFrames swallows its own failures, so the floating promise cannot reject.
+  wss.handleUpgrade(req, socket, head, (ws: any) => {
+    const neutral = nodeSocket(ws);
+
+    void trackUntil(neutral, meshControl.handle(neutral), streams);
+  });
   return true;
 }
 
@@ -97,7 +104,7 @@ export function attachWs(
   server.on('upgrade', (req, socket, head) => {
     const path = (req.url ?? '/').split('?')[0];
 
-    if (meshControl && handleMeshUpgrade(wss, meshControl, path, req, socket, head)) return;
+    if (meshControl && handleMeshUpgrade(wss, meshControl, path, req, socket, head, streams)) return;
 
     const route = matchWsRoute(wsRoutes, path);
 

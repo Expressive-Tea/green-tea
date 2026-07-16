@@ -35,10 +35,22 @@ green-tea uses calendar versioning: `YY.MM.PATCH`.
   ready to serve are different things, and drawing a diagram should not open your database
   connections. Serving boots them too and shares the same memoized step.
 
+- **Mesh heartbeat** (`mesh.heartbeatMs`, default 15s): each teacup pings its teapots and closes a
+  link after two unanswered rounds, so a half-open connection surfaces as an immediate 503 rather
+  than every request paying `timeoutMs` first. Ping/pong are mesh frames, not WebSocket protocol
+  pings — the platform `WebSocket` on Deno/Bun does not expose `ws.ping()`.
+
 ### Fixed
 - The opt-in dev routes `/__graph__` (graph viewer) and `/__openapi__` are now
   served over `app.fetch` too, so they work on every runtime (Deno/Bun/edge),
   not only the Node `app.listen()` path.
+- **A teapot with a live control channel could never shut down.** Mesh control connections were
+  not registered with the stream registry, so `server.close()` waited on a connected teacup that
+  had no reason to hang up, and `app.close()` never resolved.
+- **A downed teapot now answers 503 immediately** instead of hanging for the full `timeoutMs`
+  (30s by default) and then answering 500. A closed socket cannot deliver the frame, so the wait
+  bought nothing. An RPC that times out on a live link is now 504, not 500 — a dead upstream and
+  a slow one are different operational stories, and neither is "this service broke".
 - **`request:step:enter`/`leave` are now emitted for `@Ws` and mesh routes.** Only HTTP routes
   emitted them, so a logging plugin silently observed nothing on a WebSocket route — a gap in a
   documented plugin API. All transports now run their steps through one path.
