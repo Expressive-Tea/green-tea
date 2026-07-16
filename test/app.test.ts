@@ -40,6 +40,20 @@ test('inspect lists the ordered chain with origins', () => {
   expect(lines.map((l) => `${l.kind}:${l.name}`)).toEqual(['provider:db', 'step:user', 'handler:getUser']);
 });
 
+test('ready() is a no-op on a non-mesh app, so one protocol works for both', async () => {
+  // The point: code holding an `App` should not have to know whether it is a mesh app.
+  // `await app.ready(); app.graph()` is uniform — here it changes nothing and boots nothing.
+  const app = createApp({ modules: [ApiModule] });
+  const booted: string[] = [];
+  app.bus.on('boot:provider:start', (p) => booted.push(p.name));
+
+  const before = app.graph().nodes.length;
+  await app.ready();
+
+  expect(app.graph().nodes.length).toBe(before);
+  expect(booted).toEqual([]);
+});
+
 test('a logger plugin observes step:enter without mutating the chain', async () => {
   const seen: string[] = [];
   const logger = (api: any) => api.bus.on('request:step:enter', (p: any) => seen.push(p.name));

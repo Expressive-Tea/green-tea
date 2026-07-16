@@ -166,6 +166,81 @@ describe('mesh over app.fetch (no listen)', () => {
     tServer.close();
   });
 
+  it('resolves the graph via ready() without serving a request', async () => {
+    const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
+    const tServer = await teapot.listen(0);
+    const url = teapotUrl((tServer.address() as any).port);
+
+    const teacup = createApp({
+      modules: [TeacupModule],
+      experimental: true,
+      mesh: { teapots: [{ url, secret: SECRET }] },
+    });
+
+    // a mesh graph is not knowable without asking the teapots, so it throws until resolved
+    expect(() => teacup.graph()).toThrow(/until a mesh app has booted/);
+
+    await teacup.ready();
+
+    expect(teacup.graph().nodes.some((n) => n.name === 'config')).toBe(true);
+    expect(teacup.inspect('/api/local/who').map((l) => `${l.kind}:${l.name}`)).toContain('provider:config');
+    expect(teacup.explain('/api/local/who')).toBeTruthy();
+
+    await teacup.close();
+    tServer.close();
+  });
+
+  it('ready() resolves the graph but does NOT boot providers', async () => {
+    // the point of ready() over a full boot: a devtool asking for the graph must not run
+    // provider factories and open their connections as a side effect
+    const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
+    const tServer = await teapot.listen(0);
+    const url = teapotUrl((tServer.address() as any).port);
+
+    const teacup = createApp({
+      modules: [TeacupModule],
+      experimental: true,
+      mesh: { teapots: [{ url, secret: SECRET }] },
+    });
+    const booted: string[] = [];
+    teacup.bus.on('boot:provider:start', (p) => booted.push(p.name));
+
+    await teacup.ready();
+    expect(teacup.graph().nodes.length).toBeGreaterThan(0); // graph is resolved
+    expect(booted).toEqual([]); // and nothing was booted to get it
+
+    await teacup.fetch(new Request('http://x/api/local/who'));
+    expect(booted.length).toBeGreaterThan(0); // serving does boot them
+
+    await teacup.close();
+    tServer.close();
+  });
+
+  it('ready() is memoized and shared with the boot: a later fetch does not re-splice', async () => {
+    const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
+    const tServer = await teapot.listen(0);
+    const url = teapotUrl((tServer.address() as any).port);
+
+    const teacup = createApp({
+      modules: [TeacupModule],
+      experimental: true,
+      mesh: { teapots: [{ url, secret: SECRET }] },
+    });
+    let connects = 0;
+    teacup.bus.on('mesh:connect', () => {
+      connects += 1;
+    });
+
+    await Promise.all([teacup.ready(), teacup.ready()]);
+    await teacup.fetch(new Request('http://x/api/local/who'));
+    await teacup.ready();
+
+    expect(connects).toBe(1);
+
+    await teacup.close();
+    tServer.close();
+  });
+
   it('surfaces a failed mesh boot as a request error, not a silent success', async () => {
     const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
     const tServer = await teapot.listen(0);

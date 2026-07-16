@@ -53,6 +53,21 @@ interface Registry {
   setRunner(name: string, runner: Runner): void;
 }
 
+/**
+ * Memoizes an async step so repeat and concurrent callers share one run. Both boot stages need
+ * this: `fetch`, `upgrade`, `listen` and `ready` can each be the first to trigger them, and
+ * re-running would re-splice a mesh or re-run provider factories and their side effects.
+ */
+function once(run: () => Promise<void>): () => Promise<void> {
+  let promise: Promise<void> | undefined;
+
+  return (): Promise<void> => {
+    if (!promise) promise = run();
+
+    return promise;
+  };
+}
+
 /** Request-time helpers shared by the HTTP, WS and mesh route builders. */
 interface PipelineDeps {
   providedSeed(plan: RoutePlan): Promise<Record<string, unknown>>;
@@ -151,6 +166,11 @@ export function createApp(opts: {
     });
   };
 
+  // Memoized separately from the provider boot on purpose: resolving the graph and being ready
+  // to serve are different things. Introspection needs only the former, and must not run
+  // provider factories (and open their connections) as a side effect of drawing a diagram.
+  const ready = once(prepareGraph);
+
   const inspect = (routePath: string): InspectLine[] => inspectRoute(routePlans, routePath, booted);
   const graph = (): GraphView => buildGraphView(providerNodes, stepNodes, routePlans, booted);
   const explain = (routePath: string): Explain => explainRoute(routePlans, routePath, booted);
@@ -182,7 +202,7 @@ export function createApp(opts: {
     () => orderedProviders,
     { runners, container, providerMeta, bus },
     degradedProviders,
-    prepareGraph,
+    ready,
   );
 
   const staticResolver = opts.static ? buildStaticResolver(opts.static) : undefined;
@@ -250,6 +270,7 @@ export function createApp(opts: {
   return {
     listen,
     close,
+    ready,
     fetch: fetchFn,
     upgrade: upgradeFn,
     inspect,
@@ -603,11 +624,9 @@ function makeAppBooter(
     bus: Bus;
   },
   degradedProviders: string[],
-  /** Splices remote mesh scopes in and finalizes the graph. Must precede providers: remote nodes join the topo sort. */
+  /** Resolves the graph (splices remote mesh scopes, finalizes). Must precede providers: remote nodes join the topo sort. */
   prepareGraph: () => Promise<void>,
 ): () => Promise<void> {
-  let bootPromise: Promise<void> | undefined;
-
   const runBoot = async (): Promise<void> => {
     await prepareGraph();
     applyOverrides(overrides, registry);
@@ -621,10 +640,7 @@ function makeAppBooter(
     }
   };
 
-  return (): Promise<void> => {
-    if (!bootPromise) bootPromise = runBoot();
-    return bootPromise;
-  };
+  return once(runBoot);
 }
 
 /**

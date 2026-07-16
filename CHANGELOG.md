@@ -28,6 +28,12 @@ green-tea uses calendar versioning: `YY.MM.PATCH`.
   The teapot checks the version *before* the secret — a skewed peer is not an auth failure.
 - **`HttpError` accepts `headers`**, so a custom error can carry its own response headers
   (`retry-after`, `etag`, …) without a special case in the error renderer.
+- **`app.ready(): Promise<void>`** — resolves the dependency graph and returns. On a mesh app it
+  connects the teapots and splices their scopes in; on every other app it is a no-op, so
+  `await app.ready()` before `inspect()`/`graph()`/`explain()` works against either kind without
+  knowing which you were handed. It does **not** boot providers: resolving the graph and being
+  ready to serve are different things, and drawing a diagram should not open your database
+  connections. Serving boots them too and shares the same memoized step.
 
 ### Fixed
 - The opt-in dev routes `/__graph__` (graph viewer) and `/__openapi__` are now

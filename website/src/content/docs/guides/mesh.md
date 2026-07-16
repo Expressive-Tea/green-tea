@@ -75,6 +75,19 @@ await teacup.listen(3003);
 
 Remote tokens become synthetic nodes in the local graph with RPC-backed runners, so the rest of the pipeline is unchanged. For non-mesh apps `createApp` stays synchronous; a mesh app defers graph finalization until it boots — connecting to teapots is network I/O — and boots on whichever comes first: `app.fetch`, `app.upgrade` or `listen()`. Whoever triggers it, it happens once.
 
+## Inspecting a mesh graph
+
+`inspect()`, `graph()` and `explain()` are synchronous, but a mesh graph is not knowable until its teapots have been asked — so on a mesh app they throw until the graph is resolved. `await app.ready()` resolves it:
+
+```typescript
+await app.ready();       // connects the teapots; a no-op on a non-mesh app
+app.graph();             // now includes the remote scopes
+```
+
+Write those two lines and your code works against either kind of app without knowing which it got. `ready()` deliberately does **not** boot providers — resolving the graph and being ready to serve are different things, and drawing a diagram should not open your database connections. Serving (`fetch`/`upgrade`/`listen`) boots them too and shares the same memoized step, so calling both never resolves the graph twice.
+
+The dev routes (`/__graph__`, `/__openapi__`) need none of this: a request boots the app before the route runs.
+
 ## Buffered routes only
 
 Mesh proxies **buffered** endpoints. `@Sse`, `@Stream` and `@Ws` routes are not exportable: a remote route is registered as `transport: 'buffer'`, and a handler that returns an `AsyncIterable` over a mesh call fails with `cannot proxy a streaming route`. Streams are a live socket between client and server; there is no meaningful way to relay one through an RPC hop today.

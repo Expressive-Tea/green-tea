@@ -6,7 +6,7 @@ import type { InspectLine, Explain, ExplainNode, RoutePlan } from './types';
 export function inspectRoute(routePlans: RoutePlan[], routePath: string, booted: boolean): InspectLine[] {
   if (!booted)
     throw new Error(
-      'inspect() unavailable until a mesh app has booted — call listen(), or serve one request through app.fetch/app.upgrade, which splices the remote scopes in',
+      'inspect() unavailable until a mesh app has booted: a mesh graph is not knowable until its teapots are asked. Call `await app.ready()` first — it is a no-op on a non-mesh app',
     );
   const plan = routePlans.find((candidate) => candidate.pattern === routePath);
   if (!plan) throw new Error(`no route: ${routePath}`);
@@ -30,7 +30,7 @@ export function buildGraphView(
 ): GraphView {
   if (!booted)
     throw new Error(
-      'graph() unavailable until a mesh app has booted — call listen(), or serve one request through app.fetch/app.upgrade, which splices the remote scopes in',
+      'graph() unavailable until a mesh app has booted: a mesh graph is not knowable until its teapots are asked. Call `await app.ready()` first — it is a no-op on a non-mesh app',
     );
   return {
     nodes: [
@@ -62,7 +62,7 @@ export function buildGraphView(
 export function explainRoute(routePlans: RoutePlan[], routePath: string, booted: boolean): Explain {
   if (!booted)
     throw new Error(
-      'explain() unavailable until a mesh app has booted — call listen(), or serve one request through app.fetch/app.upgrade, which splices the remote scopes in',
+      'explain() unavailable until a mesh app has booted: a mesh graph is not knowable until its teapots are asked. Call `await app.ready()` first — it is a no-op on a non-mesh app',
     );
   const plan = routePlans.find((candidate) => candidate.pattern === routePath);
   if (!plan) throw new Error(`no route: ${routePath}`);

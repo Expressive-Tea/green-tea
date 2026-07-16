@@ -36,6 +36,18 @@ export interface Explain {
 export interface App {
   listen(port: number): Promise<http.Server>;
   close(): Promise<void>;
+  /**
+   * Resolves the dependency graph, then returns. For a mesh app that means connecting to its
+   * teapots and splicing their scopes in — a mesh graph is not knowable without asking. For every
+   * other app it is a no-op, so code holding an `App` can `await app.ready()` before
+   * `inspect()`/`graph()`/`explain()` without caring which kind it was handed.
+   *
+   * Deliberately *not* a full boot: it does not run provider factories. Resolving the graph and
+   * being ready to serve are different things, and drawing a diagram should not open your
+   * database connections. Serving (`fetch`/`upgrade`/`listen`) boots the providers as well, and
+   * shares this same memoized step — calling both never resolves the graph twice.
+   */
+  ready(): Promise<void>;
   /** Web-Standards handler: run a Fetch API Request through the graph and return a Response (Node/Deno/Bun/edge). WS not included. */
   fetch(request: Request): Promise<Response>;
   /** Run a WebSocket upgrade through the graph using an adapter-provided socket (Deno/Bun/edge). Node uses its own listener path. */
