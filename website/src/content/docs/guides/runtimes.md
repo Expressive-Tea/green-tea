@@ -22,12 +22,15 @@ Bun.serve({ fetch: app.fetch });
 export default { fetch: app.fetch };
 ```
 
-**Node is the reference implementation** — every runtime returns the same status, headers,
-and body for the same request (enforced by a parity test suite).
+**Node is the reference implementation.** A parity suite pins `app.fetch` to Node's native
+listener — identical status, headers, and body for the same request. The other runtimes drive
+that *same* `app.fetch` / `app.upgrade` core, so they inherit that behaviour rather than
+re-implementing it, and each carries its own smoke tests: Deno and Bun cover WebSocket and mesh,
+and edge runs against real workerd (Miniflare).
 
-**All four runtimes now have full WebSocket support:** Node, Deno, and Bun via `serveDeno` /
-`serveBun`, and Cloudflare Workers / edge via `edgeHandler` (see below) — same graph, same
-`@Ws` handlers, same rooms/channels everywhere. `app.listen()`, TLS and per-request timeouts
+**All four runtimes now have full WebSocket support:** Node via `app.listen()`, Deno and Bun via
+`serveDeno` / `serveBun`, and Cloudflare Workers / edge via `edgeHandler` (see below) — same graph,
+same `@Ws` handlers, same rooms/channels everywhere. `app.listen()`, TLS and per-request timeouts
 remain Node-only; on Deno/Bun/edge you get `app.fetch` + the runtime's adapter. **Mesh (alpha)
 runs on Node, Deno and Bun** — teapot and teacup, in any combination — but not on edge.
 
