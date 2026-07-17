@@ -104,6 +104,12 @@ export function createApp(opts: {
   static?: boolean | string;
   /** Opt in to alpha features whose API may still change. Currently gates `mesh`. */
   experimental?: boolean;
+  /**
+   * Warn at boot when a route's dependency chain resolves to more than this many steps (default 20;
+   * `false` silences). A design nudge, not a perf limit — deep graphs run fine (cost is linear), but
+   * 20+ steps on one route usually means a step is doing too much.
+   */
+  warnGraphDepth?: number | false;
 }): App {
   // mesh is alpha: its API and wire protocol may change. Require an explicit opt-in.
   if (opts.mesh && !opts.experimental) {
@@ -136,7 +142,7 @@ export function createApp(opts: {
   const meshLinks: Link[] = [];
 
   const finalize = (): void => {
-    ({ orderedProviders, orderedSteps } = finalizeGraph(registry));
+    ({ orderedProviders, orderedSteps } = finalizeGraph(registry, opts.warnGraphDepth));
     booted = true;
   };
 
@@ -437,11 +443,19 @@ function provideBuiltins(registry: Registry): void {
   registry.setRunner('rooms', () => ({ rooms: roomsInstance })); // merge object -> ctx.rooms
 }
 
+// Boot-time nudge: a route whose need-closure pulls this many steps is almost always a modeling
+// smell (a step doing too much, or work that belongs in a provider), not a real dependency depth.
+// Cost is linear so it isn't a perf problem — it's a design one. Generous on purpose.
+const DEEP_GRAPH_WARN = 20;
+
 /**
  * Topo-sorts the graph, slices each route's provider/step closure into its plan, and validates every need.
  * @returns The app-scope providers and request-scope steps in execution order.
  */
-function finalizeGraph(registry: Registry): { orderedProviders: GraphNode[]; orderedSteps: GraphNode[] } {
+function finalizeGraph(
+  registry: Registry,
+  warnDepth: number | false = DEEP_GRAPH_WARN,
+): { orderedProviders: GraphNode[]; orderedSteps: GraphNode[] } {
   const { providerNodes, stepNodes, routePlans } = registry;
   const ordered = topoSort([...providerNodes, ...stepNodes], ['req', 'params']);
   const orderedProviders = ordered.filter((node) => providerNodes.includes(node));
@@ -454,6 +468,17 @@ function finalizeGraph(registry: Registry): { orderedProviders: GraphNode[]; ord
     plan.providers = closure.filter((node) => providerNodes.includes(node));
     const sliced = new Set<GraphNode>([...closure.filter((node) => stepNodes.includes(node)), ...alwaysSteps]);
     plan.steps = ordered.filter((node) => stepNodes.includes(node) && sliced.has(node)); // topo order, deduped
+
+    // The route's own dependency depth, excluding always-on observer steps (plugins).
+    const depth = closure.filter((node) => stepNodes.includes(node)).length;
+
+    if (warnDepth !== false && depth > warnDepth) {
+      console.warn(
+        `[green-tea] ${plan.method} ${plan.pattern} resolves to ${depth} steps — an unusually deep dependency chain. ` +
+          `It runs fine (per-request cost is linear), but ${warnDepth}+ steps on one route usually means a step ` +
+          `is doing too much or the graph wants splitting. If it's intentional, ignore this.`,
+      );
+    }
   }
 
   assertNeedsSatisfiable(routePlans, providerNodes, stepNodes);
