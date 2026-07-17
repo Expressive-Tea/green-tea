@@ -37,7 +37,7 @@ class AboutController {
 }
 ```
 
-Reading a file needs a filesystem, so this mode is Node/Deno/Bun only — see [Runtimes](/guides/runtimes/) for the edge alternative.
+Reading a file needs a filesystem, so this mode is Node/Deno/Bun only — see [Runtimes](/docs/guides/runtimes/) for the edge alternative.
 
 ### 3. Render a template — Node/Deno/Bun
 
@@ -134,7 +134,7 @@ const app3 = createApp({ modules: [ApiModule], static: '/srv/site' }); // absolu
 - **Declared routes always win.** Static is only consulted when nothing matched, so `@Get('/api/ping')` is never shadowed by a file at `public/api/ping`.
 - Path traversal (`../`, encoded or not) is rejected — a request can't escape the static root.
 
-Like the file/template modes of `@Html`, `static` needs a filesystem: it's Node/Deno/Bun only. Configuring it on an edge runtime throws at `createApp()` time — see [Runtimes](/guides/runtimes/).
+Like the file/template modes of `@Html`, `static` needs a filesystem: it's Node/Deno/Bun only. Configuring it on an edge runtime throws at `createApp()` time — see [Runtimes](/docs/guides/runtimes/).
 
 ## The boot rule
 

@@ -5,7 +5,7 @@ description: Install green-tea, configure TypeScript decorators, and build your 
 
 ## Scaffold it
 
-The fastest path is [matcha](/guides/cli/), green-tea's CLI. It writes a project that runs on the first command — no wiring, no config:
+The fastest path is [matcha](/docs/guides/cli/), green-tea's CLI. It writes a project that runs on the first command — no wiring, no config:
 
 ```bash
 matcha new my-api            # --runtime node (default) | deno | bun
@@ -21,7 +21,7 @@ npm install ws       # WebSocket routes (@Ws) and mesh
 npm install busboy   # multipart/form-data file uploads
 ```
 
-green-tea runs on **Node ≥ 18, Deno, Bun, and the edge** — the same app, you only swap the entry point. This guide uses Node; see [runtimes](/guides/runtimes/) for the others and for what the edge can't offer.
+green-tea runs on **Node ≥ 18, Deno, Bun, and the edge** — the same app, you only swap the entry point. This guide uses Node; see [runtimes](/docs/guides/runtimes/) for the others and for what the edge can't offer.
 
 green-tea uses **legacy** TypeScript decorators. Enable them in your `tsconfig.json`:
 
@@ -35,7 +35,7 @@ green-tea uses **legacy** TypeScript decorators. Enable them in your `tsconfig.j
 }
 ```
 
-You do **not** need `emitDecoratorMetadata` — green-tea records argument positions explicitly. See [Why legacy decorators](/concepts/the-graph/#why-legacy-decorators) for the rationale.
+You do **not** need `emitDecoratorMetadata` — green-tea records argument positions explicitly. See [Why legacy decorators](/docs/concepts/the-graph/#why-legacy-decorators) for the rationale.
 
 ## Your first app
 
@@ -89,7 +89,7 @@ The handler asked for `user` via `@needs('user')`. If nothing in the graph produ
 
 ## Where to next
 
-- [The dependency graph](/concepts/the-graph/) — the mental model behind everything.
-- [Dependency injection](/guides/dependency-injection/) — providers, steps, and modules in depth.
-- [Argument decorators](/guides/arguments/) — everything a handler can inject.
-- [Streaming & real-time](/guides/streaming/) — SSE, WebSocket, and ndjson from one primitive.
+- [The dependency graph](/docs/concepts/the-graph/) — the mental model behind everything.
+- [Dependency injection](/docs/guides/dependency-injection/) — providers, steps, and modules in depth.
+- [Argument decorators](/docs/guides/arguments/) — everything a handler can inject.
+- [Streaming & real-time](/docs/guides/streaming/) — SSE, WebSocket, and ndjson from one primitive.

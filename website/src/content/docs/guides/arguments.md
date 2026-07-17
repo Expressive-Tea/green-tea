@@ -34,7 +34,7 @@ getUser(@needs('user') user: any, @param('id') id: string) {
 }
 ```
 
-See [Dependency injection](/guides/dependency-injection/) for how `needs`/`provides` build the
+See [Dependency injection](/docs/guides/dependency-injection/) for how `needs`/`provides` build the
 graph.
 
 ## `@ctx` — the whole context
@@ -94,7 +94,7 @@ needs a name to say which route param it binds. `@body(Schema)`, `@query(Schema)
 object.
 :::
 
-A failing schema short-circuits the request with **422**. See [Validation](/guides/validation/)
+A failing schema short-circuits the request with **422**. See [Validation](/docs/guides/validation/)
 for the full contract (fail-fast order, error shape, async schemas, and caveats).
 
 ## Multipart access asymmetry
@@ -138,11 +138,11 @@ echo(@inbound() incoming: AsyncIterable<string>) {
 }
 ```
 
-See [Streaming](/guides/streaming/) for SSE, WebSocket duplex, and channels.
+See [Streaming](/docs/guides/streaming/) for SSE, WebSocket duplex, and channels.
 
 ## Where to go next
 
-- How injected values are produced: [Dependency injection](/guides/dependency-injection/).
-- The mental model: [The graph](/concepts/the-graph/).
-- Validating and coercing injected values: [Validation](/guides/validation/).
-- The full API surface: [Decorator reference](/reference/decorators/).
+- How injected values are produced: [Dependency injection](/docs/guides/dependency-injection/).
+- The mental model: [The graph](/docs/concepts/the-graph/).
+- Validating and coercing injected values: [Validation](/docs/guides/validation/).
+- The full API surface: [Decorator reference](/docs/reference/decorators/).

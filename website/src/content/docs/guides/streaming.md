@@ -22,7 +22,7 @@ The primitive never changes — it's always an `AsyncIterable`. What changes is 
 - **`@Stream`** — you write the handler once; the client's request decides whether it arrives as SSE, ndjson, or a WebSocket. No branching in your code.
 
 :::note
-Streaming bypasses the response transformer — the transport frames each value directly, handles backpressure, and cleans up on disconnect. See [arguments](/guides/arguments/) for the full list of argument decorators, including the stream-only `@inbound()` and `@abort()`.
+Streaming bypasses the response transformer — the transport frames each value directly, handles backpressure, and cleans up on disconnect. See [arguments](/docs/guides/arguments/) for the full list of argument decorators, including the stream-only `@inbound()` and `@abort()`.
 :::
 
 ## Streaming — SSE
@@ -101,7 +101,7 @@ class Live {
 
 Same `@Route`, same handler shape, same `AsyncIterable` — real-time is not a separate framework you also have to learn.
 
-`rooms` is the built-in shared `Rooms` primitive (one instance app-wide). A typical chat handler pumps the `@inbound()` channel into `rooms.room(name)` and returns that same room as its outbound channel, so every joined socket multicasts to the others. A handshake `@Step` can read `?token=` and throw `Unauthorized` — which closes the socket with code **4401** (`4000 + status`). See [security](/guides/security/) for handshake authentication.
+`rooms` is the built-in shared `Rooms` primitive (one instance app-wide). A typical chat handler pumps the `@inbound()` channel into `rooms.room(name)` and returns that same room as its outbound channel, so every joined socket multicasts to the others. A handshake `@Step` can read `?token=` and throw `Unauthorized` — which closes the socket with code **4401** (`4000 + status`). See [security](/docs/guides/security/) for handshake authentication.
 
 ## Transport is declared, not inferred
 

@@ -7,7 +7,7 @@ description: "Distributed dependency injection over a secret-gated WebSocket con
 Mesh is **alpha** — its API and wire protocol may change between releases, and discovery, load-balancing, and failover are not built. It is gated behind an explicit opt-in: `createApp({ mesh, experimental: true })`, and `createApp` **throws** if you configure `mesh` without `experimental: true`. **Don't ship mesh to production yet.**
 :::
 
-A **teacup** can depend on a token that physically lives on another node — a **teapot**. `@needs('billing')` resolves the same whether `billing` runs in this process or on a remote one. There's no gRPC layer or message-pattern DSL: there's the [graph](/concepts/the-graph/), and some nodes happen to live elsewhere.
+A **teacup** can depend on a token that physically lives on another node — a **teapot**. `@needs('billing')` resolves the same whether `billing` runs in this process or on a remote one. There's no gRPC layer or message-pattern DSL: there's the [graph](/docs/concepts/the-graph/), and some nodes happen to live elsewhere.
 
 Exports are opt-in (`export: true`) and the control channel is gated by a shared secret.
 

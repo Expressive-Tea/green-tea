@@ -64,5 +64,5 @@ const app = createApp({
 `onError` intercepts **every** HTTP error response — handler/step throws, a `404` for an unmatched route, `405`, a `413` (body too large), and a `400` (malformed body) — so your error surface is consistent across the whole app. Streaming and WebSocket errors are out of scope (they surface as an error frame or a WebSocket close code, not a response body).
 
 :::note
-Errors are also observable without changing the response: subscribe to `request:step:error` (and `stream:error`) on [`app.bus`](/guides/plugins/) to log or trace them.
+Errors are also observable without changing the response: subscribe to `request:step:error` (and `stream:error`) on [`app.bus`](/docs/guides/plugins/) to log or trace them.
 :::

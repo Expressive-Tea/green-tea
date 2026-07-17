@@ -3,7 +3,8 @@ import starlight from '@astrojs/starlight';
 
 // Docs site for @green-tea/core. Content lives in src/content/docs/**.
 export default defineConfig({
-  site: 'https://docs.green-tea.dev',
+  site: 'https://green-tea.expressive-tea.io',
+  base: '/docs',
   integrations: [
     starlight({
       title: 'Green Tea.',

@@ -3,7 +3,7 @@ title: Decorators
 description: "Full reference for every class, method, and argument decorator."
 ---
 
-Every decorator green-tea exports, grouped by where it applies. All require `experimentalDecorators: true` in your `tsconfig` — see [Why legacy decorators](/concepts/the-graph/#why-legacy-decorators).
+Every decorator green-tea exports, grouped by where it applies. All require `experimentalDecorators: true` in your `tsconfig` — see [Why legacy decorators](/docs/concepts/the-graph/#why-legacy-decorators).
 
 ## Structure
 
@@ -35,8 +35,8 @@ An app-scope value, built once at boot and cached, addressable by `provides`.
 |---|---|---|---|
 | `provides` | `string` | — | the token this provider produces (required) |
 | `needs` | `string[]` | `[]` | tokens it depends on |
-| `optional` | `boolean` | `false` | if it throws on boot, degrade instead of aborting ([details](/guides/dependency-injection/)) |
-| `export` | `boolean` | `false` | expose over the mesh control channel ([mesh](/guides/mesh/)) |
+| `optional` | `boolean` | `false` | if it throws on boot, degrade instead of aborting ([details](/docs/guides/dependency-injection/)) |
+| `export` | `boolean` | `false` | expose over the mesh control channel ([mesh](/docs/guides/mesh/)) |
 
 ### `@Step(options)`
 
@@ -48,19 +48,19 @@ Method decorator. Turns a handler's return value into `{ status?, headers?, body
 
 ### `@Html` / `@Html(path, opts?)`
 
-Method decorator. Marks a buffered `GET`/`POST` handler as serving HTML instead of going through the JSON transformer. Three modes ([details](/guides/html/)):
+Method decorator. Marks a buffered `GET`/`POST` handler as serving HTML instead of going through the JSON transformer. Three modes ([details](/docs/guides/html/)):
 
 | Form | Behavior |
 |---|---|
 | `@Html` (bare) | sends the handler's returned string as `text/html` |
 | `@Html('file.html')` | serves that file verbatim; the handler's return value is ignored |
-| `@Html('file.html', { template: true })` | renders the file with the handler's returned data, via the built-in `render` engine or `viewEngine` ([createApp](/reference/createapp/)) |
+| `@Html('file.html', { template: true })` | renders the file with the handler's returned data, via the built-in `render` engine or `viewEngine` ([createApp](/docs/reference/createapp/)) |
 
 Only buffered `GET`/`POST` routes are supported, and `@Html` can't be combined with `@Transformer` on the same handler — both are validated at boot, not per-request.
 
 ## Routes
 
-Method decorators on a controller. All accept `(path, opts?)` where `opts = { export?: boolean, duplicates?: 'array' | 'last', maxBodyBytes?: number, maxParts?: number }`. `maxBodyBytes` / `maxParts` override the server-wide [`limits`](/reference/createapp/) for this route only.
+Method decorators on a controller. All accept `(path, opts?)` where `opts = { export?: boolean, duplicates?: 'array' | 'last', maxBodyBytes?: number, maxParts?: number }`. `maxBodyBytes` / `maxParts` override the server-wide [`limits`](/docs/reference/createapp/) for this route only.
 
 | Decorator | Method | Transport |
 |---|---|---|
@@ -75,7 +75,7 @@ Method decorators on a controller. All accept `(path, opts?)` where `opts = { ex
 @Post('/avatar', { maxBodyBytes: 5_000_000, maxParts: 20 }) // per-route upload limits
 ```
 
-See [Routing](/guides/routing/) for pattern matching and [Streaming](/guides/streaming/) for the transports.
+See [Routing](/docs/guides/routing/) for pattern matching and [Streaming](/docs/guides/streaming/) for the transports.
 
 ## Arguments
 
@@ -93,4 +93,4 @@ A handler's signature declares exactly what it wants, in any order.
 | `@inbound()` | the incoming message stream (WebSocket) | `()` |
 | `@abort()` | the request's `AbortSignal` | `()` |
 
-Passing a [Standard Schema](/guides/validation/) validates and coerces the value before the handler sees it. Full details in [Argument decorators](/guides/arguments/).
+Passing a [Standard Schema](/docs/guides/validation/) validates and coerces the value before the handler sees it. Full details in [Argument decorators](/docs/guides/arguments/).

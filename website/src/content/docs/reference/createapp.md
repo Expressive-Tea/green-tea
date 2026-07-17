@@ -12,21 +12,21 @@ const app = createApp(options);
 | Option | Type | Default | Meaning |
 |---|---|---|---|
 | `modules` | `Ctor[]` | — | the `@Module` classes to wire (required) |
-| `plugins` | `Plugin[]` | `[]` | plugins, each limited to `bus.on` + `scope.add` ([plugins](/guides/plugins/)) |
+| `plugins` | `Plugin[]` | `[]` | plugins, each limited to `bus.on` + `scope.add` ([plugins](/docs/guides/plugins/)) |
 | `limits` | `RequestLimits` | see below | body-size and timeout ceilings |
-| `devGraph` | `boolean` | `false` | mount `GET /__graph__` ([introspection](/guides/introspection/)) |
-| `devOpenapi` | `boolean` | `false` | mount `GET /__openapi__` serving the [OpenAPI](/guides/openapi/) document |
-| `overrides` | `Record<string, unknown>` | — | swap any node by token ([testing](/guides/testing/)) |
+| `devGraph` | `boolean` | `false` | mount `GET /__graph__` ([introspection](/docs/guides/introspection/)) |
+| `devOpenapi` | `boolean` | `false` | mount `GET /__openapi__` serving the [OpenAPI](/docs/guides/openapi/) document |
+| `overrides` | `Record<string, unknown>` | — | swap any node by token ([testing](/docs/guides/testing/)) |
 | `tls` | `TlsOptions` | — | serve over https/wss |
 | `trustProxy` | `boolean` | `false` | honor `X-Forwarded-*` for `ctx.protocol` / `ctx.ip` |
-| `security` | `boolean \| SecurityOptions` | `true` | secure-by-default headers ([security](/guides/security/)) |
+| `security` | `boolean \| SecurityOptions` | `true` | secure-by-default headers ([security](/docs/guides/security/)) |
 | `cors` | `CorsOptions` | — | CORS handling |
 | `bodyDuplicates` | `'array' \| 'last'` | `'last'` | policy for repeated form fields |
-| `onError` | `ErrorRenderer` | — | render errors your way ([error handling](/guides/errors/)); returns a response or `undefined` to fall back to JSON |
-| `views` | `string` | `process.cwd()` | base dir `@Html('file.html')` paths resolve against — relative paths join it, absolute paths are used as-is ([HTML & views](/guides/html/)) |
-| `viewEngine` | `(source: string, data: unknown) => string` | built-in `render` | swap in your own template engine for `@Html(..., { template: true })`; template mode only ([HTML & views](/guides/html/)) |
-| `static` | `boolean \| string` | — | serve a directory as a `GET`/`HEAD` fallback (after declared routes, before `404`); `true` → `./public`, a string → that dir; path-traversal-safe; needs a filesystem — Node/Deno/Bun only ([HTML & views](/guides/html/)) |
-| `mesh` | `MeshConfig` | — | distributed DI — **requires `experimental: true`** ([mesh](/guides/mesh/)) |
+| `onError` | `ErrorRenderer` | — | render errors your way ([error handling](/docs/guides/errors/)); returns a response or `undefined` to fall back to JSON |
+| `views` | `string` | `process.cwd()` | base dir `@Html('file.html')` paths resolve against — relative paths join it, absolute paths are used as-is ([HTML & views](/docs/guides/html/)) |
+| `viewEngine` | `(source: string, data: unknown) => string` | built-in `render` | swap in your own template engine for `@Html(..., { template: true })`; template mode only ([HTML & views](/docs/guides/html/)) |
+| `static` | `boolean \| string` | — | serve a directory as a `GET`/`HEAD` fallback (after declared routes, before `404`); `true` → `./public`, a string → that dir; path-traversal-safe; needs a filesystem — Node/Deno/Bun only ([HTML & views](/docs/guides/html/)) |
+| `mesh` | `MeshConfig` | — | distributed DI — **requires `experimental: true`** ([mesh](/docs/guides/mesh/)) |
 | `experimental` | `boolean` | `false` | opt in to alpha features (currently gates `mesh`) |
 
 ### `RequestLimits`
@@ -53,7 +53,7 @@ const app = createApp(options);
 
 ### `MeshConfig`
 
-`{ secret?, teapots?, timeoutMs?, heartbeatMs? }` — `teapots` is `{ url, secret }[]`; `timeoutMs` bounds an RPC (default 30s, → 504), `heartbeatMs` is the ping gap that detects a half-open link (default 15s, → 503). See [Mesh](/guides/mesh/).
+`{ secret?, teapots?, timeoutMs?, heartbeatMs? }` — `teapots` is `{ url, secret }[]`; `timeoutMs` bounds an RPC (default 30s, → 504), `heartbeatMs` is the ping gap that detects a half-open link (default 15s, → 503). See [Mesh](/docs/guides/mesh/).
 
 ## The `App`
 
@@ -67,7 +67,7 @@ const app = createApp(options);
 | `explain(route)` | `Explain` | the chain annotated with each node's needs/provides |
 | `graph()` | `GraphView` | the full node + route graph |
 | `toMermaid()` / `toDOT()` | `string` | render the graph |
-| `openapi(info?)` | `OpenApiDoc` | structural OpenAPI 3.1 document ([details](/guides/openapi/)) |
+| `openapi(info?)` | `OpenApiDoc` | structural OpenAPI 3.1 document ([details](/docs/guides/openapi/)) |
 | `degraded()` | `string[]` | optional providers running degraded (empty until `listen()`) |
 | `bus` | `Bus` | lifecycle + request event bus |
 

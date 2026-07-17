@@ -60,7 +60,7 @@ Any runtime can build a `WsSocket` capability (`inbound`, `abort`, `isOpen`, `se
 same primitive (see below).
 
 **Still Node-only:** `app.listen()`, TLS and per-request timeouts. On Deno you get
-`app.fetch` + `serveDeno`. [Mesh](/guides/mesh/) works here: the control channel is
+`app.fetch` + `serveDeno`. [Mesh](/docs/guides/mesh/) works here: the control channel is
 served through `app.upgrade` and the teacup connects with Deno's global `WebSocket`.
 
 ## WebSocket on Bun
@@ -83,7 +83,7 @@ serveBun(app, { port: 8000 });
 run on Node and Deno. Behaviour matches the Node reference.
 
 **Still Node-only:** `app.listen()`, TLS and per-request timeouts. On Bun you get
-`app.fetch` + `serveBun`. [Mesh](/guides/mesh/) works here too.
+`app.fetch` + `serveBun`. [Mesh](/docs/guides/mesh/) works here too.
 
 ## Cloudflare Workers / edge
 
@@ -115,7 +115,7 @@ compatibility_date = "2024-09-23" # or later
 Green Tea's core statically imports Node built-ins that workerd only provides under
 this flag; without it, the Worker fails to load.
 
-**Still Node-only:** `app.listen()`, TLS and per-request timeouts. [Mesh](/guides/mesh/)
+**Still Node-only:** `app.listen()`, TLS and per-request timeouts. [Mesh](/docs/guides/mesh/)
 is **not** supported on edge: the teapot's secret comparison needs `node:crypto`'s
 `timingSafeEqual`, which `nodejs_compat` does not provide. Cloudflare's
 Durable Objects and WebSocket Hibernation are **not** used — `edgeHandler` accepts
@@ -124,7 +124,7 @@ open for its lifetime rather than hibernating between messages.
 
 ## Filesystem features — Node/Deno/Bun only
 
-A few [HTML & views](/guides/html/) features read from disk, so they need a runtime with
+A few [HTML & views](/docs/guides/html/) features read from disk, so they need a runtime with
 a filesystem:
 
 - `@Html('file.html')` — reads and caches the file at boot.

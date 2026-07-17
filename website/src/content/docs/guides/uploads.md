@@ -27,7 +27,7 @@ class ProfileController {
 `UploadedFile` is `{ filename, contentType, data: Buffer, size }` — the whole file is buffered in memory, no temp files.
 
 :::note[Access asymmetry]
-For multipart, `@body('title')` returns `undefined` — the value lives at `body.fields.title`, not `body.title`, unlike JSON/urlencoded where `@body('title')` picks the value directly. Use `@body()` and read `.fields`/`.files`, or key into the envelope itself with `@body('fields')` / `@body('files')`. See [arguments](/guides/arguments/) for how `@body()` behaves across content types.
+For multipart, `@body('title')` returns `undefined` — the value lives at `body.fields.title`, not `body.title`, unlike JSON/urlencoded where `@body('title')` picks the value directly. Use `@body()` and read `.fields`/`.files`, or key into the envelope itself with `@body('fields')` / `@body('files')`. See [arguments](/docs/guides/arguments/) for how `@body()` behaves across content types.
 :::
 
 ## Repeated fields — `bodyDuplicates`
@@ -67,5 +67,5 @@ uploadAvatar(@body() form: MultipartBody) { /* ... */ }
 A route's `maxBodyBytes` / `maxParts` fall back to the server-wide `limits` when unset. A malformed multipart body (bad boundary, missing headers, truncated part) → **400**.
 
 :::note
-To validate parsed fields against a schema, pass a Standard Schema to `@body()` — see [validation](/guides/validation/).
+To validate parsed fields against a schema, pass a Standard Schema to `@body()` — see [validation](/docs/guides/validation/).
 :::
