@@ -7,18 +7,17 @@ Most stacks treat "push data over time" as a bolt-on: Express reaches for a `ws`
 
 green-tea has one model: an **`AsyncIterable`**. A handler that returns a sequence of values over time *is* a stream — the same shape you'd return from any function. You **declare the mode** with a decorator; the framework handles framing, backpressure, cleanup, and disconnects.
 
-## One primitive, four modes
+## One primitive, three modes
 
 | Declare | Direction | Transport | Reach for it when |
 |---|---|---|---|
 | `@Sse` | server → client | `text/event-stream` | live updates to a browser (`EventSource`) |
 | `@Ws` | duplex | WebSocket | chat, collaboration — anything two-way |
 | `@Stream` | negotiated | SSE / ndjson / WS, picked from the client's `Accept` / `Upgrade` | one handler, the client chooses |
-| *(plain return)* | server → client | SSE or ndjson by `Accept` | programmatic streaming over `fetch` |
 
 The primitive never changes — it's always an `AsyncIterable`. What changes is **direction and framing**, and you declare which. That's the difference between each iterable green-tea hands you:
 
-- **`@Sse` / plain return** — you return **one** iterable: the *outbound* stream. Each `yield` becomes an SSE event, or an ndjson line.
+- **`@Sse`** — you return **one** iterable: the *outbound* stream. Each `yield` becomes an SSE event, or an ndjson line.
 - **`@Ws` (duplex)** — **two** iterables. `@inbound()` gives you the client's *incoming* messages to consume; the one you **return** is the *outbound* stream to the client. `@abort()` hands you an `AbortSignal` for teardown.
 - **`@Stream`** — you write the handler once; the client's request decides whether it arrives as SSE, ndjson, or a WebSocket. No branching in your code.
 

@@ -3,7 +3,16 @@ title: Getting started
 description: Install green-tea, configure TypeScript decorators, and build your first graph-based route.
 ---
 
-## Install
+## Scaffold it
+
+The fastest path is [matcha](/guides/cli/), green-tea's CLI. It writes a project that runs on the first command — no wiring, no config:
+
+```bash
+matcha new my-api            # --runtime node (default) | deno | bun
+cd my-api && matcha run
+```
+
+## Or install by hand
 
 ```bash
 npm install @green-tea/core reflect-metadata
@@ -12,7 +21,9 @@ npm install ws       # WebSocket routes (@Ws) and mesh
 npm install busboy   # multipart/form-data file uploads
 ```
 
-green-tea targets **Node ≥ 18** and uses **legacy** TypeScript decorators. Enable them in your `tsconfig.json`:
+green-tea runs on **Node ≥ 18, Deno, Bun, and the edge** — the same app, you only swap the entry point. This guide uses Node; see [runtimes](/guides/runtimes/) for the others and for what the edge can't offer.
+
+green-tea uses **legacy** TypeScript decorators. Enable them in your `tsconfig.json`:
 
 ```json
 {

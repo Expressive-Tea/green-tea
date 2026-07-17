@@ -3,7 +3,7 @@ import starlight from '@astrojs/starlight';
 
 // Docs site for @green-tea/core. Content lives in src/content/docs/**.
 export default defineConfig({
-  site: 'https://green-tea.dev',
+  site: 'https://docs.green-tea.dev',
   integrations: [
     starlight({
       title: 'Green Tea.',
@@ -30,6 +30,7 @@ export default defineConfig({
         {
           label: 'Guides',
           items: [
+            { label: 'The matcha CLI', slug: 'guides/cli' },
             { label: 'Routing', slug: 'guides/routing' },
             { label: 'Dependency injection', slug: 'guides/dependency-injection' },
             { label: 'Argument decorators', slug: 'guides/arguments' },
