@@ -30,7 +30,7 @@ and the framework computes where that node lands.
 Because execution is per-route (a route runs only the transitive closure of its handler's
 `@needs`), a plugin step that should run on **every** route must produce nothing — add it
 with `provides: []`. A step that produces no token has nothing to gate on, so the framework
-runs it unconditionally. See [The graph](/concepts/the-graph/) for how the closure is
+runs it unconditionally. See [The graph](/docs/concepts/the-graph/) for how the closure is
 computed.
 :::
 
@@ -55,4 +55,4 @@ The full event vocabulary:
 
 Observation is read-only: handlers see the event payload but can't alter control flow. To
 change behavior, contribute a node to your scope — see
-[Dependency injection](/guides/dependency-injection/).
+[Dependency injection](/docs/guides/dependency-injection/).

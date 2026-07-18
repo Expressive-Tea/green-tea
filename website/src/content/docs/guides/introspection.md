@@ -3,7 +3,7 @@ title: Graph introspection
 description: "explain, graph, toMermaid, and the graph endpoint."
 ---
 
-Because the request/boot pipeline is an explicit [dependency graph](/concepts/the-graph/),
+Because the request/boot pipeline is an explicit [dependency graph](/docs/concepts/the-graph/),
 you can inspect it directly — visualize the whole thing, or explain exactly which nodes a
 single route runs.
 

@@ -3,7 +3,7 @@ title: OpenAPI
 description: "Generate a structural OpenAPI 3.1 document from the route graph."
 ---
 
-Because the request pipeline is [data you can read](/concepts/the-graph/), green-tea can project it — the same way it renders [Mermaid/DOT](/guides/introspection/), it emits **OpenAPI**.
+Because the request pipeline is [data you can read](/docs/concepts/the-graph/), green-tea can project it — the same way it renders [Mermaid/DOT](/docs/guides/introspection/), it emits **OpenAPI**.
 
 ## `app.openapi()`
 
@@ -36,6 +36,6 @@ const app = createApp({ modules: [ApiModule], devOpenapi: true });
 
 This is a **structural** spec: paths, methods, parameters, which routes take a body, and the standard error responses. What it does **not** include yet:
 
-- **Request/response body schemas.** [Standard Schema](/guides/validation/) (zod/valibot/arktype) validates input but does not expose a JSON Schema representation, so body shapes are documented generically. Parameter types default to `string`.
+- **Request/response body schemas.** [Standard Schema](/docs/guides/validation/) (zod/valibot/arktype) validates input but does not expose a JSON Schema representation, so body shapes are documented generically. Parameter types default to `string`.
 
 Full schemas — declared and enforced on the way out via a `@Produce(schema)` decorator that also validates responses — are on the roadmap for the stable release. For beta, the structural document already drives Swagger UI, client codegen, and API diffing.

@@ -51,7 +51,7 @@ When more than one route matches the same path, the **most specific wins** — `
 A path that no route matches returns `404`. A path that **does** exist but under a different method returns **`405 Method Not Allowed`** with an `Allow` header listing the methods that do match — not a `404`.
 
 :::note
-A bare `OPTIONS` request (without an `Access-Control-Request-Method` header — i.e. not a CORS preflight) to an existing path therefore returns `405` with `Allow`. CORS preflights are handled separately; see [Transport security](/guides/security/).
+A bare `OPTIONS` request (without an `Access-Control-Request-Method` header — i.e. not a CORS preflight) to an existing path therefore returns `405` with `Allow`. CORS preflights are handled separately; see [Transport security](/docs/guides/security/).
 :::
 
 ## Not yet
@@ -61,4 +61,4 @@ The matcher is intentionally small for beta. **Not built** (on the roadmap):
 - Regex / typed param constraints such as `:id(\d+)`.
 - Route matching is a **linear scan** — fine for typical route tables, but a radix-tree matcher for very large ones isn't implemented.
 
-See [Streaming & real-time](/guides/streaming/) for `@Sse` / `@Ws` / `@Stream`, and [Argument decorators](/guides/arguments/) for everything a handler can read from a request.
+See [Streaming & real-time](/docs/guides/streaming/) for `@Sse` / `@Ws` / `@Stream`, and [Argument decorators](/docs/guides/arguments/) for everything a handler can read from a request.

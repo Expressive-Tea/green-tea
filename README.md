@@ -35,7 +35,8 @@ Less to hold in your head. That's the tea.
 - **The pipeline is a graph, not a chain.** You never write "put this before that." You declare `needs`/`provides` and green-tea topologically sorts it. *Why it matters:* no ordering bugs, no positional guesswork, and each route runs only its slice of the graph (an auth step doesn't run on public routes).
 - **The type is the contract.** What a handler reads from the context *is* its dependency list. In the typed `flow` core, a handler that reads `ctx.user` **fails to compile** if no step produces `user`. *Why it matters:* whole classes of "it was undefined in prod" disappear at compile time.
 - **You can see the request before it runs.** `app.explain('/users/:id')` prints the ordered chain with origins; `app.graph()` / `GET /__graph__` render it as a live diagram; `app.openapi()` projects the same metadata into an OpenAPI 3.1 spec. *Why it matters:* onboarding, debugging, audits, and API docs are reading, not archaeology. (NestJS puts the graph behind a paid Devtools plan.)
-- **One primitive for real-time.** Return an `AsyncIterable` and the transport streams it — SSE, ndjson, or a WebSocket duplex — with backpressure and cleanup handled. *Why it matters:* no separate gateway, adapter, or library to bolt on.
+- **One primitive for real-time.** Declare the transport — SSE, ndjson, or a WebSocket duplex — and return an `AsyncIterable`; backpressure and cleanup are handled. *Why it matters:* no separate gateway, adapter, or library to bolt on.
+- **The same app runs on Node, Deno, Bun, and the edge.** One codebase, one import; you swap the entry point (`app.listen` → `serveDeno` / `serveBun` / `edgeHandler`) and nothing else. HTTP, SSE, and WebSocket — including rooms and channels — behave identically on all four. *Why it matters:* the graph model isn't a bet on one runtime's future, and no other opinionated/DI framework runs everywhere.
 - **A remote dependency looks like a local one.** `@needs('billing')` resolves the same whether `billing` lives in this process or on another node (mesh, experimental). *Why it matters:* no gRPC layer or message-pattern DSL to learn — there's the graph, and some nodes happen to live elsewhere.
 - **Plugins can't sabotage you.** A plugin gets `bus.on(...)` (observe) and `scope.add(...)` (extend its own scope). There is no API to reorder or delete another scope's steps. *Why it matters:* installing a plugin can't break your body parser.
 
@@ -50,13 +51,14 @@ green-tea has one model: an **`AsyncIterable`**. A handler that returns a sequen
 | `@Sse` | server → client | `text/event-stream` | live updates to a browser (`EventSource`) |
 | `@Ws` | duplex | WebSocket | chat, collaboration — anything two-way |
 | `@Stream` | negotiated | SSE / ndjson / WS, picked from the client's `Accept` / `Upgrade` | one handler, the client chooses |
-| *(plain return)* | server → client | SSE or ndjson by `Accept` | programmatic streaming over `fetch` |
 
 The primitive never changes — it's always an `AsyncIterable`. What changes is **direction and framing**, and you declare which. That's the difference between each iterable green-tea hands you:
 
-- **`@Sse` / plain return** — you return **one** iterable: the *outbound* stream. Each `yield` becomes an SSE event, or an ndjson line.
+- **`@Sse`** — you return **one** iterable: the *outbound* stream. Each `yield` becomes an SSE event, or an ndjson line.
 - **`@Ws` (duplex)** — **two** iterables. `@inbound()` gives you the client's *incoming* messages to consume; the one you **return** is the *outbound* stream to the client. `@abort()` hands you an `AbortSignal` for teardown.
 - **`@Stream`** — you write the handler once; the client's request decides whether it arrives as SSE, ndjson, or a WebSocket. No branching in your code.
+
+**Your wire contract is what you declared, never what you happened to return.** A buffered route that returns an iterable, or a streaming route that returns a plain value, fails loudly with a `TransportMismatchError` — green-tea will not quietly switch a route's transport because of a return type. Refactoring a handler's internals can't change how it talks to the client.
 
 Fan-out is a primitive too: `channel()` is a **multicast** `AsyncIterable` (bounded, drop-oldest) so one source feeds many subscribers, and `rooms` are named broadcast hubs — publish once, every connection in the room receives it.
 
@@ -91,6 +93,7 @@ Beta shipped the parts a real API needs, without growing the runtime dependency 
 - **Validation via [Standard Schema](https://standardschema.dev).** `@body(schema)` accepts zod, valibot, or arktype — you bring the validator, the core stays zero-dep. Invalid input → `422` with per-field issues; the parsed value reaches your handler typed.
 - **Real body parsing.** JSON and urlencoded out of the box; `multipart/form-data` file uploads (`@body()` → `{ fields, files }`) via the optional [`busboy`](https://github.com/mscdex/busboy) peer dependency (`npm i busboy`) — a multipart request without it returns a clear `501`. All size-capped (`413`) against DoS.
 - **Errors, your way.** Throw typed errors (`Unauthorized`, `NotFound`, `HttpError(status, msg, body?)`) anywhere; they convert centrally to `4xx`/`5xx`. Render them however you like — HTML, RFC 7807, content-negotiated — with a single `createApp({ onError })` hook that covers every error response.
+- **HTML without a view layer.** `@Html` returns a string, serves a file, or renders one with the built-in `{{ }}` template engine — swap in EJS or handlebars with `createApp({ viewEngine })`. `createApp({ static: true })` serves `./public` with path-traversal guards and no mime dependency.
 - **Graceful shutdown.** `app.close()` drains in-flight requests, closes live streams and mesh links.
 - **Testable by construction.** `createApp({ overrides: { db: fakeDb } })` swaps any node in one line.
 - **Dual ESM + CommonJS.** Ships both builds behind an `exports` map — `import` and `require` both resolve, with matching type declarations.
@@ -117,6 +120,7 @@ Every framework here can serve `/users/:id`. The difference shows up as the app 
 | **Real-time** | bolt on `ws`/`sse` libs | plugins | separate Gateway + adapter | separate engine | **return an `AsyncIterable`** — SSE, ndjson & WebSocket, one primitive |
 | **Cross-service calls** | HTTP client / gRPC by hand | HTTP client / gRPC | Microservices transport + message patterns | — | **`@needs('x')` resolves on another node** |
 | **Plugin can break your pipeline?** | yes (deletes your body parser) | encapsulated, but hooks are global | interceptor order matters | yes | **no** — plugins only `bus.on` + `scope.add` |
+| **Runs on** | Node | Node | Node | Node | **Node · Deno · Bun · edge** — same code, swap the entry point |
 | **Runtime deps** | minimal | minimal | heavy (rxjs, reflect-metadata, …) | Express + InversifyJS | **`reflect-metadata` only** (`ws`, `busboy` optional) |
 
 ### Read it as a story
@@ -220,21 +224,22 @@ green-tea is **beta**, on the road to a release candidate. Express and Fastify h
 
 **Bring your own auth (and friends).** green-tea ships transport security — TLS/wss, secure-by-default headers, CORS — but **not** authentication, authorization, rate-limiting, CSRF, or sessions. You compose those as steps and plugins (the `Authenticate` step in the quick look is the pattern). Unlike Express/Fastify, there is no off-the-shelf plugin ecosystem for them yet.
 
-**Node only.** Runs on Node ≥ 18. Deno / Bun / edge runtimes (over web-standard `Request`/`Response`) are on the roadmap, not built — only `src/http/` is runtime-specific today.
+**Runtimes differ in what they can offer.** Node ≥ 18, Deno, and Bun run everything. On the edge (Cloudflare Workers) there is no `app.listen()`, no filesystem — so `@Html` file/template modes and `static` serving are unavailable — and mesh does not run there at all (the teapot's secret comparison needs `node:crypto`'s `timingSafeEqual`, which `nodejs_compat` doesn't provide). Workers also require the `nodejs_compat` flag.
 
 **mesh is alpha.** Distributed DI works, but discovery, load-balancing, and failover are not built, and its API and wire protocol may change between releases. It is gated behind an explicit opt-in — `createApp({ mesh, experimental: true })` — and `createApp` throws if you configure `mesh` without it. Don't ship mesh to production yet.
 
 ## Docs & development
 
-- **[Quickstart](./docs/quickstart.md)** — install + concrete examples (routes/DI, `flow`, validation, uploads, SSE, WebSocket, mesh, plugins).
-- **[Architecture](./docs/architecture.md)** — the mental map (layers, request lifecycle, mesh) as diagrams.
+- **[green-tea.expressive-tea.io/docs](https://green-tea.expressive-tea.io/docs)** — getting started, concepts (the graph, `flow`), and guides: routing, DI, validation, uploads, streaming, HTML, security, errors, introspection, OpenAPI, plugins, mesh, runtimes, testing.
+- **[matcha](https://github.com/Expressive-Tea/matcha)** — the CLI. `matcha new` scaffolds a project (Node, Deno, or Bun), `matcha create` generates and auto-wires controllers/steps/providers/modules, `matcha run` detects your runtime and watches. A standalone Rust binary — no JS runtime needed to install it.
 
 ```bash
 npm install
-npm test           # vitest
+npm test           # vitest (Node); test:deno / test:bun / test:edge for the other runtimes
 npm run typecheck  # tsc --noEmit (includes the compile-time-guarantee type test)
-npm run build      # emit dist/
+npm run build      # emit dist/ (tsup: dual ESM + CJS)
 npm run bench      # regenerate BENCHMARKS.md
+npm run docs:dev   # the documentation site (website/)
 ```
 
 ## Roadmap
@@ -244,7 +249,9 @@ npm run bench      # regenerate BENCHMARKS.md
 - ✅ **streams** — SSE / ndjson / WebSocket duplex over a multicast `AsyncIterable` channel, with backpressure and cleanup.
 - ✅ **graph introspection** — `explain` / `graph` / `toMermaid` / `GET /__graph__`.
 - ✅ **mesh (walking skeleton)** — `teapot`/`teacup` distributed DI over a secret-gated WS control channel. A BEAM/OTP-style cluster, *not* microservices.
-- **next** — API freeze + first published release, mesh sub-specs (discovery, load-balancing, failover), runtime adapters (Deno / Bun / edge over web-standard `Request`/`Response`), official plugins.
+- ✅ **runs everywhere** — Node, Deno, Bun, and Cloudflare Workers over web-standard `Request`/`Response`, with identical WebSocket behaviour on all four.
+- ✅ **HTML** — `@Html` (string / file / template), a built-in template engine with a bring-your-own `viewEngine` hook, and `static` serving.
+- **next** — API freeze + first published release, mesh sub-specs (discovery, load-balancing, failover), official plugins, router regex constraints and a radix-tree matcher.
 
 ## Versioning
 
