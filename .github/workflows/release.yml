@@ -1,0 +1,26 @@
+name: Release → npmjs
+
+# Production publish. Runs on GITHUB ONLY, on a version tag (`v*`). Publishes the stable
+# package (version from package.json) to the public npmjs registry under `latest`.
+# The tag arrives via the promote workflow; the version should be stable (no prerelease)
+# before tagging.
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish-prod:
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci
+      # `npm publish` runs prepublishOnly (lint + complexity + typecheck + test + build) first.
+      - name: Publish to npmjs
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH }}
+        run: npm publish --access public
