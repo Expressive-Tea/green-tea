@@ -22,5 +22,5 @@ jobs:
       # `npm publish` runs prepublishOnly (lint + complexity + typecheck + test + build) first.
       - name: Publish to npmjs
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH }}
         run: npm publish --access public

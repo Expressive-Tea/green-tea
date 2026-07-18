@@ -22,7 +22,7 @@ jobs:
       # as its own gate before anything leaves the machine.
       - name: Publish to Verdaccio
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.VERDACCIO_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH }}
         run: |
           npm config set //npm.svc.zoit.services/:_authToken "$NODE_AUTH_TOKEN"
           npm publish --registry https://npm.svc.zoit.services --tag stg
