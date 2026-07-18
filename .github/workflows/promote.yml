@@ -1,0 +1,30 @@
+name: Promote → GitHub
+
+# Promotion. Runs on GITEA ONLY. Mirrors ONLY `main` + version tags to the public GitHub
+# repo — develop and feature branches stay Gitea-private (this is why we don't use Gitea's
+# push-mirror, which would expose every branch). A pushed tag lands on GitHub and triggers
+# its release workflow (production publish).
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+jobs:
+  push-github:
+    if: ${{ github.server_url != 'https://github.com' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags for a clean push
+      - name: Push main + tags to GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GH_PROMOTE_TOKEN }}
+        run: |
+          git remote add github "https://x-access-token:${GH_TOKEN}@github.com/Expressive-Tea/green-tea.git"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            git push github "refs/tags/${{ github.ref_name }}"
+          else
+            git push github "HEAD:refs/heads/main"
+            git push github --tags
+          fi

@@ -1,8 +1,9 @@
 import 'reflect-metadata';
-import { expect, test } from 'vitest';
+import { expect, test, describe, it } from 'vitest';
 import {
   Provider, Step, Route, Get, Module,
   getProviderMeta, getStepMeta, getRoutes, getModuleMeta,
+  Sse, Ws, Stream, Post,
 } from '../src/metadata';
 
 @Provider({ provides: 'db', needs: ['config'] })
@@ -18,15 +19,15 @@ class Ctl { @Get('/:id') getUser() { return 1; } }
 class ApiModule {}
 
 test('provider metadata is readable', () => {
-  expect(getProviderMeta(Db)).toEqual({ provides: 'db', needs: ['config'], optional: false });
+  expect(getProviderMeta(Db)).toEqual({ provides: 'db', needs: ['config'], optional: false, export: false });
 });
 
 test('step metadata is readable', () => {
-  expect(getStepMeta(Auth)).toEqual({ provides: 'user', needs: ['db', 'req'], optional: false });
+  expect(getStepMeta(Auth)).toEqual({ provides: 'user', needs: ['db', 'req'], optional: false, export: false });
 });
 
 test('routes carry method, path and handler name', () => {
-  expect(getRoutes(Ctl)).toEqual([{ method: 'GET', path: '/users/:id', handlerName: 'getUser' }]);
+  expect(getRoutes(Ctl)).toEqual([{ method: 'GET', path: '/users/:id', handlerName: 'getUser', transport: 'buffer', export: false }]);
 });
 
 test('module metadata lists members', () => {
@@ -35,4 +36,62 @@ test('module metadata lists members', () => {
   expect(m.providers).toEqual([Db]);
   expect(m.steps).toEqual([Auth]);
   expect(m.controllers).toEqual([Ctl]);
+});
+
+describe('stream route decorators', () => {
+  it('records transport + method per decorator', () => {
+    class StreamCtl {
+      @Sse('/feed') feed() {}
+      @Ws('/chat') chat() {}
+      @Stream('/either') either() {}
+      @Post('/make') make() {}
+    }
+    const byName = Object.fromEntries(getRoutes(StreamCtl).map((r) => [r.handlerName, r]));
+    expect(byName.feed).toMatchObject({ method: 'GET', transport: 'sse', path: '/feed' });
+    expect(byName.chat).toMatchObject({ method: 'GET', transport: 'ws', path: '/chat' });
+    expect(byName.either).toMatchObject({ method: 'GET', transport: 'negotiate', path: '/either' });
+    expect(byName.make).toMatchObject({ method: 'POST', transport: 'buffer', path: '/make' });
+  });
+});
+
+describe('mesh export flags', () => {
+  it('providers/steps carry export (default false)', () => {
+    @Provider({ provides: 'config', export: true }) class C { provide() { return {}; } }
+    @Step({ provides: 'auth', export: true }) class A { run() { return {}; } }
+    @Provider({ provides: 'priv' }) class P { provide() { return {}; } }
+    expect(getProviderMeta(C)!.export).toBe(true);
+    expect(getStepMeta(A)!.export).toBe(true);
+    expect(getProviderMeta(P)!.export).toBe(false);
+  });
+
+  it('routes carry export via decorator option (default false)', () => {
+    class Ctl2 {
+      @Get('/pub', { export: true }) pub() {}
+      @Get('/priv') priv() {}
+    }
+    const byName = Object.fromEntries(getRoutes(Ctl2).map((r) => [r.handlerName, r]));
+    expect(byName.pub.export).toBe(true);
+    expect(byName.priv.export).toBe(false);
+  });
+});
+
+import { Html, getHtmlMeta } from '../src/metadata';
+
+describe('@Html', () => {
+  it('records empty meta for bare @Html', () => {
+    class A { @Html m() { return ''; } }
+    expect(getHtmlMeta(A, 'm')).toEqual({});
+  });
+  it('records path and template for called @Html', () => {
+    class B {
+      @Html('views/x.html') a() {}
+      @Html('views/y.html', { template: true }) c() { return {}; }
+    }
+    expect(getHtmlMeta(B, 'a')).toEqual({ path: 'views/x.html', template: undefined });
+    expect(getHtmlMeta(B, 'c')).toEqual({ path: 'views/y.html', template: true });
+  });
+  it('returns undefined when @Html is absent', () => {
+    class C { m() {} }
+    expect(getHtmlMeta(C, 'm')).toBeUndefined();
+  });
 });

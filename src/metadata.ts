@@ -1,13 +1,50 @@
 import 'reflect-metadata';
 
+/** Any class constructor. Kept `any` because decorators must accept every target shape. */
 export type Ctor = new (...args: any[]) => any;
+/** Serializes a handler's return value into an HTTP response envelope. */
 export type TransformerFn = (value: unknown) => { status?: number; headers?: Record<string, string>; body: string };
 
-export interface ProviderMeta { provides: string; needs: string[]; optional: boolean }
-export interface StepMeta { provides: string; needs: string[]; optional: boolean }
-export interface RouteMeta { method: 'GET'; path: string; handlerName: string }
+/** Metadata attached by `@Html`: optional file path and whether it is a template. */
+export interface HtmlMeta {
+  path?: string;
+  template?: boolean;
+}
+/** Metadata attached by `@Provider`: what it provides, what it needs, and its visibility. */
+export interface ProviderMeta {
+  provides: string;
+  needs: string[];
+  optional: boolean;
+  export: boolean;
+}
+/** Metadata attached by `@Step`: what it provides, what it needs, and its visibility. */
+export interface StepMeta {
+  provides: string;
+  needs: string[];
+  optional: boolean;
+  export: boolean;
+}
+/** HTTP verbs supported by the route decorators. */
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+/** Wire transport a route responds with. */
+export type Transport = 'buffer' | 'sse' | 'ndjson' | 'negotiate' | 'ws';
+/** Metadata attached by a route decorator to a single handler method. */
+export interface RouteMeta {
+  method: HttpMethod;
+  path: string;
+  handlerName: string;
+  transport: Transport;
+  export: boolean;
+  duplicates?: 'array' | 'last';
+  maxBodyBytes?: number;
+  maxParts?: number;
+}
+/** Options accepted by the `@Module` decorator. */
 export interface ModuleOptions {
-  mountpoint: string; providers?: Ctor[]; steps?: Ctor[]; controllers?: Ctor[];
+  mountpoint: string;
+  providers?: Ctor[];
+  steps?: Ctor[];
+  controllers?: Ctor[];
 }
 
 const K = {
@@ -17,63 +54,162 @@ const K = {
   routes: Symbol('gt:routes'),
   module: Symbol('gt:module'),
   transformer: Symbol('gt:transformer'),
+  html: Symbol('gt:html'),
 };
 
-export function Provider(opts: { provides: string; needs?: string[]; optional?: boolean }): ClassDecorator {
+/** Marks a class as a provider: a lazily-built dependency addressable by its `provides` key. */
+export function Provider(opts: {
+  provides: string;
+  needs?: string[];
+  optional?: boolean;
+  export?: boolean;
+}): ClassDecorator {
   return (target) => {
-    const meta: ProviderMeta = { provides: opts.provides, needs: opts.needs ?? [], optional: opts.optional ?? false };
+    const meta: ProviderMeta = {
+      provides: opts.provides,
+      needs: opts.needs ?? [],
+      optional: opts.optional ?? false,
+      export: opts.export ?? false,
+    };
     Reflect.defineMetadata(K.provider, meta, target);
   };
 }
 
-export function Step(opts: { provides: string; needs?: string[]; optional?: boolean }): ClassDecorator {
+/** Marks a class as a step: a per-request unit that runs in dependency order and contributes to the context. */
+export function Step(opts: {
+  provides: string;
+  needs?: string[];
+  optional?: boolean;
+  export?: boolean;
+}): ClassDecorator {
   return (target) => {
-    const meta: StepMeta = { provides: opts.provides, needs: opts.needs ?? [], optional: opts.optional ?? false };
+    const meta: StepMeta = {
+      provides: opts.provides,
+      needs: opts.needs ?? [],
+      optional: opts.optional ?? false,
+      export: opts.export ?? false,
+    };
     Reflect.defineMetadata(K.step, meta, target);
   };
 }
 
+/** Sets the shared path prefix for every route declared on the decorated controller. */
 export function Route(prefix: string): ClassDecorator {
-  return (target) => { Reflect.defineMetadata(K.routePrefix, prefix, target); };
-}
-
-export function Get(path: string): MethodDecorator {
-  return (target, propertyKey) => {
-    const ctor = target.constructor;
-    const routes = (Reflect.getMetadata(K.routes, ctor) as RouteMeta[]) ?? [];
-    routes.push({ method: 'GET', path, handlerName: String(propertyKey) });
-    Reflect.defineMetadata(K.routes, routes, ctor);
+  return (target) => {
+    Reflect.defineMetadata(K.routePrefix, prefix, target);
   };
 }
 
+function routeDecorator(method: HttpMethod, transport: Transport) {
+  return (
+      path: string,
+      opts?: { export?: boolean; duplicates?: 'array' | 'last'; maxBodyBytes?: number; maxParts?: number },
+    ): MethodDecorator =>
+    (target, propertyKey) => {
+      const ctor = target.constructor;
+      const routes = (Reflect.getMetadata(K.routes, ctor) as RouteMeta[]) ?? [];
+      routes.push({
+        method,
+        path,
+        handlerName: String(propertyKey),
+        transport,
+        export: opts?.export ?? false,
+        duplicates: opts?.duplicates,
+        maxBodyBytes: opts?.maxBodyBytes,
+        maxParts: opts?.maxParts,
+      });
+      Reflect.defineMetadata(K.routes, routes, ctor);
+    };
+}
+
+/** Declares a buffered `GET` route. */
+export const Get = routeDecorator('GET', 'buffer');
+/** Declares a buffered `POST` route. */
+export const Post = routeDecorator('POST', 'buffer');
+/** Declares a buffered `PUT` route. */
+export const Put = routeDecorator('PUT', 'buffer');
+/** Declares a buffered `PATCH` route. */
+export const Patch = routeDecorator('PATCH', 'buffer');
+/** Declares a buffered `DELETE` route. */
+export const Delete = routeDecorator('DELETE', 'buffer');
+/** Declares a `GET` route streamed as Server-Sent Events. */
+export const Sse = routeDecorator('GET', 'sse');
+/** Declares a `GET` route whose transport is content-negotiated at request time. */
+export const Stream = routeDecorator('GET', 'negotiate');
+/** Declares a `GET` route upgraded to a WebSocket. */
+export const Ws = routeDecorator('GET', 'ws');
+
+/** Attaches a response transformer to a handler method. */
 export function Transformer(fn: TransformerFn): MethodDecorator {
   return (target, propertyKey) => {
     Reflect.defineMetadata(K.transformer, fn, target.constructor, String(propertyKey));
   };
 }
 
+/** Marks a class as a module and records its providers, steps, controllers, and mountpoint. */
 export function Module(opts: ModuleOptions): ClassDecorator {
-  return (target) => { Reflect.defineMetadata(K.module, opts, target); };
+  return (target) => {
+    Reflect.defineMetadata(K.module, opts, target);
+  };
 }
 
+/**
+ * Marks a buffered GET/POST handler as serving HTML. Bare `@Html` sends the handler's string return as
+ * `text/html`. `@Html('file.html')` serves that file (return ignored). `@Html('file.html', { template: true })`
+ * renders the file with the handler's returned data. Placement is validated at boot (buffered GET/POST only).
+ */
+export function Html(path: string, opts?: { template?: boolean }): MethodDecorator;
+export function Html(target: object, propertyKey: string | symbol): void;
+
+export function Html(a: unknown, b?: unknown): MethodDecorator | void {
+  if (typeof a !== 'string') {
+    // Bare usage: TS calls (prototype, propertyKey, descriptor?).
+    Reflect.defineMetadata(K.html, {}, (a as { constructor: Ctor }).constructor, String(b));
+    return;
+  }
+
+  const path = a;
+  const opts = b as { template?: boolean } | undefined;
+
+  return (target, propertyKey) => {
+    const meta: HtmlMeta = { path, template: opts?.template };
+    Reflect.defineMetadata(K.html, meta, (target as { constructor: Ctor }).constructor, String(propertyKey));
+  };
+}
+
+/** Reads the `@Html` metadata registered for a handler method, if any. */
+export function getHtmlMeta(cls: Ctor, methodName: string): HtmlMeta | undefined {
+  return Reflect.getMetadata(K.html, cls, methodName);
+}
+
+/** Reads the `@Provider` metadata off a class, if any. */
 export function getProviderMeta(cls: Ctor): ProviderMeta | undefined {
   return Reflect.getMetadata(K.provider, cls);
 }
+
+/** Reads the `@Step` metadata off a class, if any. */
 export function getStepMeta(cls: Ctor): StepMeta | undefined {
   return Reflect.getMetadata(K.step, cls);
 }
+
+/** Reads the `@Module` metadata off a class, if any. */
 export function getModuleMeta(cls: Ctor): ModuleOptions | undefined {
   return Reflect.getMetadata(K.module, cls);
 }
+
+/** Reads the response transformer registered for a handler method, if any. */
 export function getTransformer(cls: Ctor, methodName: string): TransformerFn | undefined {
   return Reflect.getMetadata(K.transformer, cls, methodName);
 }
+
+/** Returns every route on a controller with its path resolved against the class prefix. */
 export function getRoutes(cls: Ctor): RouteMeta[] {
   const prefix: string = Reflect.getMetadata(K.routePrefix, cls) ?? '';
   const routes: RouteMeta[] = Reflect.getMetadata(K.routes, cls) ?? [];
-  return routes.map((r) => ({ ...r, path: joinPath(prefix, r.path) }));
+  return routes.map((route) => ({ ...route, path: joinPath(prefix, route.path) }));
 }
 
-export function joinPath(a: string, b: string): string {
-  return `${a.replace(/\/$/, '')}/${b.replace(/^\//, '')}`.replace(/\/+/g, '/');
+/** Joins two path segments with exactly one slash, collapsing any duplicates. */
+export function joinPath(base: string, segment: string): string {
+  return `${base.replace(/\/$/, '')}/${segment.replace(/^\//, '')}`.replace(/\/+/g, '/');
 }

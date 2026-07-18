@@ -1,23 +1,144 @@
 {
   "name": "@green-tea/core",
-  "version": "0.0.0",
-  "description": "Declarative, type-safe HTTP framework. The pipeline is a graph, not a middleware chain.",
+  "version": "26.7.0-beta.0",
+  "description": "A zen, opinionated, type-safe framework — your API is a graph, not a middleware chain.",
   "license": "MIT",
+  "author": "green-tea contributors",
+  "keywords": [
+    "http",
+    "framework",
+    "typescript",
+    "dependency-injection",
+    "decorators",
+    "dependency-graph",
+    "sse",
+    "websocket",
+    "streaming",
+    "node"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "commonjs",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./deno": {
+      "import": {
+        "types": "./dist/deno.d.mts",
+        "default": "./dist/deno.mjs"
+      },
+      "require": {
+        "types": "./dist/deno.d.ts",
+        "default": "./dist/deno.js"
+      }
+    },
+    "./bun": {
+      "import": {
+        "types": "./dist/bun.d.mts",
+        "default": "./dist/bun.mjs"
+      },
+      "require": {
+        "types": "./dist/bun.d.ts",
+        "default": "./dist/bun.js"
+      }
+    },
+    "./edge": {
+      "import": {
+        "types": "./dist/edge.d.mts",
+        "default": "./dist/edge.mjs"
+      },
+      "require": {
+        "types": "./dist/edge.d.ts",
+        "default": "./dist/edge.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "assets",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsup",
     "test": "vitest run",
     "test:dev": "vitest",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "test:deno": "deno test --allow-net --allow-read --allow-run --allow-env --no-check test/deno/",
+    "test:bun": "bun test test/bun/",
+    "test:edge": "tsx test/edge/run.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:bench": "tsc --noEmit -p bench/tsconfig.json",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "docs:dev": "npm --prefix website run dev",
+    "docs:build": "npm --prefix website run build",
+    "complexity": "ccts src",
+    "complexity:check": "node scripts/check-complexity.mjs",
+    "complexity:cyclomatic": "cyclomatic-complexity \"src/**/*.ts\" -tw 15 -te 25",
+    "bench": "tsx bench/run.ts",
+    "prepublishOnly": "npm run lint && npm run complexity:check && npm run typecheck && npm test && npm run build",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
     "reflect-metadata": "0.2.2"
   },
+  "peerDependencies": {
+    "busboy": "^1.6.0",
+    "ws": "^8.18.0"
+  },
+  "peerDependenciesMeta": {
+    "busboy": {
+      "optional": true
+    },
+    "ws": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@nestjs/common": "^11.1.27",
+    "@nestjs/core": "^11.1.27",
+    "@nestjs/platform-express": "^11.1.27",
+    "@nestjs/platform-fastify": "^11.1.27",
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "@types/autocannon": "^7.12.7",
+    "@types/busboy": "^1.5.4",
+    "@types/express": "^5.0.6",
+    "@types/node": "^18.19.0",
+    "@types/ws": "^8.18.1",
+    "autocannon": "^8.0.0",
+    "busboy": "^1.6.0",
+    "cognitive-complexity-ts": "^0.8.2",
+    "eslint": "^9.39.4",
+    "express": "^5.2.1",
+    "fastify": "^5.10.0",
+    "graphql": "^16.9.0",
+    "miniflare": "^4.20260708.1",
+    "prettier": "^3.9.4",
+    "rxjs": "^7.8.2",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.0",
     "typescript": "^5.5.0",
+    "typescript-eslint": "^8.63.0",
     "vitest": "^2.0.0",
-    "@types/node": "^18.19.0"
+    "ws": "^8.21.0"
   }
 }

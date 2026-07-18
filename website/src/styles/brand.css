@@ -1,0 +1,32 @@
+/* Green Tea. — brand theme for Starlight */
+@import url('https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&display=swap');
+
+/* Accent = matcha (dark theme in :root, light overridden below) */
+:root {
+  --sl-color-accent-low: #14352a;
+  --sl-color-accent: #348a5f;
+  --sl-color-accent-high: #b9e8cf;
+  --sl-color-text-accent: #6fc599;
+  --gt-purple: #a78bfa;
+}
+:root[data-theme='light'] {
+  --sl-color-accent-low: #d3efe1;
+  --sl-color-accent: #2f8a5f;
+  --sl-color-accent-high: #123528;
+  --sl-color-text-accent: #2f8a5f;
+  --gt-purple: #7c6cf0;
+}
+
+/* Brand type: Zen Maru for the site title and headings */
+.site-title,
+h1, h2, h3 {
+  font-family: 'Zen Maru Gothic', var(--sl-font, sans-serif);
+}
+.site-title { font-weight: 700; }
+.site-title img { height: 1.7rem; width: auto; }
+
+/* Splash hero logo */
+.hero img { max-height: 190px; width: auto; }
+
+/* A little zen: soften the accent link underlines */
+a { text-underline-offset: 0.15em; }

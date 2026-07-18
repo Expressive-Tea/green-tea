@@ -10,3 +10,10 @@ coverage/
 # Env
 .env
 .env.*
+
+# Astro (docs site)
+.astro/
+website/dist/
+
+# Edge (Miniflare) test bundle artifact
+test/edge/_worker.mjs
