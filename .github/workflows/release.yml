@@ -25,4 +25,10 @@ jobs:
       - run: npm ci
       # `npm publish` runs prepublishOnly (lint + complexity + typecheck + test + build) first.
       # No NODE_AUTH_TOKEN — npm exchanges the OIDC id-token for a short-lived publish token.
-      - run: npm publish --access public
+      # A prerelease (26.7.0-beta.N) publishes under its channel tag (beta/alpha/rc) so `latest`
+      # never points at a beta; a stable version publishes under `latest`.
+      - name: Publish
+        run: |
+          TAG=$(node -e "const v=require('./package.json').version;const m=v.match(/-([a-z]+)/);console.log(m?m[1]:'latest')")
+          echo "dist-tag: $TAG"
+          npm publish --access public --tag "$TAG"
