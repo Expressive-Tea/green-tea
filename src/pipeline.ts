@@ -47,12 +47,12 @@ export function isStreamResult(result: PipelineResult): result is StreamResult {
  */
 export async function runSteps(steps: PipelineStep[], seed: Record<string, unknown>, bus: Bus): Promise<any> {
   // context is intentionally `any`: each step merges arbitrary keys into the accumulator
-  let context: any = seed;
+  const context: any = seed;
 
   for (const step of steps) {
     bus.emit('request:step:enter', { name: step.name, scope: step.origin });
     const output = await step.run(context);
-    context = { ...context, ...output };
+    Object.assign(context, output);
     bus.emit('request:step:leave', { name: step.name, scope: step.origin });
   }
 

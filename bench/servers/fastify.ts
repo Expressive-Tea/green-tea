@@ -12,7 +12,7 @@ app.post('/validate', {
   if (!b.email.includes('@')) { reply.code(422); return { error: 'invalid' }; }
   return { email: b.email };
 });
-app.listen({ port: 0 }, (err, addr) => {
+app.listen({ port: 0, host: '0.0.0.0' }, (err, addr) => {
   if (err) { console.error(err); process.exit(1); }
   console.log(`READY ${Number(new URL(addr).port)}`);
 });

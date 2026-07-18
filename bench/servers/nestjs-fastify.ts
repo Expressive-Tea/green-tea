@@ -6,7 +6,7 @@ import { BenchModule } from './_nest-shared';
 async function main() {
   const adapter = new FastifyAdapter({ logger: false, keepAliveTimeout: 5000 }); // parity via constructor
   const app = await NestFactory.create<NestFastifyApplication>(BenchModule, adapter, { logger: false });
-  await app.listen(0, '127.0.0.1');
+  await app.listen(0, '0.0.0.0');
   const server = app.getHttpServer();
   console.log(`READY ${(server.address() as any).port}`);
 }
