@@ -9,7 +9,7 @@ async function main() {
   inst.disable('x-powered-by');
   inst.set('etag', false);
   const app = await NestFactory.create(BenchModule, new ExpressAdapter(inst), { logger: false });
-  await app.listen(0, '127.0.0.1');
+  await app.listen(0, '0.0.0.0');
   const server = app.getHttpServer();
   server.keepAliveTimeout = 5000; // parity (works on Node http.Server after listen)
   console.log(`READY ${server.address().port}`);
