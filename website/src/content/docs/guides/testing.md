@@ -29,5 +29,5 @@ An override for an unknown token throws. The set of tokens is validated against 
 graph, so a typo'd or stale override is a construction-time error, not a silent no-op.
 :::
 
-This pairs well with [`app.explain(route)`](/guides/introspection/) — explain the chain to
+This pairs well with [`app.explain(route)`](/docs/guides/introspection/) — explain the chain to
 see which tokens a route actually depends on, then override exactly those.

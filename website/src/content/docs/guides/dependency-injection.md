@@ -138,9 +138,9 @@ receive `undefined`. Boot fails loudly, so you never serve `undefined`.
 
 ## Where to go next
 
-- New to green-tea? Start with [Getting started](/getting-started/).
-- The mental model behind all of this: [The graph](/concepts/the-graph/).
-- Everything a handler can inject: [Argument decorators](/guides/arguments/) and the
-  [decorator reference](/reference/decorators/).
-- Coerce and validate injected values with Standard Schema: [Validation](/guides/validation/).
-- Declare `@Sse` and return an `AsyncIterable` to push data over time: [Streaming](/guides/streaming/).
+- New to green-tea? Start with [Getting started](/docs/getting-started/).
+- The mental model behind all of this: [The graph](/docs/concepts/the-graph/).
+- Everything a handler can inject: [Argument decorators](/docs/guides/arguments/) and the
+  [decorator reference](/docs/reference/decorators/).
+- Coerce and validate injected values with Standard Schema: [Validation](/docs/guides/validation/).
+- Declare `@Sse` and return an `AsyncIterable` to push data over time: [Streaming](/docs/guides/streaming/).

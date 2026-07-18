@@ -4,7 +4,7 @@ description: "TLS and wss, secure-by-default headers, CORS, and trustProxy."
 ---
 
 Four `createApp` options cover TLS, proxying, CORS, and response headers: `tls`,
-`trustProxy`, `cors`, and `security`. See the [`createApp` reference](/reference/createapp/)
+`trustProxy`, `cors`, and `security`. See the [`createApp` reference](/docs/reference/createapp/)
 for the full option list.
 
 ## TLS (native https/wss)
@@ -97,5 +97,5 @@ strips and sets forwarded headers itself, and terminate TLS where you control th
 
 ## Related
 
-- [`createApp` reference](/reference/createapp/) — every construction option
-- [File uploads / multipart](/guides/uploads/) — request-body handling
+- [`createApp` reference](/docs/reference/createapp/) — every construction option
+- [File uploads / multipart](/docs/guides/uploads/) — request-body handling

@@ -48,7 +48,7 @@ needs a name to say which route param it binds. `@body(Schema)`, `@query(Schema)
 object (all of `body`/`query`/`headers`).
 :::
 
-See [Argument decorators](/guides/arguments/) for the full slot semantics of each decorator.
+See [Argument decorators](/docs/guides/arguments/) for the full slot semantics of each decorator.
 
 ## Failure: 422 with per-field issues
 
@@ -79,6 +79,6 @@ validation are all out of scope for this feature.
 
 ## Related
 
-- [Argument decorators](/guides/arguments/) — every slot decorator and its parsing rules
-- [File uploads / multipart](/guides/uploads/) — how multipart bodies are parsed before validation
-- [`createApp` reference](/reference/createapp/) — app construction options
+- [Argument decorators](/docs/guides/arguments/) — every slot decorator and its parsing rules
+- [File uploads / multipart](/docs/guides/uploads/) — how multipart bodies are parsed before validation
+- [`createApp` reference](/docs/reference/createapp/) — app construction options

@@ -27,14 +27,14 @@ class Authenticate { /* ... */ }
 - **No ordering bugs.** There's no positional `app.use()` sequence to get wrong; the sort is the order.
 - **Each route runs only its slice.** A route runs the transitive closure of what its handler `@needs` (plus always-run observer steps) — an auth step doesn't run on a public route.
 - **Boot fails loudly.** If a handler needs a key nothing provides, `createApp` throws at boot with a "did you mean…?" hint — you never serve `undefined`.
-- **You can read it.** `app.explain(route)` prints the ordered chain with origins; `app.graph()` / `GET /__graph__` render it as a diagram. See [Graph introspection](/guides/introspection/).
+- **You can read it.** `app.explain(route)` prints the ordered chain with origins; `app.graph()` / `GET /__graph__` render it as a diagram. See [Graph introspection](/docs/guides/introspection/).
 
 ## Two layers
 
 green-tea exposes the graph two ways:
 
-1. **The typed functional core, [`flow`](/concepts/flow/)** — the compile-time guarantee. A handler that reads `ctx.user` fails to **compile** if no step produces `user`.
-2. **The declarative decorator layer** — `@Provider` / `@Step` / `@Module` / `@Route` / `@Get` plus [argument decorators](/guides/arguments/). Emits runtime metadata, builds and sorts the graph, and validates at boot.
+1. **The typed functional core, [`flow`](/docs/concepts/flow/)** — the compile-time guarantee. A handler that reads `ctx.user` fails to **compile** if no step produces `user`.
+2. **The declarative decorator layer** — `@Provider` / `@Step` / `@Module` / `@Route` / `@Get` plus [argument decorators](/docs/guides/arguments/). Emits runtime metadata, builds and sorts the graph, and validates at boot.
 
 Both describe the same graph; pick the ergonomics you want.
 

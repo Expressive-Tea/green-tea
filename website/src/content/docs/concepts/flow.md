@@ -3,7 +3,7 @@ title: The typed flow core
 description: "The functional flow API where the compile-time dependency guarantee lives."
 ---
 
-The [decorator layer](/guides/dependency-injection/) validates the graph at **boot**. The functional core, `flow`, validates it in the **type checker** — before the program ever runs.
+The [decorator layer](/docs/guides/dependency-injection/) validates the graph at **boot**. The functional core, `flow`, validates it in the **type checker** — before the program ever runs.
 
 ```typescript
 import { flow } from '@green-tea/core';
@@ -21,4 +21,4 @@ This is the strongest guarantee green-tea offers: the type *is* the dependency c
 `npm run typecheck` in the repo includes a type-level test that asserts this accumulation behaves — a step that reads a missing key is expected to fail compilation.
 :::
 
-See [The dependency graph](/concepts/the-graph/) for how both layers describe the same model.
+See [The dependency graph](/docs/concepts/the-graph/) for how both layers describe the same model.
