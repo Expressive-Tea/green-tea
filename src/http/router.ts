@@ -249,11 +249,44 @@ export function matchRoute(routes: RouteDef[], method: string, path: string): Ma
   return best;
 }
 
+/** Route resolution adds the one HTTP fallback the matcher supports: buffered GET serves HEAD. */
+export interface ResolvedRoute extends MatchedRoute {
+  implicitHead: boolean;
+}
+
+export function resolveRoute(routes: RouteDef[], method: string, path: string): ResolvedRoute | undefined {
+  const explicit = matchRoute(routes, method, path);
+  if (explicit) return { ...explicit, implicitHead: false };
+  if (method !== 'HEAD') return undefined;
+
+  const fallback = matchRoute(
+    routes.filter((route) => route.transport === 'buffer'),
+    'GET',
+    path,
+  );
+  return fallback ? { ...fallback, implicitHead: true } : undefined;
+}
+
+const METHOD_ORDER = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
+
 /** Lists the distinct HTTP methods whose pattern matches the path — used to build a 405 `Allow` header. */
 export function allowedMethods(routes: RouteDef[], path: string): string[] {
   const methods = new Set<string>();
-  for (const route of routes) if (matchPattern(route.pattern, path)) methods.add(route.method);
-  return [...methods];
+
+  for (const route of routes) {
+    if (!matchPattern(route.pattern, path)) continue;
+    methods.add(route.method);
+    if (route.method === 'GET' && route.transport === 'buffer') methods.add('HEAD');
+  }
+
+  if (methods.size) methods.add('OPTIONS');
+  return [...methods].sort((a, b) => {
+    const indexA = METHOD_ORDER.indexOf(a);
+    const indexB = METHOD_ORDER.indexOf(b);
+    return (
+      (indexA < 0 ? METHOD_ORDER.length : indexA) - (indexB < 0 ? METHOD_ORDER.length : indexB) || a.localeCompare(b)
+    );
+  });
 }
 
 /** Parses a URL's query string into a flat string map (last value wins for repeated keys). */

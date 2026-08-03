@@ -5,7 +5,7 @@ import { isHttpError, HttpError } from '../signals';
 import type { Bus } from '../bus';
 import { buildSecurityHeaders, resolveCors } from '../security';
 import { parseMultipart, extractBoundary, collapseDuplicates } from '../multipart';
-import { matchRoute } from './router';
+import { normalizeRequestPath, resolveRoute } from './router';
 import { readBody, deriveSecure, deriveIp } from './request';
 import { pipeStream } from './stream';
 import { attachWs } from './ws';
@@ -93,7 +93,13 @@ function createRequestHandler(cfg: HandlerConfig) {
     // Mirror handle()'s own preflight/route-match decision here, so we only read the body
     // (below) for a request that actually reaches a route handler — matching prior behaviour.
     const isPreflight = Boolean(opts?.cors && method === 'OPTIONS' && req.headers['access-control-request-method']);
-    const matched = isPreflight ? undefined : matchRoute(routes, method, path);
+    let matched: ReturnType<typeof resolveRoute>;
+
+    try {
+      matched = isPreflight ? undefined : resolveRoute(routes, method, normalizeRequestPath(path));
+    } catch {
+      matched = undefined; // handle() owns the standard 400 envelope and injected headers
+    }
 
     let body: unknown;
 

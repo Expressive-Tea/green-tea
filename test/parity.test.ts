@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { Server } from 'http';
-import { createApp, Provider, Route, Get, Post, Module, needs, body, Sse } from '../src/index';
+import { createApp, Provider, Route, Get, Head, Options, Post, Module, needs, body, Sse } from '../src/index';
 
 @Provider({ provides: 'db' })
 class Db {
@@ -21,6 +21,21 @@ class Ctl {
       yield { n: 1 };
       yield { n: 2 };
     })();
+  }
+  @Get('/implicit-head') implicitHead() {
+    return { from: 'get' };
+  }
+  @Get('/explicit-head') explicitHeadGet() {
+    return { from: 'get' };
+  }
+  @Head('/explicit-head') explicitHead() {
+    return { from: 'head' };
+  }
+  @Get('/explicit-options') explicitOptionsGet() {
+    return { from: 'get' };
+  }
+  @Options('/explicit-options') explicitOptions() {
+    return { from: 'options' };
   }
 }
 @Module({ mountpoint: '/', providers: [Db], controllers: [Ctl] })
@@ -77,6 +92,38 @@ describe('Node vs app.fetch parity (Node is truth)', () => {
     const { node, web } = await both('/api/x', init);
     expect(web.status).toBe(node.status);
     expect(norm(web.headers)).toEqual(norm(node.headers));
+  });
+  it('implicit and explicit HEAD return no body in both adapters', async () => {
+    for (const path of ['/api/implicit-head', '/api/explicit-head']) {
+      const { node, web } = await both(path, { method: 'HEAD' });
+      expect(node.status).toBe(200);
+      expect(web.status).toBe(node.status);
+      expect(await node.text()).toBe('');
+      expect(await web.text()).toBe('');
+    }
+  });
+  it('automatic OPTIONS is 204 with the same canonical Allow header', async () => {
+    const { node, web } = await both('/api/x', { method: 'OPTIONS' });
+    expect(node.status).toBe(204);
+    expect(web.status).toBe(204);
+    expect(node.headers.get('allow')).toBe('GET, HEAD, OPTIONS');
+    expect(web.headers.get('allow')).toBe(node.headers.get('allow'));
+  });
+  it('explicit OPTIONS route runs normally', async () => {
+    const { node, web } = await both('/api/explicit-options', { method: 'OPTIONS' });
+    expect(node.status).toBe(200);
+    expect(web.status).toBe(200);
+    expect(await node.json()).toEqual({ from: 'options' });
+    expect(await web.json()).toEqual({ from: 'options' });
+  });
+  it('rejects repeated slashes and malformed encoding with secure 400 responses', async () => {
+    for (const path of ['/api//x', '/api/%E0%A4%A']) {
+      const { node, web } = await both(path);
+      expect(node.status).toBe(400);
+      expect(web.status).toBe(400);
+      expect(node.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(web.headers.get('x-content-type-options')).toBe('nosniff');
+    }
   });
   it('SSE first two events', async () => {
     const nodeText = await (await fetch(base + '/api/s')).text();

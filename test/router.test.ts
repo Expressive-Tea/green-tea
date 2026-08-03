@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { compilePattern, matchPattern, matchRoute, allowedMethods, normalizeRequestPath } from '../src/http/router';
+import {
+  compilePattern,
+  matchPattern,
+  matchRoute,
+  resolveRoute,
+  allowedMethods,
+  normalizeRequestPath,
+} from '../src/http/router';
 import type { RouteDef } from '../src/http/types';
 
 const route = (method: string, pattern: string): RouteDef => ({
@@ -90,9 +97,24 @@ describe('matchRoute precedence', () => {
 });
 
 describe('allowedMethods (405 support)', () => {
-  it('lists distinct methods whose pattern matches the path', () => {
-    const routes = [route('GET', '/a'), route('POST', '/a'), route('GET', '/b')];
-    expect(allowedMethods(routes, '/a').sort()).toEqual(['GET', 'POST']);
+  it('lists methods in canonical order with implicit HEAD and OPTIONS', () => {
+    const routes = [route('POST', '/a'), route('GET', '/a'), route('GET', '/b')];
+    expect(allowedMethods(routes, '/a')).toEqual(['GET', 'HEAD', 'POST', 'OPTIONS']);
     expect(allowedMethods(routes, '/nope')).toEqual([]);
+  });
+});
+
+describe('resolveRoute', () => {
+  it('prefers explicit HEAD and otherwise falls back to buffered GET', () => {
+    const explicit = [route('GET', '/a'), route('HEAD', '/a')];
+    expect(resolveRoute(explicit, 'HEAD', '/a')).toMatchObject({ implicitHead: false, def: { method: 'HEAD' } });
+
+    const fallback = resolveRoute([route('GET', '/a')], 'HEAD', '/a');
+    expect(fallback).toMatchObject({ implicitHead: true, def: { method: 'GET' } });
+  });
+
+  it('does not use a streaming GET as implicit HEAD', () => {
+    const streaming = { ...route('GET', '/a'), transport: 'sse' as const };
+    expect(resolveRoute([streaming], 'HEAD', '/a')).toBeUndefined();
   });
 });
