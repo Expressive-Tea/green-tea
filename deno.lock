@@ -18,11 +18,11 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
-        "npm:@eslint/js@^9.39.4",
-        "npm:@nestjs/common@^11.1.27",
-        "npm:@nestjs/core@^11.1.27",
-        "npm:@nestjs/platform-express@^11.1.27",
-        "npm:@nestjs/platform-fastify@^11.1.27",
+        "npm:@eslint/js@^9.39.5",
+        "npm:@nestjs/common@^11.1.28",
+        "npm:@nestjs/core@^11.1.28",
+        "npm:@nestjs/platform-express@^11.1.28",
+        "npm:@nestjs/platform-fastify@^11.1.28",
         "npm:@stylistic/eslint-plugin@^5.10.0",
         "npm:@types/autocannon@^7.12.7",
         "npm:@types/busboy@^1.5.4",
@@ -32,20 +32,31 @@
         "npm:autocannon@8",
         "npm:busboy@^1.6.0",
         "npm:cognitive-complexity-ts@~0.8.2",
-        "npm:eslint@^9.39.4",
+        "npm:esbuild@0.27.2",
+        "npm:eslint@^9.39.5",
         "npm:express@^5.2.1",
-        "npm:fastify@^5.10.0",
+        "npm:fastify@^5.11.0",
         "npm:graphql@^16.9.0",
-        "npm:prettier@^3.9.4",
+        "npm:miniflare@^4.20260730.0",
+        "npm:prettier@^3.9.6",
         "npm:reflect-metadata@0.2.2",
         "npm:rxjs@^7.8.2",
         "npm:tsup@^8.5.1",
-        "npm:tsx@^4.23.0",
-        "npm:typescript-eslint@^8.63.0",
+        "npm:tsx@^4.23.5",
+        "npm:typescript-eslint@^8.65.0",
         "npm:typescript@^5.5.0",
-        "npm:vitest@2",
-        "npm:ws@^8.21.0"
-      ]
+        "npm:vite@^6.4.3",
+        "npm:vitest@^3.2.7",
+        "npm:ws@^8.21.1"
+      ],
+      "overrides": {
+        "find-my-way": "9.7.0",
+        "autocannon": {
+          "hyperid": {
+            "uuid": "11.1.1"
+          }
+        }
+      }
     }
   }
 }
