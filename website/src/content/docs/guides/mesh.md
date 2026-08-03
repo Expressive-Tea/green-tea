@@ -94,17 +94,17 @@ Mesh proxies **buffered** endpoints. `@Sse`, `@Stream` and `@Ws` routes are not 
 
 ## One teapot per route
 
-A route must be exported by exactly **one** teapot. If two export the same `method + pattern`, the boot **fails**, naming the route and both teapots:
+A route must be exported by exactly **one** teapot. If two export the same method and effective match shape — including patterns that differ only by parameter name, such as `/:id` and `/:name` — boot **fails**, naming both patterns and both teapots:
 
 ```
-mesh: route 'GET /api/svc/ping' is exported by more than one teapot
-(ws://a/__mesh__/control and ws://b/__mesh__/control) — load balancing across
-teapots is not implemented yet, so green-tea will not choose one for you.
+mesh: ambiguous remote route 'GET /api/shape/:name' from ws://b/__mesh__/control
+conflicts with 'GET /api/shape/:id' from ws://a/__mesh__/control — load balancing
+across teapots is not implemented yet, so green-tea will not choose one for you.
 ```
 
 This is a hard error rather than a silent pick because there is no load balancing to fall back on: choosing one would be an arbitrary answer you could come to depend on. Scope tokens (`@Provider`/`@Step`) are unique for the same reason — and balancing them would be meaningless anyway, since an app-scope export is resolved once and cached.
 
-**Local routes win.** If you declare a route locally *and* import it from a teapot, yours takes precedence — that is how you override a teapot — and green-tea warns so a shadowed export doesn't look like a broken one:
+**Local routes win.** If you declare a route locally *and* import the same effective method/shape from a teapot, yours takes precedence — that is how you override a teapot — and green-tea warns so a shadowed export doesn't look like a broken one:
 
 ```
 [green-tea] mesh: route 'GET /api/svc/ping' is exported by teapot ws://a/… but also

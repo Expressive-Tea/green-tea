@@ -44,7 +44,9 @@ const app = createApp({
 ```
 
 `origins` accepts `string | string[] | '*' | (origin) => boolean`. A preflight `OPTIONS`
-request (with `Access-Control-Request-Method`) is auto-answered with 204.
+request (with `Access-Control-Request-Method`) is auto-answered with 204 before explicit or
+automatic OPTIONS routing. A bare OPTIONS request is instead handled by an explicit `@Options`
+route or the router's automatic `204` + `Allow` response.
 
 - With `credentials: true`, the server **never** sends `Access-Control-Allow-Origin: *` — it
   echoes the concrete allowed origin (or blocks the request).

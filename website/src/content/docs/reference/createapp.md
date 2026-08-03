@@ -28,6 +28,7 @@ const app = createApp(options);
 | `static` | `boolean \| string` | — | serve a directory as a `GET`/`HEAD` fallback (after declared routes, before `404`); `true` → `./public`, a string → that dir; path-traversal-safe; needs a filesystem — Node/Deno/Bun only ([HTML & views](/docs/guides/html/)) |
 | `mesh` | `MeshConfig` | — | distributed DI — **requires `experimental: true`** ([mesh](/docs/guides/mesh/)) |
 | `experimental` | `boolean` | `false` | opt in to alpha features (currently gates `mesh`) |
+| `warnGraphDepth` | `number \| false` | `20` | warn when one route resolves to more than this many steps; `false` disables the design warning |
 
 ### `RequestLimits`
 
@@ -63,14 +64,17 @@ const app = createApp(options);
 |---|---|---|
 | `listen(port)` | `Promise<http.Server>` | boots providers, then serves |
 | `close()` | `Promise<void>` | drains in-flight, closes streams + mesh links |
+| `ready()` | `Promise<void>` | resolves the graph and mesh links without booting providers |
+| `fetch(request)` | `Promise<Response>` | Web-Standards HTTP/SSE handler for Node, Deno, Bun, and edge |
+| `upgrade(request, socket)` | `Promise<void>` | neutral WebSocket upgrade used by non-Node adapters |
 | `inspect(route)` | `InspectLine[]` | the provider/step/handler chain for a route |
 | `explain(route)` | `Explain` | the chain annotated with each node's needs/provides |
 | `graph()` | `GraphView` | the full node + route graph |
 | `toMermaid()` / `toDOT()` | `string` | render the graph |
 | `openapi(info?)` | `OpenApiDoc` | structural OpenAPI 3.1 document ([details](/docs/guides/openapi/)) |
-| `degraded()` | `string[]` | optional providers running degraded (empty until `listen()`) |
+| `degraded()` | `string[]` | optional providers running degraded (empty until providers boot through `fetch`, `upgrade`, or `listen`) |
 | `bus` | `Bus` | lifecycle + request event bus |
 
 :::note
-On mesh apps, `graph` / `explain` / `inspect` / `degraded` are only available **after** `listen()` — the graph is finalized once remote scopes connect.
+On mesh apps, `graph` / `explain` / `inspect` / `degraded` are only available after `ready()` or the first serving call — the graph is finalized once remote scopes connect.
 :::
