@@ -1,13 +1,12 @@
 name: Stage → Verdaccio
 
-# Staging publish. Runs on GITEA ONLY (the `if` guards against GitHub), on every merge
-# to main. Publishes the package as-is — version comes from package.json (a prerelease
-# like 26.7.1-beta.N) — to the internal Verdaccio under the `stg` dist-tag. This registry
-# rejects overwriting an existing version, so the step unpublishes it first (a no-op on the
-# first publish) then publishes fresh.
+# Staging publish. Runs on GITEA ONLY (the `if` guards against GitHub) for release
+# branches. Publishes the package as-is — version comes from package.json (a prerelease
+# like 26.8.0-beta.N) — to the internal Verdaccio under the `stg` dist-tag. Published
+# versions are immutable; fixes must increment the prerelease version.
 on:
   push:
-    branches: [main]
+    branches: ['release/**']
 
 jobs:
   publish-stg:
@@ -19,13 +18,17 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci
+      - run: npm audit
       # `npm publish` runs prepublishOnly (lint + complexity + typecheck + test + build)
       # as its own gate before anything leaves the machine.
-      - name: Publish to Verdaccio (unpublish + publish)
+      - name: Publish prerelease to Verdaccio
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH }}
         run: |
           npm config set //npm.svc.zoit.services/:_authToken "$NODE_AUTH_TOKEN"
           VER=$(node -p "require('./package.json').version")
-          npm unpublish "@green-tea/core@$VER" --registry https://npm.svc.zoit.services --force 2>/dev/null || true
+          case "$VER" in
+            *-*) ;;
+            *) echo "Refusing to stage non-prerelease version: $VER" >&2; exit 1 ;;
+          esac
           npm publish --registry https://npm.svc.zoit.services --tag stg
