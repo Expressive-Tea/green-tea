@@ -6,7 +6,7 @@
 import 'reflect-metadata';
 
 /** Package version, replaced at publish time. */
-export const VERSION = '26.7.0-beta.0';
+export const VERSION = '26.8.0-beta.0';
 
 // Application
 export { createApp } from './app';
