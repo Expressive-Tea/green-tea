@@ -1,9 +1,9 @@
 name: Stage → Verdaccio
 
 # Staging publish. Runs on GITEA ONLY (the `if` guards against GitHub) for release
-# branches. Publishes the package as-is — version comes from package.json (a prerelease
-# like 26.8.0-beta.N) — to the internal Verdaccio under the `stg` dist-tag. Published
-# versions are immutable; fixes must increment the prerelease version.
+# branches. Publishes prereleases to the internal Verdaccio under the `stg` dist-tag.
+# Staging versions are intentionally mutable: an existing prerelease is removed before
+# publishing the updated release candidate under the same version.
 on:
   push:
     branches: ['release/**']
@@ -19,8 +19,8 @@ jobs:
           node-version: '22'
       - run: npm ci
       - run: npm audit
-      # `npm publish` runs prepublishOnly (lint + complexity + typecheck + test + build)
-      # as its own gate before anything leaves the machine.
+      - name: Validate release candidate
+        run: npm run prepublishOnly
       - name: Publish prerelease to Verdaccio
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH }}
@@ -31,4 +31,5 @@ jobs:
             *-*) ;;
             *) echo "Refusing to stage non-prerelease version: $VER" >&2; exit 1 ;;
           esac
-          npm publish --registry https://npm.svc.zoit.services --tag stg
+          npm unpublish "@green-tea/core@$VER" --registry https://npm.svc.zoit.services --force 2>/dev/null || true
+          npm publish --ignore-scripts --registry https://npm.svc.zoit.services --tag stg
