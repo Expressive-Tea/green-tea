@@ -53,6 +53,8 @@ npm treats versions as semver and semver forbids leading zeros.
   pings — the platform `WebSocket` on Deno/Bun does not expose `ws.ping()`.
 
 ### Fixed
+- The Deno WebSocket adapter snapshots request and connection metadata before accepting an upgrade;
+  Deno 2.9 invalidates that metadata once upgraded, which previously broke WebSocket and mesh boots.
 - Repeated slashes and malformed path encoding now return `400` consistently across Node and Fetch
   adapters, retaining configured security/CORS headers. `/path` and `/path/` remain equivalent.
 - Ambiguous same-method route shapes now fail at boot with both declarations named. Effective-shape
