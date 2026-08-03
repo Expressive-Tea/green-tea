@@ -8,7 +8,18 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ## [Unreleased]
 
+## [26.8.0-beta.0] - 2026-08-02
+
 ### Added
+- **Safe constrained route parameters:** patterns such as `:id(\d+)` match a complete decoded
+  segment. The parser accepts a deliberately small, bounded regex subset and rejects unsafe or
+  malformed expressions at boot. Specificity is now static ▸ constrained param ▸ plain param ▸
+  catch-all; matching remains a linear scan.
+- **`@Head` and `@Options` route decorators**, explicit-handler priority, buffered-GET HEAD fallback,
+  and automatic `204` OPTIONS responses with deterministic `Allow` ordering. GET implies HEAD and
+  every existing path implies OPTIONS; streaming GET routes do not become implicit HEAD routes.
+- **OpenAPI route constraints and methods:** constrained path params emit `schema.pattern`, and
+  explicitly declared HEAD/OPTIONS handlers appear as operations without inventing automatic ones.
 - **HTML / views:** `@Html` decorator (string, file, and template modes), a zero-dep built-in
   template engine (`{{ }}` escaped / `{{{ }}}` raw, exported as `render`) with a `viewEngine`
   bring-your-own hook, and zero-config `static` directory serving (`createApp({ static: true })`).
@@ -42,6 +53,14 @@ npm treats versions as semver and semver forbids leading zeros.
   pings — the platform `WebSocket` on Deno/Bun does not expose `ws.ping()`.
 
 ### Fixed
+- The Deno WebSocket adapter snapshots request and connection metadata before accepting an upgrade;
+  Deno 2.9 invalidates that metadata once upgraded, which previously broke WebSocket and mesh boots.
+- Repeated slashes and malformed path encoding now return `400` consistently across Node and Fetch
+  adapters, retaining configured security/CORS headers. `/path` and `/path/` remain equivalent.
+- Ambiguous same-method route shapes now fail at boot with both declarations named. Effective-shape
+  checks also cover remote mesh conflicts and local routes that shadow a remote export.
+- HEAD responses always suppress the body while preserving handler status and headers; Fetch
+  responses also avoid constructing forbidden bodies for `204`, `205`, and `304` statuses.
 - The opt-in dev routes `/__graph__` (graph viewer) and `/__openapi__` are now
   served over `app.fetch` too, so they work on every runtime (Deno/Bun/edge),
   not only the Node `app.listen()` path.
@@ -55,9 +74,9 @@ npm treats versions as semver and semver forbids leading zeros.
 - **`request:step:enter`/`leave` are now emitted for `@Ws` and mesh routes.** Only HTTP routes
   emitted them, so a logging plugin silently observed nothing on a WebSocket route — a gap in a
   documented plugin API. All transports now run their steps through one path.
-- **A mesh route exported by two teapots now fails the boot**, naming the route and both teapots,
-  instead of silently serving whichever connected first and leaving the other dead. There is no
-  load balancing to fall back on, so green-tea will not pick for you.
+- **A mesh route exported by two teapots now fails the boot**, naming both effective patterns and
+  both teapots, instead of silently serving whichever connected first and leaving the other dead.
+  There is no load balancing to fall back on, so green-tea will not pick for you.
 - **A local route shadowing a remote one now warns.** Local still takes precedence — that is how you
   override a teapot — but a silently shadowed export used to look like a broken teapot.
 - **`app.close()` closes mesh links even with no server**, so a mesh app booted through `app.fetch`
@@ -69,6 +88,9 @@ npm treats versions as semver and semver forbids leading zeros.
   `request:step:leave`.
 
 ### Changed
+- Root, runtime-only, and website dependency audits are clean after supported package updates and
+  narrow pins for vulnerable transitives. CI audits root + website trees and builds the docs; the
+  GitHub OIDC release workflow audits immediately before its publish gate.
 - App-scope providers now boot exactly once (memoized): a second `app.listen()`
   call no longer re-runs provider factories or their side effects.
 - **`WsOpenCtx.req`** (available in `@Ws`/`@Sse` handlers) is now a neutral
@@ -78,10 +100,11 @@ npm treats versions as semver and semver forbids leading zeros.
   `ctx.req`; use `ctx.protocol` / `ctx.ip` / `ctx.query` / `ctx.headers`
   instead — all still provided.
 - **Breaking (pre-1.0): transport is now enforced by declaration.** A buffered route
-  (`@Get`/`@Post`/`@Put`/`@Patch`/`@Delete`) whose handler returns an `AsyncIterable`, or a streaming
-  route (`@Sse`/`@Ws`) whose handler returns a plain value, now fails with a 500 `TransportMismatchError`
-  instead of silently switching behavior. `@Stream` still negotiates both. Declare `@Sse`/`@Stream`/`@Ws`
-  to stream — a return value no longer changes a route's wire contract.
+  (`@Get`/`@Head`/`@Post`/`@Put`/`@Patch`/`@Delete`/`@Options`) whose handler returns an
+  `AsyncIterable`, or a streaming route (`@Sse`/`@Ws`) whose handler returns a plain value, now
+  fails with a 500 `TransportMismatchError` instead of silently switching behavior. `@Stream`
+  still negotiates both. Declare `@Sse`/`@Stream`/`@Ws` to stream — a return value no longer
+  changes a route's wire contract.
 
 ## [26.7.0-beta.0] - 2026-07-07
 
@@ -130,5 +153,6 @@ change before the stable release.
 - **Benchmarks** — reproducible `npm run bench` harness vs Express 5, Fastify 5,
   NestJS, and raw `http`; results in [BENCHMARKS.md](./BENCHMARKS.md).
 
-[Unreleased]: https://git.svc.zoit.services/Green-Tea/core/compare/26.7.0-beta.0...develop
-[26.7.0-beta.0]: https://git.svc.zoit.services/Green-Tea/core/releases/tag/26.7.0-beta.0
+[Unreleased]: https://git.svc.zoit.services/Green-Tea/core/compare/v26.8.0-beta.0...develop
+[26.8.0-beta.0]: https://git.svc.zoit.services/Green-Tea/core/compare/v26.7.0-beta.0...v26.8.0-beta.0
+[26.7.0-beta.0]: https://git.svc.zoit.services/Green-Tea/core/releases/tag/v26.7.0-beta.0

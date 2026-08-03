@@ -25,7 +25,7 @@ export interface StepMeta {
   export: boolean;
 }
 /** HTTP verbs supported by the route decorators. */
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+export type HttpMethod = 'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS';
 /** Wire transport a route responds with. */
 export type Transport = 'buffer' | 'sse' | 'ndjson' | 'negotiate' | 'ws';
 /** Metadata attached by a route decorator to a single handler method. */
@@ -124,6 +124,8 @@ function routeDecorator(method: HttpMethod, transport: Transport) {
 
 /** Declares a buffered `GET` route. */
 export const Get = routeDecorator('GET', 'buffer');
+/** Declares a buffered `HEAD` route. */
+export const Head = routeDecorator('HEAD', 'buffer');
 /** Declares a buffered `POST` route. */
 export const Post = routeDecorator('POST', 'buffer');
 /** Declares a buffered `PUT` route. */
@@ -132,6 +134,8 @@ export const Put = routeDecorator('PUT', 'buffer');
 export const Patch = routeDecorator('PATCH', 'buffer');
 /** Declares a buffered `DELETE` route. */
 export const Delete = routeDecorator('DELETE', 'buffer');
+/** Declares a buffered `OPTIONS` route. */
+export const Options = routeDecorator('OPTIONS', 'buffer');
 /** Declares a `GET` route streamed as Server-Sent Events. */
 export const Sse = routeDecorator('GET', 'sse');
 /** Declares a `GET` route whose transport is content-negotiated at request time. */

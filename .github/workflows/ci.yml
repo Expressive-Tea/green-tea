@@ -13,9 +13,16 @@ jobs:
         with:
           node-version: '18'
       - run: npm ci
+      - run: npm audit
       - run: npm run lint
       - run: npm run format:check
       - run: npm run complexity:check
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.12'
+      - run: npm ci --prefix website
+      - run: npm audit --prefix website
+      - run: npm run docs:build

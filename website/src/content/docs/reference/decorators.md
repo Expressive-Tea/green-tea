@@ -64,7 +64,7 @@ Method decorators on a controller. All accept `(path, opts?)` where `opts = { ex
 
 | Decorator | Method | Transport |
 |---|---|---|
-| `@Get` `@Post` `@Put` `@Patch` `@Delete` | as named | buffered response |
+| `@Get` `@Head` `@Post` `@Put` `@Patch` `@Delete` `@Options` | as named | buffered response |
 | `@Sse` | GET | `text/event-stream` |
 | `@Ws` | GET | WebSocket duplex |
 | `@Stream` | GET | negotiated (SSE / ndjson / WS) |
@@ -76,6 +76,8 @@ Method decorators on a controller. All accept `(path, opts?)` where `opts = { ex
 ```
 
 See [Routing](/docs/guides/routing/) for pattern matching and [Streaming](/docs/guides/streaming/) for the transports.
+
+`@Head` and `@Options` declare explicit handlers. When they are absent, the router can provide an implicit buffered-GET HEAD response or an automatic `204` OPTIONS response; those fallbacks are runtime behavior, not decorator metadata.
 
 ## Arguments
 

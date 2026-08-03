@@ -35,10 +35,12 @@ declare const Deno: {
 export function serveDeno(app: App, options?: DenoServeOptions): DenoHttpServer {
   return Deno.serve(options ?? {}, (request, info) => {
     if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+      // Deno invalidates request connection metadata as soon as the upgrade is accepted.
+      const wsRequest = toWsRequest(request, info.remoteAddr.hostname);
       const { socket, response } = Deno.upgradeWebSocket(request);
       socket.binaryType = 'arraybuffer'; // deliver binary frames as ArrayBuffer, which decodeMessage expects
       // fire-and-forget: the 101 response must be returned synchronously while the graph runs
-      void upgradeSafely(app, toWsRequest(request, info.remoteAddr.hostname), eventSocket(socket));
+      void upgradeSafely(app, wsRequest, eventSocket(socket));
       return response;
     }
 

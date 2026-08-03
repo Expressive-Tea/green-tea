@@ -109,7 +109,7 @@ A route streams **because** it's declared `@Sse`, `@Stream`, or `@Ws` — never 
 
 | Declare | Handler must return | Otherwise |
 |---|---|---|
-| `@Get` / `@Post` / `@Put` / `@Patch` / `@Delete` (buffered) | a value | returning an `AsyncIterable` fails with a 500 `TransportMismatchError` |
+| `@Get` / `@Head` / `@Post` / `@Put` / `@Patch` / `@Delete` / `@Options` (buffered) | a value | returning an `AsyncIterable` fails with a 500 `TransportMismatchError` |
 | `@Sse` / `@Ws` (streaming) | an `AsyncIterable` | returning a plain value fails with a 500 `TransportMismatchError` |
 | `@Stream` (negotiate) | either | the client picks via `Accept` / `Upgrade` — no mismatch |
 

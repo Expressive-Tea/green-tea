@@ -3,7 +3,7 @@ import { HttpError, NotFound } from '../signals';
 import { renderError } from '../transformers';
 import { isStreamResult, type PipelineResult } from '../pipeline';
 import { buildSecurityHeaders, resolveCors, corsPreflightHeaders } from '../security';
-import { matchRoute, allowedMethods, parseQuery } from './router';
+import { resolveRoute, allowedMethods, normalizeRequestPath, parseQuery } from './router';
 import { pickEncoder } from './stream';
 import type { RouteDef, HttpOptions } from './types';
 import type { StreamEncoder } from '../encoders';
@@ -49,6 +49,61 @@ export function computeInjected(
   return injected;
 }
 
+function errorOutcome(
+  error: unknown,
+  req: NeutralRequest,
+  injected: Record<string, string>,
+  opts: HttpOptions | undefined,
+  headers: Record<string, string> = {},
+): HandleResult {
+  const rendered = renderError(error, { method: req.method, url: req.url, headers: req.headers }, opts?.onError);
+  return {
+    injected,
+    outcome: {
+      kind: 'buffered',
+      status: rendered.status,
+      headers: { ...rendered.headers, ...headers },
+      body: req.method === 'HEAD' ? '' : rendered.body,
+    },
+  };
+}
+
+async function unmatchedOutcome(
+  routes: RouteDef[],
+  opts: HttpOptions | undefined,
+  req: NeutralRequest,
+  path: string,
+  injected: Record<string, string>,
+): Promise<HandleResult> {
+  if ((req.method === 'GET' || req.method === 'HEAD') && opts?.static) {
+    const hit = await opts.static(path);
+
+    if (hit) {
+      return {
+        injected,
+        outcome: {
+          kind: 'buffered',
+          status: 200,
+          headers: { 'content-type': hit.contentType },
+          body: req.method === 'HEAD' ? '' : hit.body,
+        },
+      };
+    }
+  }
+
+  const allow = allowedMethods(routes, path);
+
+  if (req.method === 'OPTIONS' && allow.length) {
+    return {
+      injected,
+      outcome: { kind: 'buffered', status: 204, headers: { allow: allow.join(', ') }, body: '' },
+    };
+  }
+
+  const error = allow.length ? new HttpError(405, 'Method Not Allowed') : new NotFound('Not Found');
+  return errorOutcome(error, req, injected, opts, allow.length ? { allow: allow.join(', ') } : {});
+}
+
 /**
  * Runtime-neutral request handler: security/CORS headers, preflight short-circuit, route match / 404 / 405,
  * route-handler invocation with error rendering, and the buffered-vs-stream decision. Does no I/O — the
@@ -59,35 +114,22 @@ export async function handle(
   opts: HttpOptions | undefined,
   req: NeutralRequest,
 ): Promise<HandleResult | Preflight> {
-  const path = req.url.split('?')[0];
   const injected = computeInjected(opts, req);
+  let path: string;
+
+  try {
+    path = normalizeRequestPath(req.url.split('?')[0]);
+  } catch {
+    return errorOutcome(new HttpError(400, 'Bad Request'), req, injected, opts);
+  }
 
   if (opts?.cors && req.method === 'OPTIONS' && req.headers['access-control-request-method']) {
     return { preflight: corsPreflightHeaders(opts.cors, req) };
   }
 
-  const matched = matchRoute(routes, req.method, path);
+  const matched = resolveRoute(routes, req.method, path);
 
-  if (!matched) {
-    if ((req.method === 'GET' || req.method === 'HEAD') && opts?.static) {
-      const hit = await opts.static(path);
-
-      if (hit) {
-        const body = req.method === 'HEAD' ? '' : hit.body;
-        return {
-          injected,
-          outcome: { kind: 'buffered', status: 200, headers: { 'content-type': hit.contentType }, body },
-        };
-      }
-    }
-
-    // Path matches a route under a different method → 405 with Allow; otherwise 404.
-    const allow = allowedMethods(routes, path);
-    const err = allow.length ? new HttpError(405, 'Method Not Allowed') : new NotFound('Not Found');
-    const rendered = renderError(err, { method: req.method, url: req.url, headers: req.headers }, opts?.onError);
-    const headers = allow.length ? { ...rendered.headers, allow: allow.join(', ') } : rendered.headers;
-    return { injected, outcome: { kind: 'buffered', status: rendered.status, headers, body: rendered.body } };
-  }
+  if (!matched) return unmatchedOutcome(routes, opts, req, path, injected);
 
   let result: PipelineResult;
 
@@ -111,5 +153,13 @@ export async function handle(
     return { injected, outcome: { kind: 'stream', headers: encoder.headers, stream: result.stream, encoder } };
   }
 
-  return { injected, outcome: { kind: 'buffered', status: result.status, headers: result.headers, body: result.body } };
+  return {
+    injected,
+    outcome: {
+      kind: 'buffered',
+      status: result.status,
+      headers: result.headers,
+      body: req.method === 'HEAD' ? '' : result.body,
+    },
+  };
 }

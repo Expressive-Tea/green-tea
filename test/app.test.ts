@@ -583,3 +583,39 @@ test('per-route maxBodyBytes overrides the server default', async () => {
 
   server.close();
 });
+
+describe('route table validation', () => {
+  it('rejects routes with the same method and effective pattern', () => {
+    @Route('/users')
+    class DuplicateCtl {
+      @Get('/:id') byId() {
+        return {};
+      }
+      @Get('/:name') byName() {
+        return {};
+      }
+    }
+    @Module({ mountpoint: '/api', controllers: [DuplicateCtl] })
+    class DuplicateModule {}
+
+    expect(() => createApp({ modules: [DuplicateModule] })).toThrow(
+      /ambiguous route GET.*\/api\/users\/:name.*DuplicateCtl\.byName.*DuplicateCtl\.byId/,
+    );
+  });
+
+  it('allows the same effective pattern under different methods', () => {
+    @Route('/users')
+    class MethodsCtl {
+      @Get('/:id') get() {
+        return {};
+      }
+      @Post('/:name') post() {
+        return {};
+      }
+    }
+    @Module({ mountpoint: '/api', controllers: [MethodsCtl] })
+    class MethodsModule {}
+
+    expect(() => createApp({ modules: [MethodsModule] })).not.toThrow();
+  });
+});
