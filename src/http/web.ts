@@ -2,7 +2,7 @@ import type { StreamEncoder } from '../encoders';
 import { handle, computeInjected, type HandleResult } from './core';
 import { mergeInjectedHeaders } from './headers';
 import { parseRequestBody } from './server';
-import { matchRoute } from './router';
+import { normalizeRequestPath, resolveRoute } from './router';
 import { HttpError } from '../signals';
 import { renderError, type ErrorRequest, type ErrorResponse } from '../transformers';
 import type { RouteDef, HttpOptions, MatchedRoute } from './types';
@@ -108,7 +108,8 @@ function outcomeToResponse(result: HandleResult): Response {
     return new Response(asReadableStream(result.outcome.stream, result.outcome.encoder), { headers });
   }
 
-  return new Response(result.outcome.body, { status: result.outcome.status, headers });
+  const body = [204, 205, 304].includes(result.outcome.status) ? null : result.outcome.body;
+  return new Response(body, { status: result.outcome.status, headers });
 }
 
 /**
@@ -123,7 +124,14 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
     const url = new URL(request.url);
     const path = url.pathname + url.search;
     const headers = headersToRecord(request.headers);
-    const matched = matchRoute(routes, request.method, url.pathname);
+    let matched: ReturnType<typeof resolveRoute>;
+
+    try {
+      matched = resolveRoute(routes, request.method, normalizeRequestPath(url.pathname));
+    } catch {
+      matched = undefined; // handle() renders the shared 400 response without reading a body
+    }
+
     const secure = url.protocol === 'https:';
     // Computed up-front from the same inputs `handle()` uses, so early-failure responses (413/400/501,
     // before a route handler even runs) carry the same security/CORS headers Node's writeHead patch

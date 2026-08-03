@@ -193,17 +193,20 @@ The handler signature declares exactly what it wants — in any order, nothing m
 
 `@needs` keys are validated at boot: nothing provides the key → `createApp` throws with a clear error instead of serving `undefined`. Pass a Standard Schema (`@body(User)`) and the value is validated, coerced, and typed before your handler sees it.
 
-> **Optional providers degrade, they don't crash.** A provider marked `optional: true` that throws on boot does **not** abort startup — it is left unregistered and logged. On `listen()` the app prints a one-line summary of what's running degraded, and the list is queryable via `app.degraded()`. Routes that actually need a degraded provider fail at request time, not at boot. This is deliberate (graceful degradation); wire an alert off `app.degraded()` or the `boot:provider:fail` bus event in production so a degraded start is never silent.
+> **Optional providers degrade, they don't crash.** A provider marked `optional: true` that throws on boot does **not** abort startup — it is left unregistered and logged. The first serving call (`fetch`, `upgrade`, or `listen`) prints a one-line summary of what's running degraded, and the list is queryable via `app.degraded()`. Routes that actually need a degraded provider fail at request time, not at boot. This is deliberate (graceful degradation); wire an alert off `app.degraded()` or the `boot:provider:fail` bus event in production so a degraded start is never silent.
 
 ## Routing
 
-Patterns match by segment: static, `:param` (one segment), and a trailing `:name*` **catch-all** that captures the rest of the path — slashes included — into `params.name`. When more than one route matches, the **most specific wins** (static ▸ `:param` ▸ catch-all), independent of registration order. A path that exists under a *different* method returns **`405` with an `Allow` header**, not `404`.
+Patterns match by segment: static, constrained params such as `:id(\d+)`, plain `:param`, and a trailing `:name*` **catch-all**. The most specific wins (static ▸ constrained ▸ plain param ▸ catch-all), and ambiguous same-method shapes fail at boot instead of depending on registration order.
 
 ```typescript
+@Get('/users/:id(\\d+)') // /users/42
 @Get('/files/:path*')   //  /files/img/2026/logo.png  →  params.path = "img/2026/logo.png"
 ```
 
-**Not yet** (post-beta, on the roadmap): regex / typed param constraints like `:id(\d+)`, and route matching is a linear scan — fine for typical route tables, but a radix-tree matcher for very large ones isn't built.
+`@Head` and `@Options` provide explicit handlers. Otherwise a buffered GET can serve HEAD without a body, and OPTIONS on an existing path returns `204` with canonical `Allow`; other method mismatches return `405`. `/path` and `/path/` are equivalent, while repeated slashes and malformed encoding return `400` rather than being normalized ambiguously. Constraints use a deliberately safe regex subset. See the full [routing guide](https://green-tea.expressive-tea.io/docs/guides/routing/).
+
+Matching is still a linear scan — fine for typical route tables. A radix tree for very large tables remains post-beta work.
 
 ## Two layers
 
@@ -251,13 +254,14 @@ npm run docs:dev   # the documentation site (website/)
 - ✅ **mesh (walking skeleton)** — `teapot`/`teacup` distributed DI over a secret-gated WS control channel. A BEAM/OTP-style cluster, *not* microservices.
 - ✅ **runs everywhere** — Node, Deno, Bun, and Cloudflare Workers over web-standard `Request`/`Response`, with identical WebSocket behaviour on all four.
 - ✅ **HTML** — `@Html` (string / file / template), a built-in template engine with a bring-your-own `viewEngine` hook, and `static` serving.
-- **next** — API freeze + first published release, mesh sub-specs (discovery, load-balancing, failover), official plugins, router regex constraints and a radix-tree matcher.
+- ✅ **router completeness for beta** — safe constrained params, deterministic precedence, explicit/automatic HEAD and OPTIONS, strict path validation, and ambiguity checks across local and mesh routes.
+- **next** — API freeze + first published release, mesh sub-specs (discovery, load-balancing, failover), official plugins, and a radix-tree matcher for very large route tables.
 
 ## Versioning
 
-green-tea uses **calendar versioning**: `YY.M.PATCH` (e.g. `26.7.0` = the first release cut in July 2026, patch 0). The month is **not** zero-padded — npm treats versions as semver, which forbids leading zeros. A version tells you *when* it shipped, not how many breaking changes preceded it — those are always called out in the [CHANGELOG](./CHANGELOG.md).
+green-tea uses **calendar versioning**: `YY.M.PATCH` (e.g. `26.8.0` = the first release cut in August 2026, patch 0). The month is **not** zero-padded — npm treats versions as semver, which forbids leading zeros. A version tells you *when* it shipped, not how many breaking changes preceded it — those are always called out in the [CHANGELOG](./CHANGELOG.md).
 
-**While in beta**, releases carry a `-beta.N` pre-release suffix on the calendar version (e.g. `26.7.0-beta.0`) and publish under the npm `beta` dist-tag — so a plain `npm install @green-tea/core` won't pick one up until the first stable calendar release. The API can still change between betas.
+**While in beta**, releases carry a `-beta.N` pre-release suffix on the calendar version (e.g. `26.8.0-beta.0`) and publish under the npm `beta` dist-tag — so a plain `npm install @green-tea/core` won't pick one up until the first stable calendar release. The API can still change between betas.
 
 ## License
 

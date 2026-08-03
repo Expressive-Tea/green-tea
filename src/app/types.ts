@@ -70,6 +70,7 @@ export interface RoutePlan {
   method: HttpMethod;
   transport: Transport;
   origin: string;
+  declaration: string;
   providers: GraphNode[];
   steps: GraphNode[];
   handlerName: string;

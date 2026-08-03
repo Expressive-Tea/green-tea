@@ -35,6 +35,26 @@ class DupCtl {
 @Module({ mountpoint: '/api', controllers: [DupCtl] })
 class DupTeapotModule {}
 
+@Route('/shape')
+class ParamIdCtl {
+  @Get('/:id', { export: true })
+  get() {
+    return { from: 'id' };
+  }
+}
+@Module({ mountpoint: '/api', controllers: [ParamIdCtl] })
+class ParamIdTeapotModule {}
+
+@Route('/shape')
+class ParamNameCtl {
+  @Get('/:name', { export: true })
+  get() {
+    return { from: 'name' };
+  }
+}
+@Module({ mountpoint: '/api', controllers: [ParamNameCtl] })
+class ParamNameTeapotModule {}
+
 @Route('/c')
 class PlainCtl {
   @Get('/ok')
@@ -110,6 +130,27 @@ describe('mesh skeleton integration', () => {
 
     aServer.close();
     bServer.close();
+  });
+
+  it('refuses ambiguous remote routes that differ only by parameter name', async () => {
+    const a = createApp({ modules: [ParamIdTeapotModule], experimental: true, mesh: { secret: SECRET } });
+    const b = createApp({ modules: [ParamNameTeapotModule], experimental: true, mesh: { secret: SECRET } });
+    const aServer = await a.listen(0);
+    const bServer = await b.listen(0);
+    const url = (s: any) => `ws://127.0.0.1:${(s.address() as any).port}/__mesh__/control`;
+    const teacup = createApp({
+      modules: [PlainTeacupModule],
+      experimental: true,
+      mesh: { teapots: [{ url: url(aServer), secret: SECRET }, { url: url(bServer), secret: SECRET }] },
+    });
+
+    try {
+      await expect(teacup.ready()).rejects.toThrow(/ambiguous remote route.*GET \/api\/shape\/:name/i);
+    } finally {
+      await teacup.close();
+      aServer.close();
+      bServer.close();
+    }
   });
 
   it('accepts the same route from a single teapot (regression: no false positive)', async () => {

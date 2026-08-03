@@ -67,7 +67,7 @@ Same filesystem requirement as file mode: Node/Deno/Bun only.
 `string`; `@Html('file.html', { template: true })` returns the data object rendered into the
 template; `@Html('file.html')` (no template) ignores the return entirely — annotate it `: void`
 by convention, e.g. `page(@needs('x')): void {}`. Returning an `AsyncIterable` from any `@Html`
-handler is the same buffered-route mismatch as any other `@Get`/`@Post`/`@Put`/`@Patch`/`@Delete`
+handler is the same buffered-route mismatch as any other `@Get`/`@Head`/`@Post`/`@Put`/`@Patch`/`@Delete`/`@Options`
 handler: a 500 `TransportMismatchError`, not a silent raw stream.
 :::
 
@@ -145,7 +145,7 @@ Like the file/template modes of `@Html`, `static` needs a filesystem: it's Node/
 @Html
 ticks() { /* ... */ }
 // throws at createApp(): "@Html on GET /ticks is not allowed —
-// @Html only supports buffered GET/POST routes (not SSE/WS/PUT/PATCH/DELETE)"
+// @Html only supports buffered GET/POST routes (not SSE/WS/HEAD/PUT/PATCH/DELETE/OPTIONS)"
 ```
 
 `@Html` and `@Transformer` also can't be combined on the same handler — pick one:

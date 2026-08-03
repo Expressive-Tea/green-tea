@@ -62,7 +62,7 @@ export class TransportMismatchError extends HttpError {
     const expected = got === 'stream' ? 'return a value' : 'return an AsyncIterable';
     const fix =
       got === 'stream'
-        ? 'buffered routes (@Get/@Post/@Put/@Patch/@Delete) must return a value — to stream, declare @Sse, @Stream, or @Ws'
+        ? 'buffered routes (@Get/@Head/@Post/@Put/@Patch/@Delete/@Options) must return a value — to stream, declare @Sse, @Stream, or @Ws'
         : 'streaming routes (@Sse/@Ws) must return an AsyncIterable (e.g. an async generator or channel())';
     super(500, `Transport '${transport}'${where} must ${expected}, but the handler returned a ${got}. ${fix}.`);
   }
