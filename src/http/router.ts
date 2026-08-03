@@ -19,6 +19,14 @@ const compiledCache = new Map<string, CompiledPattern>();
 const PARAM_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const MAX_CONSTRAINT_LENGTH = 128;
 
+/** Request-path syntax error. Adapters translate this to the standard 400 response envelope. */
+export class InvalidRequestPathError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidRequestPathError';
+  }
+}
+
 interface ConstraintToken {
   length: number;
   unbounded: boolean;
@@ -153,6 +161,21 @@ export function compilePattern(pattern: string): CompiledPattern {
   };
   compiledCache.set(pattern, compiled);
   return compiled;
+}
+
+/** Applies the public trailing-slash policy and validates every segment's percent encoding. */
+export function normalizeRequestPath(path: string): string {
+  if (!path.startsWith('/')) throw new InvalidRequestPathError('invalid request path: path must start with slash');
+  if (path.includes('//')) throw new InvalidRequestPathError('invalid request path: repeated slash');
+  const normalized = path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
+
+  try {
+    for (const segment of normalized.split('/').slice(1)) decodeURIComponent(segment);
+  } catch {
+    throw new InvalidRequestPathError('invalid request path: malformed path encoding');
+  }
+
+  return normalized;
 }
 
 function decodeSegment(value: string): string {

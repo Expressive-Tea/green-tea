@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compilePattern, matchPattern, matchRoute, allowedMethods } from '../src/http/router';
+import { compilePattern, matchPattern, matchRoute, allowedMethods, normalizeRequestPath } from '../src/http/router';
 import type { RouteDef } from '../src/http/types';
 
 const route = (method: string, pattern: string): RouteDef => ({
@@ -50,6 +50,19 @@ describe('compilePattern', () => {
     '/users/:id(a|b)',
   ])('rejects invalid or unsafe pattern %s', (pattern) => {
     expect(() => compilePattern(pattern)).toThrow(/invalid route pattern|unsafe route constraint/);
+  });
+});
+
+describe('normalizeRequestPath', () => {
+  it('treats one trailing slash as equivalent and preserves root', () => {
+    expect(normalizeRequestPath('/users')).toBe('/users');
+    expect(normalizeRequestPath('/users/')).toBe('/users');
+    expect(normalizeRequestPath('/')).toBe('/');
+  });
+
+  it('rejects repeated slashes and malformed percent encoding', () => {
+    expect(() => normalizeRequestPath('/users//42')).toThrow(/repeated slash/);
+    expect(() => normalizeRequestPath('/users/%E0%A4%A')).toThrow(/malformed path encoding/);
   });
 });
 
