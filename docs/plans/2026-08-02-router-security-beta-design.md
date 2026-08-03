@@ -1,7 +1,7 @@
 # Router correctness and security beta design
 
-**Date:** 2026-08-02  
-**Target:** `26.8.0-beta.0`  
+**Date:** 2026-08-02
+**Target:** `26.8.0-beta.0`
 **Status:** Approved
 
 ## Goal
