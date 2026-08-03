@@ -1,5 +1,6 @@
 import type { ArgSpec } from './params';
 import type { Transport } from './metadata';
+import { compilePattern } from './http/router';
 
 /** Minimal per-route input the OpenAPI projection needs, derived from a route plan. */
 export interface OpenApiRoute {
@@ -23,23 +24,37 @@ export interface OpenApiDoc {
   paths: Record<string, Record<string, unknown>>;
 }
 
-type Parameter = { name: string; in: 'path' | 'query' | 'header'; required: boolean; schema: { type: 'string' } };
+type Parameter = {
+  name: string;
+  in: 'path' | 'query' | 'header';
+  required: boolean;
+  schema: { type: 'string'; pattern?: string };
+};
 
 /** Converts a route pattern to an OpenAPI path template: `/users/:id` → `/users/{id}`, `:rest*` → `{rest}`. */
 function templatePath(pattern: string): string {
-  const segments = pattern
-    .split('/')
-    .filter(Boolean)
-    .map((seg) => (seg.startsWith(':') ? `{${seg.slice(1).replace(/\*$/, '')}}` : seg));
+  const segments = compilePattern(pattern).segments.map((segment) =>
+    segment.kind === 'static' ? segment.value : `{${segment.name}}`,
+  );
   return `/${segments.join('/')}`;
 }
 
 /** Every `:name` (and `:name*`) segment of a pattern becomes a required path parameter. */
 function pathParams(pattern: string): Parameter[] {
-  return pattern
-    .split('/')
-    .filter((seg) => seg.startsWith(':'))
-    .map((seg) => ({ name: seg.slice(1).replace(/\*$/, ''), in: 'path', required: true, schema: { type: 'string' } }));
+  return compilePattern(pattern).segments.flatMap((segment): Parameter[] => {
+    if (segment.kind === 'static') return [];
+    return [
+      {
+        name: segment.name,
+        in: 'path',
+        required: true,
+        schema: {
+          type: 'string',
+          ...(segment.kind === 'param' && segment.constraintSource ? { pattern: segment.constraintSource } : {}),
+        },
+      },
+    ];
+  });
 }
 
 /** Query and header parameters declared by the handler's `@query` / `@headers` / `@header` argument decorators. */

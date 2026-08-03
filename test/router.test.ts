@@ -17,6 +17,11 @@ const route = (method: string, pattern: string): RouteDef => ({
 });
 
 describe('matchPattern', () => {
+  it('matches the root pattern only at root', () => {
+    expect(matchPattern('/', '/')).toEqual({});
+    expect(matchPattern('/', '/users')).toBeUndefined();
+  });
+
   it('matches static and :param segments, decoding params', () => {
     expect(matchPattern('/users/:id', '/users/a%20b')).toEqual({ id: 'a b' });
     expect(matchPattern('/users/:id', '/users')).toBeUndefined();

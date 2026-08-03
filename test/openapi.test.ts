@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { createApp } from '../src/app';
-import { Route, Get, Post, Ws, Module } from '../src/metadata';
+import { Route, Get, Head, Options, Post, Ws, Module } from '../src/metadata';
 import { param, query, headers, body } from '../src/params';
 
 const numSchema = {
@@ -14,7 +14,13 @@ const numSchema = {
 
 @Route('/users')
 class Users {
-  @Get('/:id') get(@param('id') _id: string, @query('expand') _e: string, @headers('x-trace') _t: string) {
+  @Get('/:id(\\d+)') get(@param('id') _id: string, @query('expand') _e: string, @headers('x-trace') _t: string) {
+    return {};
+  }
+  @Head('/:id(\\d+)') head() {
+    return {};
+  }
+  @Options('/:id(\\d+)') options() {
     return {};
   }
   @Post('/') create(@body() _b: unknown) {
@@ -50,6 +56,23 @@ describe('app.openapi()', () => {
     const op = doc.paths['/api/users/{id}'].get as any;
     const byName = Object.fromEntries(op.parameters.map((p: any) => [p.name, p.in]));
     expect(byName).toEqual({ id: 'path', expand: 'query', 'x-trace': 'header' });
+  });
+
+  it('projects a constrained param into schema.pattern', () => {
+    const op = doc.paths['/api/users/{id}'].get as any;
+    expect(op.parameters).toContainEqual({
+      name: 'id',
+      in: 'path',
+      required: true,
+      schema: { type: 'string', pattern: '\\d+' },
+    });
+  });
+
+  it('includes explicit HEAD and OPTIONS without inventing automatic operations', () => {
+    expect(doc.paths['/api/users/{id}'].head).toBeDefined();
+    expect(doc.paths['/api/users/{id}'].options).toBeDefined();
+    expect(doc.paths['/api/users/search'].head).toBeUndefined();
+    expect(doc.paths['/api/users/search'].options).toBeUndefined();
   });
 
   it('marks routes that take a body with requestBody', () => {

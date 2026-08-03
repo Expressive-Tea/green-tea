@@ -1,6 +1,6 @@
 import type { RouteDef, MatchedRoute } from './types';
 
-type CompiledSegment =
+export type CompiledSegment =
   | { kind: 'static'; value: string }
   | { kind: 'param'; name: string; constraint?: RegExp; constraintSource?: string }
   | { kind: 'catchAll'; name: string };
@@ -147,7 +147,7 @@ export function compilePattern(pattern: string): CompiledPattern {
   if (pattern.includes('//')) throw new Error(`invalid route pattern '${pattern}': repeated slash`);
 
   const normalized = pattern.length > 1 && pattern.endsWith('/') ? pattern.slice(0, -1) : pattern;
-  const rawSegments = normalized.split('/').slice(1);
+  const rawSegments = normalized === '/' ? [] : normalized.split('/').slice(1);
   const segments = compileSegments(pattern, rawSegments);
   const compiled: CompiledPattern = {
     source: pattern,
