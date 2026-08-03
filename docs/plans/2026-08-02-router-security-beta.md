@@ -493,22 +493,25 @@ git add .github/workflows/ci.yml .github/workflows/release.yml
 git commit -s -m "ci: gate releases on clean dependency audits"
 ```
 
-### Task 8: Align public documentation and prepare the August beta
+### Task 8: Audit and align the complete website documentation
 
 **Skills:** `@writing-clearly-and-concisely`
 
 **Files:**
-- Modify: `README.md`
-- Modify: `CHANGELOG.md`
-- Modify: `src/index.ts`
-- Modify: `package.json`
-- Modify: `package-lock.json`
+- Review: every page under `website/src/content/docs/`
 - Modify: `website/src/content/docs/guides/routing.md`
 - Modify: `website/src/content/docs/reference/decorators.md`
 - Modify: `website/src/content/docs/guides/openapi.md`
+- Modify: any other website page whose API, behavior, example, or cross-link has drifted from the code
 - Create: `website/src/content/docs/404.md`
 
-**Step 1: Update routing documentation from the verified behavior**
+**Step 1: Build a code-backed website documentation inventory**
+
+Compare every website page with the current public exports in `src/index.ts`, app options and methods in `src/app/types.ts`, decorator metadata in `src/metadata.ts`, routing behavior in `src/http/router.ts`, and the executable tests. Search the whole documentation tree for stale method lists, obsolete limitations, old error semantics, old beta/version examples, broken internal links, and examples that no longer typecheck conceptually.
+
+Do not change a claim from memory. Each correction must be supported by code or a passing test.
+
+**Step 2: Update routing documentation from the verified behavior**
 
 Document:
 
@@ -523,15 +526,58 @@ Document:
 
 Remove the current statement that bare OPTIONS returns 405.
 
-**Step 2: Update OpenAPI and decorator references**
+**Step 3: Align cross-cutting website references**
 
-Show that explicit HEAD/OPTIONS appear as operations and constrained params produce `schema.pattern`. Keep automatic fallback operations out of generated documents.
+At minimum, verify and correct:
 
-**Step 3: Fix the Starlight 404 warning**
+- every buffered-method list to include or intentionally exclude `HEAD`/`OPTIONS` according to the actual API;
+- `405`, automatic `OPTIONS`, implicit `HEAD`, CORS-preflight, malformed-path, and security-header descriptions;
+- OpenAPI behavior: explicit HEAD/OPTIONS appear as operations, constrained params produce `schema.pattern`, and automatic fallbacks remain absent;
+- mesh route-conflict wording after effective-pattern normalization;
+- examples and links between routing, decorators, errors, HTML, streaming, security, OpenAPI, and `createApp` reference pages;
+- navigation/frontmatter descriptions that still advertise the old router surface.
+
+Keep intentional historical or roadmap statements only when they remain true.
+
+**Step 4: Fix the Starlight 404 warning**
 
 Create the missing `404.md` entry with valid Starlight frontmatter and concise navigation back to the docs index. Run `npm run docs:build` and confirm the line `Entry docs → 404 was not found` disappears.
 
-**Step 4: Bump the beta version consistently**
+**Step 5: Validate the whole website documentation tree**
+
+```bash
+npm run docs:build
+npm --prefix website audit
+rg -n 'Not built|bare `OPTIONS`|returns `405`|@Get.*@Post.*@Put.*@Patch.*@Delete' website/src/content/docs
+rg -n '\]\(/docs/' website/src/content/docs
+git diff --check
+```
+
+Expected: all 23+ pages build without the missing-404 warning, the website audit remains clean, obsolete router claims are gone, and every changed claim has a code/test source.
+
+**Step 6: Commit**
+
+```bash
+git add website/src/content/docs
+git commit -s -m "docs(website): align guides with router behavior"
+```
+
+### Task 9: Align package documentation and prepare the August beta
+
+**Skills:** `@writing-clearly-and-concisely`
+
+**Files:**
+- Modify: `README.md`
+- Modify: `CHANGELOG.md`
+- Modify: `src/index.ts`
+- Modify: `package.json`
+- Modify: `package-lock.json`
+
+**Step 1: Align the package-facing documentation**
+
+Update README routing, roadmap, method, security, and beta-status claims from the same verified behavior documented in the website. Keep README concise and link to the complete website guides rather than duplicating their full reference material.
+
+**Step 2: Bump the beta version consistently**
 
 Run:
 
@@ -541,25 +587,25 @@ npm version 26.8.0-beta.0 --no-git-tag-version
 
 Update `src/index.ts`'s `VERSION` constant and add a `26.8.0-beta.0` CHANGELOG entry covering routes, security remediation, docs, and compatibility. Confirm README's CalVer examples remain accurate.
 
-**Step 5: Verify docs and version consistency**
+**Step 3: Verify docs and version consistency**
 
 ```bash
 npm run docs:build
 node -e "const p=require('./package.json'); const l=require('./package-lock.json'); if (p.version !== l.version || p.version !== l.packages[''].version) process.exit(1)"
-rg -n "26\.7\.0-beta\.0|Not built|bare `OPTIONS`" README.md CHANGELOG.md src website/src/content/docs
+rg -n '26\.7\.0-beta\.0|Not built|bare `OPTIONS`' README.md CHANGELOG.md src website/src/content/docs
 git diff --check
 ```
 
-Expected: docs build without the 404 warning; package versions agree; any old beta string is retained only in historical release examples.
+Expected: package versions agree, website docs still build, and any old beta string is retained only in historical release examples.
 
-**Step 6: Commit**
+**Step 4: Commit**
 
 ```bash
-git add README.md CHANGELOG.md src/index.ts package.json package-lock.json website/src/content/docs
+git add README.md CHANGELOG.md src/index.ts package.json package-lock.json
 git commit -s -m "docs: document router completeness for beta"
 ```
 
-### Task 9: Run the complete release-candidate verification
+### Task 10: Run the complete release-candidate verification
 
 **Skills:** `@superpowers:verification-before-completion`, `@security-review`
 
