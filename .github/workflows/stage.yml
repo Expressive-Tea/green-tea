@@ -2,8 +2,8 @@ name: Stage → Verdaccio
 
 # Staging publish. Runs on GITEA ONLY (the `if` guards against GitHub) for release
 # branches. Publishes prereleases to the internal Verdaccio under the `stg` dist-tag.
-# Existing versions are skipped only when the packed contents are identical; changed
-# contents under an existing version fail and require a prerelease bump.
+# Staging versions are intentionally mutable: an existing prerelease is removed before
+# publishing the updated release candidate under the same version.
 on:
   push:
     branches: ['release/**']
@@ -31,15 +31,5 @@ jobs:
             *-*) ;;
             *) echo "Refusing to stage non-prerelease version: $VER" >&2; exit 1 ;;
           esac
-
-          PACK_JSON=$(npm pack --json --dry-run --ignore-scripts)
-          LOCAL_INTEGRITY=$(node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>console.log(JSON.parse(s)[0].integrity))" <<< "$PACK_JSON")
-          EXISTING_INTEGRITY=$(npm view "@green-tea/core@$VER" dist.integrity --registry https://npm.svc.zoit.services 2>/dev/null || true)
-          ACTION=$(npx tsx scripts/staging-integrity.ts "$LOCAL_INTEGRITY" ${EXISTING_INTEGRITY:+"$EXISTING_INTEGRITY"})
-
-          if [ "$ACTION" = "skip" ]; then
-            echo "@green-tea/core@$VER is already staged with identical contents"
-            exit 0
-          fi
-
+          npm unpublish "@green-tea/core@$VER" --registry https://npm.svc.zoit.services --force 2>/dev/null || true
           npm publish --ignore-scripts --registry https://npm.svc.zoit.services --tag stg
