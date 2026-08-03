@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { matchPattern, matchRoute, allowedMethods } from '../src/http/router';
+import { compilePattern, matchPattern, matchRoute, allowedMethods } from '../src/http/router';
 import type { RouteDef } from '../src/http/types';
 
 const route = (method: string, pattern: string): RouteDef => ({
@@ -24,6 +24,33 @@ describe('matchPattern', () => {
   it(':name* matches zero remaining segments as an empty string', () => {
     expect(matchPattern('/files/:path*', '/files')).toEqual({ path: '' });
   });
+
+  it('matches safe constraints against the complete decoded segment', () => {
+    expect(matchPattern('/users/:id(\\d+)', '/users/42')).toEqual({ id: '42' });
+    expect(matchPattern('/users/:id(\\d+)', '/users/42x')).toBeUndefined();
+    expect(matchPattern('/posts/:slug([a-z0-9_-]+)', '/posts/green-tea_26')).toEqual({ slug: 'green-tea_26' });
+    expect(matchPattern('/build/:version(\\d{2}\\.\\d{1,2})', '/build/26.8')).toEqual({ version: '26.8' });
+  });
+});
+
+describe('compilePattern', () => {
+  it('records a stable shape independent of parameter names', () => {
+    expect(compilePattern('/users/:id').shape).toBe(compilePattern('/users/:name').shape);
+    expect(compilePattern('/users/:id(\\d+)').shape).not.toBe(compilePattern('/users/:id').shape);
+  });
+
+  it.each([
+    '/files/:rest*/tail',
+    '/users/:',
+    '/users/:id/:id',
+    '/users//:id',
+    '/users/:id((a+)+)',
+    '/users/:id((?=a)a)',
+    '/users/:id(\\1)',
+    '/users/:id(a|b)',
+  ])('rejects invalid or unsafe pattern %s', (pattern) => {
+    expect(() => compilePattern(pattern)).toThrow(/invalid route pattern|unsafe route constraint/);
+  });
 });
 
 describe('matchRoute precedence', () => {
@@ -32,6 +59,12 @@ describe('matchRoute precedence', () => {
     expect(matchRoute(routes, 'GET', '/a/b')?.def.pattern).toBe('/a/b');
     expect(matchRoute(routes, 'GET', '/a/x')?.def.pattern).toBe('/a/:id');
     expect(matchRoute(routes, 'GET', '/a/x/y')?.def.pattern).toBe('/a/:rest*');
+  });
+
+  it('constrained params beat unconstrained params regardless of registration order', () => {
+    const routes = [route('GET', '/users/:value'), route('GET', '/users/:id(\\d+)')];
+    expect(matchRoute(routes, 'GET', '/users/42')?.def.pattern).toBe('/users/:id(\\d+)');
+    expect(matchRoute(routes, 'GET', '/users/diego')?.def.pattern).toBe('/users/:value');
   });
 
   it('returns undefined when no pattern matches the path', () => {
