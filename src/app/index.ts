@@ -35,6 +35,7 @@ import type { MeshControl } from '../http';
 import type { RequestEnvelope, RouteEntry } from '../mesh/protocol';
 import type { App, InspectLine, Explain, RoutePlan, MeshConfig } from './types';
 import { inspectRoute, buildGraphView, explainRoute } from './introspect';
+import { compilePattern } from '../http/router';
 
 export type { App, InspectLine, ExplainNode, Explain, MeshConfig } from './types';
 
@@ -349,6 +350,7 @@ function collectControllers(
       const instance: any = new ControllerClass();
       const argSpecs = getArgs(ControllerClass, route.handlerName);
       const pattern = joinPath(mountpoint, route.path);
+      const declaration = `${ControllerClass.name}.${route.handlerName}`;
 
       if (route.export) {
         if (route.transport !== 'buffer') throw new Error(`cannot export streaming route ${pattern}`);
@@ -357,11 +359,12 @@ function collectControllers(
 
       const transformer = resolveTransformer(ControllerClass, route, pattern, viewsCtx);
 
-      registry.routePlans.push({
+      const plan: RoutePlan = {
         pattern,
         method: route.method,
         transport: route.transport,
         origin,
+        declaration,
         providers: [],
         steps: [],
         handlerName: route.handlerName,
@@ -372,9 +375,25 @@ function collectControllers(
         maxBodyBytes: route.maxBodyBytes,
         maxParts: route.maxParts,
         args: argSpecs,
-      });
+      };
+      assertRouteAvailable(registry.routePlans, plan);
+      registry.routePlans.push(plan);
     }
   }
+}
+
+/** Rejects local routes that have the same method and effective match shape. */
+function assertRouteAvailable(existing: RoutePlan[], candidate: RoutePlan): void {
+  const compiled = compilePattern(candidate.pattern);
+  const conflict = existing.find(
+    (plan) => plan.method === candidate.method && compilePattern(plan.pattern).shape === compiled.shape,
+  );
+  if (!conflict) return;
+
+  throw new Error(
+    `ambiguous route ${candidate.method} ${candidate.pattern} at ${candidate.declaration} conflicts with ` +
+      `${conflict.method} ${conflict.pattern} at ${conflict.declaration}`,
+  );
 }
 
 /**
@@ -394,7 +413,7 @@ function resolveTransformer(
 
   if (route.transport !== 'buffer' || (route.method !== 'GET' && route.method !== 'POST')) {
     throw new Error(
-      `@Html on ${route.method} ${pattern} is not allowed — @Html only supports buffered GET/POST routes (not SSE/WS/PUT/PATCH/DELETE)`,
+      `@Html on ${route.method} ${pattern} is not allowed — @Html only supports buffered GET/POST routes (not SSE/WS/HEAD/PUT/PATCH/DELETE/OPTIONS)`,
     );
   }
 
@@ -512,7 +531,7 @@ async function spliceRemoteScopes(
 ): Promise<{ remoteRoutes: RouteDef[]; meshLinks: Link[] }> {
   const remoteRoutes: RouteDef[] = [];
   const meshLinks: Link[] = [];
-  const routeOwners = new Map<string, string>(); // "METHOD /pattern" -> the teapot that exported it
+  const routeOwners = new Map<string, { url: string; pattern: string }>(); // "METHOD effective-shape" -> owner
 
   try {
     for (const teapot of mesh.teapots ?? []) {
@@ -539,7 +558,8 @@ async function spliceRemoteScopes(
       }
 
       for (const route of routes) {
-        const key = `${route.method} ${route.pattern}`;
+        const display = `${route.method} ${route.pattern}`;
+        const key = `${route.method} ${compilePattern(route.pattern).shape}`;
         const owner = routeOwners.get(key);
 
         // Fail the boot rather than pick one. Route matching keeps the first of two identical
@@ -548,21 +568,28 @@ async function spliceRemoteScopes(
         // Scope tokens already fail this way in setRunner; routes now match.
         if (owner) {
           throw new Error(
-            `mesh: route '${key}' is exported by more than one teapot (${owner} and ${teapot.url}) — ` +
+            `mesh: ambiguous remote route '${display}' from ${teapot.url} conflicts with ` +
+              `'${route.method} ${owner.pattern}' from ${owner.url} — ` +
               'load balancing across teapots is not implemented yet, so green-tea will not choose one for you. ' +
               'Export it from a single teapot.',
           );
         }
 
-        routeOwners.set(key, teapot.url);
+        routeOwners.set(key, { url: teapot.url, pattern: route.pattern });
 
         // Local routes are merged ahead of remote ones (see buildHttpRoutes), so a local twin
         // wins. That precedence is deliberate — your own code beats an imported one, and it is
         // how you override a teapot — but silently shadowing an export looks exactly like a
         // broken teapot from the outside. Warn and let the developer decide.
-        if (registry.routePlans.some((plan) => plan.method === route.method && plan.pattern === route.pattern)) {
+        if (
+          registry.routePlans.some(
+            (plan) =>
+              plan.method === route.method &&
+              compilePattern(plan.pattern).shape === compilePattern(route.pattern).shape,
+          )
+        ) {
           console.warn(
-            `[green-tea] mesh: route '${key}' is exported by teapot ${teapot.url} but also declared locally — ` +
+            `[green-tea] mesh: route '${display}' is exported by teapot ${teapot.url} but also declared locally — ` +
               'the local route takes precedence and the remote one will not be reached. ' +
               'Remove one if that is not what you meant.',
           );

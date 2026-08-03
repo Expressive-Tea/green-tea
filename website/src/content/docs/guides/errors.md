@@ -46,12 +46,12 @@ throw new HttpError(409, 'conflict', { code: 'DUP_EMAIL', field: 'email' });
 Not everything should be JSON. Pass `onError` to `createApp` to render errors however you like — HTML, [RFC 7807](https://www.rfc-editor.org/rfc/rfc7807), content-negotiated, anything. It receives the error and the request, and returns a response — or `undefined` to fall back to the default JSON.
 
 ```typescript
-import { isHttpError } from '@green-tea/core';
+import { HttpError } from '@green-tea/core';
 
 const app = createApp({
   modules: [ApiModule],
   onError(error, req) {
-    const status = isHttpError(error) ? error.status : 500;
+    const status = error instanceof HttpError ? error.status : 500;
     // negotiate: HTML for browsers, JSON for API clients
     if (String(req.headers.accept).includes('text/html')) {
       return { status, headers: { 'content-type': 'text/html' }, body: `<h1>${status}</h1>` };
@@ -61,7 +61,7 @@ const app = createApp({
 });
 ```
 
-`onError` intercepts **every** HTTP error response — handler/step throws, a `404` for an unmatched route, `405`, a `413` (body too large), and a `400` (malformed body) — so your error surface is consistent across the whole app. Streaming and WebSocket errors are out of scope (they surface as an error frame or a WebSocket close code, not a response body).
+`onError` intercepts **every** HTTP error response — handler/step throws, a `404` for an unmatched route, `405`, a `413` (body too large), and a `400` (malformed body, repeated slash, or malformed path encoding) — so your error surface is consistent across the whole app. HEAD error responses keep the same status and headers but suppress the body. Streaming and WebSocket errors are out of scope (they surface as an error frame or a WebSocket close code, not a response body).
 
 :::note
 Errors are also observable without changing the response: subscribe to `request:step:error` (and `stream:error`) on [`app.bus`](/docs/guides/plugins/) to log or trace them.

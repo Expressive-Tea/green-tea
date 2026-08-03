@@ -7,6 +7,8 @@ export default defineConfig({
   base: '/docs',
   integrations: [
     starlight({
+      // Let the content-backed 404.md own /404; otherwise Astro also injects a conflicting route.
+      disable404Route: true,
       title: 'Green Tea.',
       description: 'A zen, opinionated, type-safe framework — your API is a graph, not a chain.',
       logo: { src: './src/assets/logo.svg', alt: 'Green Tea' },

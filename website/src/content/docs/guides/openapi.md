@@ -15,13 +15,15 @@ const spec = app.openapi({ title: 'My API', version: '1.0.0' });
 
 It reads the routes and handler signatures and produces, for each route:
 
-- the **path**, templated — `/users/:id` → `/users/{id}`, catch-all `:path*` → `{path}`;
-- the **method**;
+- the **path**, templated — `/users/:id` → `/users/{id}`, constrained `:id(\d+)` → `{id}`, catch-all `:path*` → `{path}`;
+- the **explicitly declared method**, including `@Head` and `@Options`;
 - **parameters** — path params from the pattern, plus query/header params from the handler's `@query` / `@headers` / `@header` decorators;
 - a **request body** entry for routes that read `@body()`;
 - the systematic **responses** — `200`, a `422` when any argument is schema-validated, and `500`.
 
 WebSocket routes are omitted (they aren't request/response).
+
+A constrained path parameter remains a string parameter and carries its route expression as `schema.pattern`. Only declared operations appear: implicit HEAD and automatic OPTIONS fallbacks are runtime conveniences and are not invented in the OpenAPI document.
 
 ## Serve it — `devOpenapi`
 
