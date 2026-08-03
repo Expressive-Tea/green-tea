@@ -413,7 +413,7 @@ function resolveTransformer(
 
   if (route.transport !== 'buffer' || (route.method !== 'GET' && route.method !== 'POST')) {
     throw new Error(
-      `@Html on ${route.method} ${pattern} is not allowed — @Html only supports buffered GET/POST routes (not SSE/WS/PUT/PATCH/DELETE)`,
+      `@Html on ${route.method} ${pattern} is not allowed — @Html only supports buffered GET/POST routes (not SSE/WS/HEAD/PUT/PATCH/DELETE/OPTIONS)`,
     );
   }
 

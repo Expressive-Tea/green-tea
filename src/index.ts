@@ -27,6 +27,7 @@ export {
   Step,
   Route,
   Get,
+  Head,
   Module,
   Transformer,
   Sse,
@@ -36,6 +37,7 @@ export {
   Put,
   Patch,
   Delete,
+  Options,
   Html,
 } from './metadata';
 export type { Transport, HttpMethod } from './metadata';

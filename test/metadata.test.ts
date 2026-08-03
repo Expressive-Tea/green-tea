@@ -3,7 +3,7 @@ import { expect, test, describe, it } from 'vitest';
 import {
   Provider, Step, Route, Get, Module,
   getProviderMeta, getStepMeta, getRoutes, getModuleMeta,
-  Sse, Ws, Stream, Post,
+  Sse, Ws, Stream, Post, Head, Options,
 } from '../src/metadata';
 
 @Provider({ provides: 'db', needs: ['config'] })
@@ -51,6 +51,18 @@ describe('stream route decorators', () => {
     expect(byName.chat).toMatchObject({ method: 'GET', transport: 'ws', path: '/chat' });
     expect(byName.either).toMatchObject({ method: 'GET', transport: 'negotiate', path: '/either' });
     expect(byName.make).toMatchObject({ method: 'POST', transport: 'buffer', path: '/make' });
+  });
+});
+
+describe('HEAD and OPTIONS decorators', () => {
+  it('records both as buffered methods', () => {
+    class Methods {
+      @Head('/resource') head() {}
+      @Options('/resource') options() {}
+    }
+    const byName = Object.fromEntries(getRoutes(Methods).map((route) => [route.handlerName, route]));
+    expect(byName.head).toMatchObject({ method: 'HEAD', transport: 'buffer', path: '/resource' });
+    expect(byName.options).toMatchObject({ method: 'OPTIONS', transport: 'buffer', path: '/resource' });
   });
 });
 
