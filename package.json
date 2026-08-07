@@ -1,9 +1,17 @@
 {
   "name": "@green-tea/core",
   "version": "26.8.0-beta.0",
-  "description": "A zen, opinionated, type-safe framework — your API is a graph, not a middleware chain.",
+  "description": "A zen, opinionated, type-safe framework \u2014 your API is a graph, not a middleware chain.",
   "license": "MIT",
   "author": "green-tea contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Expressive-Tea/green-tea.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Expressive-Tea/green-tea/issues"
+  },
+  "homepage": "https://green-tea.expressive-tea.io/docs/",
   "keywords": [
     "http",
     "framework",
@@ -118,7 +126,8 @@
       "hyperid": {
         "uuid": "11.1.1"
       }
-    }
+    },
+    "undici": "7.29.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
