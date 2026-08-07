@@ -11,24 +11,39 @@
   not a mutable bag threaded through positional middleware. <i>That's the tea.</i> 🍵
 </p>
 
-`@green-tea/core` — **beta**, RC-track. One runtime dependency: `reflect-metadata`. Two optional peers you install only if you use them: `ws` (WebSocket / mesh) and `busboy` (multipart uploads).
+---
 
-```bash
-npm install @green-tea/core reflect-metadata
-# optional, only if you use them:
-npm install ws       # WebSocket routes (@Ws) and mesh
-npm install busboy   # multipart/form-data file uploads
+## The problem
+
+```js
+const user = req.user;
 ```
 
----
+It compiles. TypeScript is happy. And it's a prayer — `req.user` exists only if some middleware ran before this handler, which depends on where the router got mounted, which line `app.use()` sits on, and whether a package you installed last sprint quietly inserted itself into the middle of your chain.
+
+So you keep the whole request in your head: what ran, what's on `req` by now, what order things fire in, which plugin deleted your body parser. That bookkeeping is where the bugs live, and no test or type catches them, because nothing is *wrong* — the code is correct and the app is still broken.
 
 ## The idea
 
-Most frameworks make you keep the whole request in your head: which middleware ran, whether `req.user` exists by now, what order things fire in, which plugin quietly deleted your body parser. That mental bookkeeping is where bugs live.
+green-tea puts the request on the page instead. You declare what each step **needs** and **produces**; the framework computes the order, type-checks the wiring, and can print the whole thing.
 
-green-tea puts the request on the page instead. You declare what each step **needs** and **produces**; the framework computes the order, type-checks the wiring, and can print the whole thing. A route runs only the steps its handler actually depends on. Boot fails loudly when a dependency is missing, so you never serve `undefined`.
+- Order is **derived** from your dependencies, never maintained by hand.
+- Boot **fails loudly** when nothing provides a key, so you never serve `undefined`.
+- A route runs **only** the steps its handler actually depends on.
+- `app.explain('/users/:id')` prints the whole chain. Onboarding is reading, not archaeology.
 
 Less to hold in your head. That's the tea.
+
+```bash
+npm install @green-tea/core@beta reflect-metadata
+```
+
+`@green-tea/core` — **beta**, RC-track. One runtime dependency: `reflect-metadata`. Two optional peers you install only if you use them:
+
+```bash
+npm install ws       # WebSocket routes (@Ws) and mesh
+npm install busboy   # multipart/form-data file uploads
+```
 
 ## What's different — and why it matters
 
@@ -94,6 +109,7 @@ Beta shipped the parts a real API needs, without growing the runtime dependency 
 - **Real body parsing.** JSON and urlencoded out of the box; `multipart/form-data` file uploads (`@body()` → `{ fields, files }`) via the optional [`busboy`](https://github.com/mscdex/busboy) peer dependency (`npm i busboy`) — a multipart request without it returns a clear `501`. All size-capped (`413`) against DoS.
 - **Errors, your way.** Throw typed errors (`Unauthorized`, `NotFound`, `HttpError(status, msg, body?)`) anywhere; they convert centrally to `4xx`/`5xx`. Render them however you like — HTML, RFC 7807, content-negotiated — with a single `createApp({ onError })` hook that covers every error response.
 - **HTML without a view layer.** `@Html` returns a string, serves a file, or renders one with the built-in `{{ }}` template engine — swap in EJS or handlebars with `createApp({ viewEngine })`. `createApp({ static: true })` serves `./public` with path-traversal guards and no mime dependency.
+- **Ceilings that are already on.** `limits` caps body size (`413`), multipart parts, and the request / headers / keep-alive timeouts — defaulting to `30s` / `10s` / `5s`, tighter than Node's own two-minute default. Configurable, and safe before you configure anything.
 - **Graceful shutdown.** `app.close()` drains in-flight requests, closes live streams and mesh links.
 - **Testable by construction.** `createApp({ overrides: { db: fakeDb } })` swaps any node in one line.
 - **Dual ESM + CommonJS.** Ships both builds behind an `exports` map — `import` and `require` both resolve, with matching type declarations.
@@ -227,6 +243,8 @@ green-tea is **beta**, on the road to a release candidate. Express and Fastify h
 
 **Bring your own auth (and friends).** green-tea ships transport security — TLS/wss, secure-by-default headers, CORS — but **not** authentication, authorization, rate-limiting, CSRF, or sessions. You compose those as steps and plugins (the `Authenticate` step in the quick look is the pattern). Unlike Express/Fastify, there is no off-the-shelf plugin ecosystem for them yet.
 
+**No observability layer, either.** There is no built-in logger, no metrics export, and no tracing hooks; core does not depend on a logging library and does not intend to. Today you compose those as steps and providers like anything else. A first-class contract — an injectable logger, structured output, and hooks an OpenTelemetry exporter can attach to — is [tracked as one design](https://github.com/Expressive-Tea/green-tea/issues/10), because doing it piecemeal produces three mechanisms that don't fit together. If your team's definition of production-ready includes shipping traces on day one, this is the gap to know about.
+
 **Runtimes differ in what they can offer.** Node ≥ 18, Deno, and Bun run everything. On the edge (Cloudflare Workers) there is no `app.listen()`, no filesystem — so `@Html` file/template modes and `static` serving are unavailable — and mesh does not run there at all (the teapot's secret comparison needs `node:crypto`'s `timingSafeEqual`, which `nodejs_compat` doesn't provide). Workers also require the `nodejs_compat` flag.
 
 **mesh is alpha.** Distributed DI works, but discovery, load-balancing, and failover are not built, and its API and wire protocol may change between releases. It is gated behind an explicit opt-in — `createApp({ mesh, experimental: true })` — and `createApp` throws if you configure `mesh` without it. Don't ship mesh to production yet.
@@ -261,7 +279,7 @@ npm run docs:dev   # the documentation site (website/)
 
 green-tea uses **calendar versioning**: `YY.M.PATCH` (e.g. `26.8.0` = the first release cut in August 2026, patch 0). The month is **not** zero-padded — npm treats versions as semver, which forbids leading zeros. A version tells you *when* it shipped, not how many breaking changes preceded it — those are always called out in the [CHANGELOG](./CHANGELOG.md).
 
-**While in beta**, releases carry a `-beta.N` pre-release suffix on the calendar version (e.g. `26.8.0-beta.0`) and publish under the npm `beta` dist-tag — so a plain `npm install @green-tea/core` won't pick one up until the first stable calendar release. The API can still change between betas.
+**While in beta**, releases carry a `-beta.N` pre-release suffix on the calendar version (e.g. `26.8.0-beta.0`) and publish under the npm `beta` dist-tag. Until the first stable release there is nothing else to install, so `latest` tracks the newest beta too — `npm install @green-tea/core` and `@green-tea/core@beta` resolve to the same version. Install with the explicit `@beta` tag anyway: the day a stable ships, `latest` moves to it and your installs stay on the channel you meant. The API can still change between betas.
 
 ## License
 

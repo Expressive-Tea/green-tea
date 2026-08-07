@@ -7,6 +7,18 @@ export default defineConfig({
   base: '/docs',
   integrations: [
     starlight({
+      // GoatCounter — same site code as the marketing site, so /docs traffic lands in
+      // the same dashboard and referrer paths stay comparable.
+      head: [
+        {
+          tag: 'script',
+          attrs: {
+            'data-goatcounter': 'https://greentea.goatcounter.com/count',
+            async: true,
+            src: '//gc.zgo.at/count.js',
+          },
+        },
+      ],
       // Let the content-backed 404.md own /404; otherwise Astro also injects a conflicting route.
       disable404Route: true,
       title: 'Green Tea.',
