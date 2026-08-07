@@ -153,6 +153,6 @@ change before the stable release.
 - **Benchmarks** — reproducible `npm run bench` harness vs Express 5, Fastify 5,
   NestJS, and raw `http`; results in [BENCHMARKS.md](./BENCHMARKS.md).
 
-[Unreleased]: https://git.svc.zoit.services/Green-Tea/core/compare/v26.8.0-beta.0...develop
-[26.8.0-beta.0]: https://git.svc.zoit.services/Green-Tea/core/compare/v26.7.0-beta.0...v26.8.0-beta.0
-[26.7.0-beta.0]: https://git.svc.zoit.services/Green-Tea/core/releases/tag/v26.7.0-beta.0
+[Unreleased]: https://github.com/Expressive-Tea/green-tea/compare/v26.8.0-beta.0...main
+[26.8.0-beta.0]: https://github.com/Expressive-Tea/green-tea/compare/v26.7.0-beta.0...v26.8.0-beta.0
+[26.7.0-beta.0]: https://github.com/Expressive-Tea/green-tea/releases/tag/v26.7.0-beta.0
