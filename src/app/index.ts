@@ -260,19 +260,7 @@ export function createApp(opts: {
     return server;
   };
 
-  const close = (): Promise<void> =>
-    new Promise<void>((resolve) => {
-      // before the server check: a mesh app booted through app.fetch (Deno/Bun, where listen()
-      // never runs) has links but no server, and would otherwise leak every teapot connection.
-      // Closing a link rejects its in-flight RPCs via the socket's abort.
-      closeLinks(meshLinks);
-
-      if (!server) return resolve();
-
-      server.close(() => resolve()); // waits for in-flight buffered to drain
-      for (const closeStream of streams) closeStream(); // force-close long-lived SSE/WS so close() resolves
-      server.closeIdleConnections(); // Node >=18.2: drop idle keep-alive
-    });
+  const close = (options: { timeoutMs?: number } = {}): Promise<void> => closeApp(server, meshLinks, streams, options);
 
   return {
     listen,
@@ -955,6 +943,60 @@ function buildWsRoutes(routePlans: RoutePlan[], deps: PipelineDeps): WsRouteDef[
         return result as AsyncIterable<unknown>;
       },
     }));
+}
+
+function closeApp(
+  server: http.Server | undefined,
+  meshLinks: Link[],
+  streams: Set<() => void>,
+  options: { timeoutMs?: number },
+): Promise<void> {
+  return new Promise((resolve) => {
+    // A mesh app booted through `app.fetch` has links but no server, and would leak every
+    // teapot connection otherwise — so links close before we even check for a server.
+    closeLinks(meshLinks);
+
+    if (!server) {
+      if (options.timeoutMs !== undefined) {
+        console.warn(
+          '[green-tea] close({ timeoutMs }) has no effect here — this app has no ' +
+            'listen()ed server (Bun/Deno run through app.fetch). See #15.',
+        );
+      }
+
+      return resolve();
+    }
+
+    const timeoutMs = options.timeoutMs ?? 10_000;
+    let settled = false;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+
+    server.close(() => finish());
+
+    for (const closeStream of streams) closeStream();
+    server.closeIdleConnections();
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+
+      console.warn(
+        `[green-tea] graceful shutdown timed out after ${timeoutMs}ms — ` + 'forcing remaining HTTP connections closed',
+      );
+
+      // closeAllConnections() requires Node >=18.2, same floor as closeIdleConnections()
+      // above — `engines` in package.json only guarantees >=18, so this matters.
+      server.closeAllConnections();
+      finish();
+    }, timeoutMs);
+
+    timer.unref?.();
+  });
 }
 
 /** Best-effort close of every mesh link, ignoring individual failures. */
