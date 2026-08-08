@@ -1,0 +1,3 @@
+# Design questions, scope decisions and "should this live in core?" threads don't fit a
+# bug form, and they are most of what gets filed here. Keep the blank option available.
+blank_issues_enabled: true
