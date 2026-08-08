@@ -1,9 +1,9 @@
 name: CI
 on:
   push:
-    branches: [develop, main]
+    branches: [develop, main, contrib]
   pull_request:
-    branches: [develop, main]
+    branches: [develop, main, contrib]
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -13,16 +13,23 @@ jobs:
         with:
           node-version: '18'
       - run: npm ci
-      - run: npm audit
       - run: npm run lint
       - run: npm run format:check
       - run: npm run complexity:check
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # Supply chain, deliberately after the code gates: an advisory published by a third party
+      # must never decide whether a contributor gets to see their own lint and typecheck output.
+      # Only what we ship blocks — with `reflect-metadata` as the sole runtime dependency, a
+      # production advisory is rare and genuinely reaches users. Build tooling only reports.
+      - run: npm audit --omit=dev
+      - run: npm audit
+        continue-on-error: true
       - uses: actions/setup-node@v4
         with:
           node-version: '22.12'
       - run: npm ci --prefix website
       - run: npm audit --prefix website
+        continue-on-error: true
       - run: npm run docs:build
