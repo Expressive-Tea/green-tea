@@ -1,7 +1,4 @@
-<!--
-Opening this from a fork on GitHub? The base branch must be `contrib`, not `main`.
-See CONTRIBUTING.md for why, and for the worked example.
--->
+> **Base branch:** on GitHub this must target `contrib`, not `main`. You can still change it above, before you submit — and [here is why](https://github.com/Expressive-Tea/green-tea/blob/main/CONTRIBUTING.md#where-to-send-your-changes). Delete this line once the base is right.
 
 ## What this changes
 
@@ -11,6 +8,7 @@ Closes #
 
 ## Checklist
 
+- [ ] The base branch above is `contrib`
 - [ ] Commits are signed off (`git commit -s`)
 - [ ] `npm run lint`, `npm run format:check`, `npm run typecheck` and `npm test` pass locally
 - [ ] New behavior has a test
