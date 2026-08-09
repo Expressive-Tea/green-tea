@@ -56,6 +56,8 @@ function bunSocket(ws: BunServerWebSocket): WsSocket {
  * Serve a Green Tea app on Bun: HTTP + SSE via app.fetch, WebSocket via Bun's server-level
  * websocket handler. The ServerWebSocket only exists in open(), so per-connection state
  * (inbound channel, abort, WsRequest) is stashed on ws.data during the upgrade.
+ * Bun.serve exposes no equivalent to Node's server.maxConnections; enforce connection caps at
+ * the deployment platform or reverse proxy.
  */
 export function serveBun(app: App, options?: BunServeShortOptions): BunServer {
   return Bun.serve({

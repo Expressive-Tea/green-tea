@@ -115,12 +115,19 @@ describe('request hardening', () => {
     server.close();
   });
 
-  it('sets the configured server timeouts', async () => {
+  it('sets the configured server timeouts and connection limit', async () => {
     const server = createHttpServer([], [], undefined, undefined,
-      { limits: { requestTimeoutMs: 12345, headersTimeoutMs: 6789, keepAliveTimeoutMs: 4321 } });
+      { limits: { maxConnections: 2468, requestTimeoutMs: 12345, headersTimeoutMs: 6789, keepAliveTimeoutMs: 4321 } });
+    expect(server.maxConnections).toBe(2468);
     expect(server.requestTimeout).toBe(12345);
     expect(server.headersTimeout).toBe(6789);
     expect(server.keepAliveTimeout).toBe(4321);
+    server.close();
+  });
+
+  it('caps concurrent connections by default', () => {
+    const server = createHttpServer([]);
+    expect(server.maxConnections).toBe(1000);
     server.close();
   });
 

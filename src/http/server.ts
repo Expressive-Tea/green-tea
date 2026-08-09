@@ -59,6 +59,7 @@ export function createHttpServer(
   const server: http.Server = (opts?.tls
     ? nodeHttps.createServer(opts.tls as https.ServerOptions, handler)
     : nodeHttp.createServer(handler)) as unknown as http.Server;
+  server.maxConnections = opts?.limits?.maxConnections ?? 1000;
   server.requestTimeout = opts?.limits?.requestTimeoutMs ?? 30_000;
   server.headersTimeout = opts?.limits?.headersTimeoutMs ?? 10_000;
   server.keepAliveTimeout = opts?.limits?.keepAliveTimeoutMs ?? 5_000;

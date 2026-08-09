@@ -8,6 +8,7 @@ import type { StaticResolver } from '../views';
 /** Per-request size and timeout ceilings applied by the server. */
 export interface RequestLimits {
   maxBodyBytes?: number; // default 1_000_000
+  maxConnections?: number;
   requestTimeoutMs?: number; // default 30_000
   headersTimeoutMs?: number; // default 10_000
   keepAliveTimeoutMs?: number; // default 5_000

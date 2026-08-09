@@ -35,6 +35,7 @@ const app = createApp(options);
 | Field | Default |
 |---|---|
 | `maxBodyBytes` | `1_000_000` (→ `413` when exceeded) |
+| `maxConnections` | `1000` (Node only; no Deno/Bun equivalent) |
 | `requestTimeoutMs` | `30_000` |
 | `headersTimeoutMs` | `10_000` |
 | `keepAliveTimeoutMs` | `5_000` |

@@ -31,6 +31,8 @@ declare const Deno: {
 /**
  * Serve a Green Tea app on Deno: HTTP + SSE via app.fetch, WebSocket via Deno.upgradeWebSocket.
  * WebSocket messages flow through app.upgrade over the shared neutral core.
+ * Deno.serve exposes no equivalent to Node's server.maxConnections; enforce connection caps at
+ * the deployment platform or reverse proxy.
  */
 export function serveDeno(app: App, options?: DenoServeOptions): DenoHttpServer {
   return Deno.serve(options ?? {}, (request, info) => {
