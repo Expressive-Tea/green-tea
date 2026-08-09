@@ -63,6 +63,27 @@ git commit --amend -s
 git push --force-with-lease
 ```
 
+## Working with AI assistance
+
+Use one if it helps. There is no permission to ask for and nothing to declare.
+
+What we do ask is that you read what it hands you before it becomes a pull request. Every line that lands here is reviewed by a person, by hand, and usually that person is one person. A diff its own author hasn't read moves that work onto them, and turns review into proofreading — which is the thing review is worst at.
+
+So go through the diff the way you would go through a stranger's, because that is what it is. If you can't say why a line is there, it isn't ready to send. That's the whole of it.
+
+**What assistants tend to get wrong here in particular** — worth checking before you push:
+
+- They add dependencies. Core has one runtime dependency, and that is a design constraint rather than an oversight.
+- They write for Node and assume the rest follows. It doesn't — green-tea also runs on Deno, Bun and the edge, and `npm test` does not cover them.
+- They delete comments they read as redundant. In this codebase a comment usually carries reasoning the code can't show on its own.
+- They skip the test.
+
+**Where you're unsure, say so** — not as a disclosure, as a pointer. "I'm not confident about the Deno path here" tells a reviewer where to spend their attention, and that is worth more to them than a pull request that merely looks clean.
+
+None of this changes the sign-off. `Signed-off-by` says you have the right to submit the work under this project's license, and that stays true however the text was produced.
+
+If your assistant reads repository instructions, `AGENTS.md` has the conventions and the architecture notes.
+
 ## Branch model (GitFlow)
 
 - `main` — production-ready, protected. No direct pushes.
