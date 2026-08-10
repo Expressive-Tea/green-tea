@@ -58,9 +58,11 @@ git diff <branch> <main> -- <suspect file>   # empty means the content is alread
 
 Merging such a branch to "recover" the commits duplicates the work and drags stale history along.
 
-**External contributions.** They arrive on GitHub `contrib`. Mirror that branch to Gitea, then rebase the PR's own commits onto `develop` and open a normal `feature/` PR — rebase rather than merge, so `main`'s history stays out of `develop`. Take the commit range from the pull request itself, never "everything since main": if a second contributor branched from `contrib` after the first one merged, the broad range sweeps up work that isn't theirs.
+**External contributions.** They arrive on GitHub `contrib`. Merge the pull request there, mirror that branch to Gitea, then open a `contrib → develop` pull request and merge it. Merge rather than rebase: because promotions are fast-forward-only, `develop` and `main` are the same commit, so there is no main-only history for a merge to drag in. Rebasing would rewrite the contributor's SHAs for no gain and push `contrib` out of `main`'s ancestry, which then costs a force-push at reset time. Merging keeps their commits reaching `main` under their own name and hash.
 
-**After every promotion, reset *both* `contrib` branches to `main`.** They hold pre-rebase SHAs while `main` holds the rebased equivalents, so they are not ancestors and this needs a force-push. The Gitea one is unprotected and easy to forget. The GitHub one refuses the push even for admins, so its protection has to be lifted and restored around the reset.
+The exception is a `hotfix/*`, which lands on `main` without passing through `develop` and leaves the two out of step. Back-merge before taking a contribution through, or rebase that one and accept the force-push. If you do rebase, take the commit range from the pull request itself and never "everything since main": if a second contributor branched from `contrib` after the first one merged, the broad range sweeps up work that isn't theirs.
+
+**After every promotion, reset *both* `contrib` branches to `main`.** GitHub's is where external work lands; Gitea's is its mirror, and the easy one to forget because nothing there refuses the push. Normally this is an ordinary fast-forward, since `contrib` is already inside `main`'s history. It only needs a force-push when SHAs were rewritten on the way in — and GitHub then refuses it even for admins, so that branch's protection has to be lifted and restored around the reset.
 
 A conflict against unreleased `develop` work can never be delegated to an outside contributor — they cannot see the code they are conflicting with. Those are always the maintainer's to resolve.
 
