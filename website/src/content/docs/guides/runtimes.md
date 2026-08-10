@@ -34,11 +34,12 @@ same `@Ws` handlers, same rooms/channels everywhere. `app.listen()`, TLS and per
 remain Node-only; on Deno/Bun/edge you get `app.fetch` + the runtime's adapter. **Mesh (alpha)
 runs on Node, Deno and Bun** — teapot and teacup, in any combination — but not on edge.
 
-**Connection-limit enforcement is Node-only:** `limits.maxConnections` defaults to `1000` and
-maps to Node's `server.maxConnections` when the app runs through `app.listen()`. `Deno.serve` and
-`Bun.serve` expose no equivalent active-socket cap, so `serveDeno` and `serveBun` cannot enforce
-this option. Apply the connection limit at the deployment platform or reverse proxy on those
-runtimes.
+**Connection-limit enforcement is Node-only:** `limits.maxConnections` defaults to `1000`; values
+`<= 0` leave Node's connection count unlimited. Positive values map to Node's
+`server.maxConnections` when the app runs through `app.listen()`. When the cap is reached, Node
+destroys excess sockets without sending an HTTP response. `Deno.serve` and `Bun.serve` expose no
+equivalent active-socket cap, so `serveDeno` and `serveBun` cannot enforce this option. Apply the
+connection limit at the deployment platform or reverse proxy on those runtimes.
 
 **Body-size enforcement differs slightly:** on `app.fetch`, an oversized body is read in full
 before the `413` is returned, whereas Node aborts mid-stream once the limit is hit — so on

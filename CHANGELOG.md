@@ -10,9 +10,10 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Added
 
-- `limits.maxConnections` caps concurrent Node sockets (default `1000`) through
-  `server.maxConnections`; Deno and Bun have no equivalent runtime setting and require a
-  platform or reverse-proxy connection cap.
+- `limits.maxConnections` changes Node's previously unlimited concurrent socket count to a
+  default cap of `1000`; values `<= 0` leave Node unlimited. Deno and Bun have no equivalent
+  runtime setting and require a platform or reverse-proxy connection cap.
+
 ## [26.8.0-beta.0] - 2026-08-02
 
 ### Added

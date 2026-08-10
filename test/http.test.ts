@@ -131,6 +131,14 @@ describe('request hardening', () => {
     server.close();
   });
 
+  it.each([0, -1])('treats maxConnections=%i as unlimited', (maxConnections) => {
+    const server = createHttpServer([], [], undefined, undefined, {
+      limits: { maxConnections },
+    });
+    expect(server.maxConnections).toBeUndefined();
+    server.close();
+  });
+
   it('requestTimeout does NOT kill an in-flight SSE stream (streaming regression)', async () => {
     async function* feed() { for (let n = 1; n <= 3; n++) { yield { n }; await new Promise((r) => setTimeout(r, 80)); } }
     const server = createHttpServer(

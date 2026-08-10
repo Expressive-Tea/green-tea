@@ -5,10 +5,10 @@ import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
 import type { WsRequest, WsSocket } from './ws-core';
 import type { StaticResolver } from '../views';
 
-/** Per-request size and timeout ceilings applied by the server. */
+/** Per-request and per-server resource ceilings applied by the server. */
 export interface RequestLimits {
   maxBodyBytes?: number; // default 1_000_000
-  maxConnections?: number;
+  maxConnections?: number; // default 1000; <= 0 means unlimited (Node only)
   requestTimeoutMs?: number; // default 30_000
   headersTimeoutMs?: number; // default 10_000
   keepAliveTimeoutMs?: number; // default 5_000
