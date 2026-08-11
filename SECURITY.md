@@ -16,15 +16,35 @@ which reaches the same people.
 
 ## What happens next
 
-We will acknowledge your report within 3 working days, and tell you whether we agree it is a
-vulnerability within 10. If we do, you get the fix timeline and a heads-up before the advisory
-goes public. If we don't, you get the reasoning rather than silence.
+Acknowledgement within **5 working days**. A verdict on whether we agree it is a vulnerability
+within **15**. If we agree, you get the fix timeline and a heads-up before the advisory goes
+public. If we don't, you get the reasoning rather than silence.
+
+Those numbers are deliberately slower than the 24 to 48 hours you will see quoted elsewhere.
+That figure comes from the CERT Guide to Coordinated Vulnerability Disclosure and describes
+vendors and coordinators — organizations with someone on rotation. This project is one person.
+A number that only holds in a good week is worse than an honest one.
+
+Which is why there is an escape hatch, and you should use it. **If you have no acknowledgement
+after 10 working days**, write directly to diego.resendez@expressive-tea.io. If that is also
+met with silence, consider yourself released from any embargo and disclose as you see fit. You
+will not have done anything wrong: a project that goes quiet on a security report has spent
+whatever claim it had on your patience.
+
+## Disclosure window
+
+We ask for **90 days** from your report before public disclosure, or until the fix ships,
+whichever comes first. That is the industry default and we are not asking you for more than
+anyone else does. If the fix is out in a week, so is the advisory.
+
+If a vulnerability is being actively exploited, the window is however long it takes us to ship,
+and we will say so rather than hold you to 90 days while users are being attacked.
 
 We publish a GitHub advisory for anything that affects a released version, and credit you by
 the name you ask for. Say so if you would rather not be named.
 
-Green tea is a small project run by a small number of people. We do not run a bug bounty and
-have no money to offer you, which we would rather state plainly than leave you to discover.
+There is no bug bounty and no money, which we would rather state here than leave you to find
+out after the work.
 
 ## Supported versions
 
