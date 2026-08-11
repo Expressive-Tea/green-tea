@@ -99,6 +99,38 @@ If your assistant reads repository instructions, `AGENTS.md` has the conventions
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`. Focus the message on the *why*. Do not add AI co-authoring attribution.
 
+## Local setup
+
+Node 18 or newer, which is what `engines` requires and what CI runs.
+
+```bash
+npm install
+```
+
+That does one thing worth knowing about: the `prepare` script points `core.hooksPath` at
+`.githooks/`, which installs a pre-commit gate. The gate formats and lint-fixes your staged
+sources automatically, then refuses the commit if `npm run lint` or `npm run complexity:check`
+fails. It is there so CI tells you nothing you couldn't have heard locally. Confirm it took:
+
+```bash
+git config core.hooksPath   # should print .githooks
+```
+
+If it prints nothing, run `git config core.hooksPath .githooks` yourself. If you install with
+something other than npm, check this before your first commit rather than after.
+
+`npm test` runs the Node suite under Vitest. The other three runtimes have their own commands
+and their own toolchains, and none of them run in CI:
+
+```bash
+npm run test:deno   # needs deno
+npm run test:bun    # needs bun
+npm run test:edge   # Miniflare
+```
+
+You are not expected to install all three to fix a typo. You are expected to run the one your
+change touches, and to say in the pull request which ones you ran.
+
 ## Before you open a pull request
 
 Run what CI runs:
@@ -109,6 +141,7 @@ npm run format:check
 npm run typecheck # must be clean — this includes the compile-time-guarantee type test
 npm test          # all tests must pass
 npm run complexity:check
+npm run build
 ```
 
 - Write tests for new behavior (TDD welcome). We use Vitest.
@@ -123,3 +156,9 @@ On GitHub, workflows do not run on pull requests from forks until a maintainer a
 ## Reporting issues
 
 Open an issue with a minimal reproduction: green-tea version, runtime and version, and the smallest module/route that shows the problem.
+
+**Except for security.** If what you found is exploitable, do not open an issue — an issue is world-readable the moment you press the button. Email security@expressive-tea.io or use the [private advisory form](https://github.com/Expressive-Tea/green-tea/security/advisories/new). [`SECURITY.md`](./SECURITY.md) has the scope and what to expect back.
+
+## Code of conduct
+
+By taking part here you agree to the [Code of Conduct](./CODE_OF_CONDUCT.md), which is the Contributor Covenant 2.1. Reports go to compliance@expressive-tea.io.
