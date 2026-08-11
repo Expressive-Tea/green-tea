@@ -1,3 +1,14 @@
 # Design questions, scope decisions and "should this live in core?" threads don't fit a
 # bug form, and they are most of what gets filed here. Keep the blank option available.
 blank_issues_enabled: true
+
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Expressive-Tea/green-tea/security/advisories/new
+    about: Report it privately instead. Never in a public issue — see SECURITY.md.
+  - name: Documentation
+    url: https://green-tea.expressive-tea.io/docs/
+    about: How to wire a route, a module, a plugin or a runtime adapter.
+  - name: Help with your own app
+    url: mailto:support@expressive-tea.io
+    about: Implementation questions about your code rather than a bug in green-tea.
