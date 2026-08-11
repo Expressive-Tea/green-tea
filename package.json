@@ -3,13 +3,14 @@
   "version": "26.8.0-beta.0",
   "description": "A zen, opinionated, type-safe framework \u2014 your API is a graph, not a middleware chain.",
   "license": "MIT",
-  "author": "green-tea contributors",
+  "author": "green-tea contributors <projects@expressive-tea.io>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Expressive-Tea/green-tea.git"
   },
   "bugs": {
-    "url": "https://github.com/Expressive-Tea/green-tea/issues"
+    "url": "https://github.com/Expressive-Tea/green-tea/issues",
+    "email": "projects@expressive-tea.io"
   },
   "homepage": "https://green-tea.expressive-tea.io/docs/",
   "keywords": [
