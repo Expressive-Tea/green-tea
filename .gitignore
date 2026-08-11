@@ -17,3 +17,10 @@ website/dist/
 
 # Edge (Miniflare) test bundle artifact
 test/edge/_worker.mjs
+
+# Bun writes this on `bun install`, and nothing here consumes it: `npm run test:bun` runs
+# `bun test` against the node_modules npm installed, which package-lock.json already pins.
+# deno.lock IS tracked, and that asymmetry is deliberate — the Deno tests import `npm:` and
+# `jsr:` specifiers that Deno resolves against registries, so only a lockfile makes them
+# reproducible. Bun resolves the same package.json npm does.
+bun.lock
