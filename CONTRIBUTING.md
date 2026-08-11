@@ -108,9 +108,11 @@ npm run lint
 npm run format:check
 npm run typecheck # must be clean — this includes the compile-time-guarantee type test
 npm test          # all tests must pass
+npm run complexity:check
 ```
 
 - Write tests for new behavior (TDD welcome). We use Vitest.
+- `complexity:check` caps the cognitive complexity of every function in `src/`. What it measures is how much you have to hold in your head to follow a function from top to bottom, and it charges nesting more heavily than branching: a condition inside a closure inside a function costs several times what the same condition costs at the top level. Going over the threshold is not a verdict on your code — it means one function has grown to ask too much of whoever reads it next. The fix is nearly always to lift a nested closure out to module scope, where its branches are charged once instead of three times over. Raising `COMPLEXITY_MAX` is not the fix, even though the script suggests it.
 - Keep runtime dependencies at zero beyond `reflect-metadata`.
 - A new option or method on a public interface has to change that interface too. An implementation that grows a parameter without `src/app/types.ts` growing it as well is unreachable for anyone consuming the package.
 - New public API needs a doc note in `README.md`.
