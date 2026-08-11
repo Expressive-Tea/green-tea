@@ -5,6 +5,36 @@ on:
   pull_request:
     branches: [develop, main, contrib]
 jobs:
+  # Separate job so a missing sign-off reports on its own and doesn't hide behind the code
+  # gates, and so it costs nothing on push. Checks that the trailer is present, not that it
+  # matches the author — a mismatch is a judgement call for a reviewer, an absent trailer
+  # is not, and telling a contributor on their first push beats telling them on review.
+  dco:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Every commit needs a Signed-off-by
+        env:
+          RANGE: ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+        run: |
+          missing=0
+          for sha in $(git rev-list --no-merges "$RANGE"); do
+            if ! git show -s --format='%(trailers:key=Signed-off-by,valueonly)' "$sha" | grep -q '[^[:space:]]'; then
+              echo "::error::no Signed-off-by: $(git show -s --format='%h %s' "$sha")"
+              missing=1
+            fi
+          done
+          if [ "$missing" = 1 ]; then
+            echo "We use the DCO instead of a CLA. See CONTRIBUTING.md."
+            echo "Fix the whole branch with: git rebase --signoff ${{ github.event.pull_request.base.sha }}"
+            echo "Then: git push --force-with-lease"
+            exit 1
+          fi
+          echo "All commits signed off."
+
   build:
     runs-on: ubuntu-latest
     steps:
