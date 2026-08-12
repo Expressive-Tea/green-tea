@@ -35,7 +35,7 @@ export interface Explain {
 /** A running application instance with lifecycle, introspection and graph-export methods. */
 export interface App {
   listen(port: number): Promise<http.Server>;
-  close(): Promise<void>;
+  close(options?: { timeoutMs?: number }): Promise<void>;
   /**
    * Resolves the dependency graph, then returns. For a mesh app that means connecting to its
    * teapots and splicing their scopes in — a mesh graph is not knowable without asking. For every

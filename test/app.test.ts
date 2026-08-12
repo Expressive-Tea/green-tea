@@ -464,6 +464,27 @@ describe('graceful shutdown', () => {
     await expect(fetch(`http://127.0.0.1:${port}/ticks`).then((r) => r.text())).rejects.toThrow();
     reader.cancel().catch(() => {});
   });
+
+  it('close({ timeoutMs }) forces shutdown when a handler never responds', async () => {
+    @Route('/')
+    class Ctl {
+      @Get('/hang') hang() {
+        return new Promise(() => {}); // never resolves — simulates a stuck handler
+      }
+    }
+    @Module({ mountpoint: '/', controllers: [Ctl] })
+    class M {}
+    const app = createApp({ modules: [M] });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+
+    fetch(`http://127.0.0.1:${port}/hang`).catch(() => {});
+    await new Promise((r) => setTimeout(r, 50));
+
+    const start = Date.now();
+    await app.close({ timeoutMs: 300 });
+    expect(Date.now() - start).toBeLessThan(600);
+  });
 });
 
 describe('overrides', () => {
