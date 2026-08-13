@@ -1,4 +1,4 @@
-import { describe, expect, it, test } from 'vitest';
+import { describe, expect, it, test, vi } from 'vitest';
 import { matchRoute, parseQuery, createHttpServer } from '../src/http';
 
 const handler = async () => ({ status: 200, headers: {}, body: 'ok' });
@@ -137,6 +137,26 @@ describe('request hardening', () => {
     });
     expect(server.maxConnections).toBeUndefined();
     server.close();
+  });
+
+  it('warns once when maxConnections drops connections', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const server = createHttpServer([], [], undefined, undefined, {
+      limits: { maxConnections: 2 },
+    });
+
+    try {
+      server.emit('drop', { remoteAddress: '127.0.0.1', remotePort: 3001 });
+      server.emit('drop', { remoteAddress: '127.0.0.1', remotePort: 3002 });
+
+      expect(warn).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledWith(
+        '[green-tea] maxConnections (2) reached — dropped connection from 127.0.0.1:3001.',
+      );
+    } finally {
+      warn.mockRestore();
+      server.close();
+    }
   });
 
   it('requestTimeout does NOT kill an in-flight SSE stream (streaming regression)', async () => {
