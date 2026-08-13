@@ -5,6 +5,7 @@ import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
 import type { WsRequest, WsSocket } from './ws-core';
 import type { StaticResolver } from '../views';
 import type { Bus } from '../bus';
+import type { Logger } from '../logger';
 
 /** Per-request and per-server resource ceilings applied by the server. */
 export interface RequestLimits {
@@ -24,6 +25,8 @@ export interface HttpOptions {
    * a separate channel for it.
    */
   bus?: Bus;
+  /** Where this server writes diagnostics. Optional because `createHttpServer` takes no options at all in tests. */
+  logger?: Logger;
   limits?: RequestLimits;
   streams?: Set<() => void>;
   tls?: TlsOptions;

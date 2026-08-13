@@ -274,6 +274,7 @@ export function createApp(opts: {
 
   const fetchOpts: HttpOptions = {
     bus,
+    logger,
     limits: opts.limits,
     tls: opts.tls,
     trustProxy: opts.trustProxy,
@@ -305,6 +306,7 @@ export function createApp(opts: {
 
     server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, {
       bus,
+      logger,
       limits: opts.limits,
       streams,
       tls: opts.tls,

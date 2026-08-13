@@ -53,7 +53,21 @@ export function createHttpServer(
     ? nodeHttps.createServer(opts.tls as https.ServerOptions, handler)
     : nodeHttp.createServer(handler)) as unknown as http.Server;
   const maxConnections = opts?.limits?.maxConnections ?? 1000;
-  if (maxConnections > 0) server.maxConnections = maxConnections;
+
+  if (maxConnections > 0) {
+    server.maxConnections = maxConnections;
+    let lastDropWarn = 0;
+    server.on('drop', ({ remoteAddress, remotePort }) => {
+      const now = Date.now();
+      if (now - lastDropWarn < 60_000) return;
+      lastDropWarn = now;
+      opts?.logger?.warn(
+        `maxConnections (${maxConnections}) reached \u2014 dropped connection from ${remoteAddress ?? 'unknown'}:${remotePort ?? 'unknown'}`,
+        { maxConnections, remoteAddress, remotePort },
+      );
+    });
+  }
+
   server.requestTimeout = opts?.limits?.requestTimeoutMs ?? 30_000;
   server.headersTimeout = opts?.limits?.headersTimeoutMs ?? 10_000;
   server.keepAliveTimeout = opts?.limits?.keepAliveTimeoutMs ?? 5_000;

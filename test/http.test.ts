@@ -1,4 +1,6 @@
-import { describe, expect, it, test } from 'vitest';
+import { describe, expect, it, test, vi } from 'vitest';
+import * as net from 'node:net';
+import { once } from 'node:events';
 import { matchRoute, parseQuery, createHttpServer } from '../src/http';
 
 const handler = async () => ({ status: 200, headers: {}, body: 'ok' });
@@ -141,6 +143,55 @@ describe('request hardening', () => {
     });
     expect(server.maxConnections).toBeUndefined();
     server.close();
+  });
+
+  it('warns when maxConnections drops a real connection and throttles repeated warnings', async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    const server = createHttpServer([], [], undefined, undefined, {
+      logger,
+      limits: { maxConnections: 1 },
+    });
+
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('server did not bind to a TCP port');
+
+    const first = net.createConnection({ host: '127.0.0.1', port: address.port });
+    await once(first, 'connect');
+
+    const waitForClose = (socket: net.Socket): Promise<void> =>
+      new Promise((resolve) => {
+        socket.on('error', () => undefined);
+        socket.once('close', () => resolve());
+      });
+
+    const second = net.createConnection({ host: '127.0.0.1', port: address.port });
+    const third = net.createConnection({ host: '127.0.0.1', port: address.port });
+    const secondClosed = waitForClose(second);
+    const thirdClosed = waitForClose(third);
+
+    try {
+      await Promise.all([secondClosed, thirdClosed]);
+
+      expect(logger.warn).toHaveBeenCalledOnce();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('maxConnections (1) reached \u2014 dropped connection from'),
+        expect.objectContaining({
+          maxConnections: 1,
+          remoteAddress: '127.0.0.1',
+        }),
+      );
+    } finally {
+      first.destroy();
+      second.destroy();
+      third.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it('requestTimeout does NOT kill an in-flight SSE stream (streaming regression)', async () => {
