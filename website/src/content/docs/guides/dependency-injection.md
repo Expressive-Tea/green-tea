@@ -53,7 +53,8 @@ const app = createApp({ modules: [ApiModule] });
 await app.listen(3000);
 // GET /api/users/9  (header x-token) → { "requested": "9", "you": { "id": "...", "name": "Diego" } }
 
-await app.close();   // graceful shutdown: drains in-flight requests, closes streams + mesh links
+await app.close();   // graceful shutdown: drains in-flight, closes streams + mesh links,
+                     // then force-closes whatever is left after 10s — app.close({ timeoutMs })
 ```
 
 ## `@Provider` — app-scope, memoized

@@ -26,6 +26,7 @@ const app = createApp(options);
 | `views` | `string` | `process.cwd()` | base dir `@Html('file.html')` paths resolve against — relative paths join it, absolute paths are used as-is ([HTML & views](/docs/guides/html/)) |
 | `viewEngine` | `(source: string, data: unknown) => string` | built-in `render` | swap in your own template engine for `@Html(..., { template: true })`; template mode only ([HTML & views](/docs/guides/html/)) |
 | `static` | `boolean \| string` | — | serve a directory as a `GET`/`HEAD` fallback (after declared routes, before `404`); `true` → `./public`, a string → that dir; path-traversal-safe; needs a filesystem — Node/Deno/Bun only ([HTML & views](/docs/guides/html/)) |
+| `shutdownTimeoutMs` | `number` | `10_000` | how long `close()` gives in-flight work before forcing the rest shut; `close({ timeoutMs })` still wins per call. Set it here when `close()` is reached from a signal handler or shutdown hook you do not own ([runtimes](/docs/guides/runtimes/)) |
 | `mesh` | `MeshConfig` | — | distributed DI — **requires `experimental: true`** ([mesh](/docs/guides/mesh/)) |
 | `experimental` | `boolean` | `false` | opt in to alpha features (currently gates `mesh`) |
 | `warnGraphDepth` | `number \| false` | `20` | warn when one route resolves to more than this many steps; `false` disables the design warning |
@@ -64,7 +65,7 @@ const app = createApp(options);
 | Member | Returns | Notes |
 |---|---|---|
 | `listen(port)` | `Promise<http.Server>` | boots providers, then serves |
-| `close()` | `Promise<void>` | drains in-flight, closes streams + mesh links |
+| `close({ timeoutMs? })` | `Promise<void>` | drains in-flight, closes streams + mesh links; after the deadline (default `10s`, or `createApp({ shutdownTimeoutMs })`) it warns and force-closes what is left. Node-only — see [runtimes](/docs/guides/runtimes/) |
 | `ready()` | `Promise<void>` | resolves the graph and mesh links without booting providers |
 | `fetch(request)` | `Promise<Response>` | Web-Standards HTTP/SSE handler for Node, Deno, Bun, and edge |
 | `upgrade(request, socket)` | `Promise<void>` | neutral WebSocket upgrade used by non-Node adapters |

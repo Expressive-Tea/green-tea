@@ -41,6 +41,32 @@ destroys excess sockets without sending an HTTP response. `Deno.serve` and `Bun.
 equivalent active-socket cap, so `serveDeno` and `serveBun` cannot enforce this option. Apply the
 connection limit at the deployment platform or reverse proxy on those runtimes.
 
+**Shutdown belongs to whoever owns the server.** `app.close()` is Node-only. On Deno and Bun the
+app is served through `app.fetch` and never through `app.listen()`, so `app.close()` has no server
+to drain and returns immediately — it warns if you passed `timeoutMs`. The server `serveDeno()` and
+`serveBun()` return carries the same `close({ timeoutMs })` instead:
+
+```ts
+const server = serveBun(app, { port: 3000 });   // or serveDeno(app, { port: 3000 })
+await server.close({ timeoutMs: 5_000 });
+```
+
+On Cloudflare Workers there is nothing to close: `edgeHandler` is a handler, not a server, and the
+platform owns the lifecycle.
+
+One difference the deadline cannot hide:
+
+| Runtime | After the deadline |
+|---|---|
+| Node | warns, then `closeAllConnections()` — the remainder is cut |
+| Bun | warns, then `stop(true)` — the remainder is cut |
+| Deno | warns, then **returns anyway**; the remainder ends with the process |
+
+Deno offers no force-close that composes with a drain already under way — aborting the signal its
+server was started with throws `BadResource` once `shutdown()` is pending. So on Deno the deadline
+bounds how long `close()` waits, not when the connections die. Exit the process after `close()`
+resolves and the effect is the same; keep serving and it is not.
+
 **Body-size enforcement differs slightly:** on `app.fetch`, an oversized body is read in full
 before the `413` is returned, whereas Node aborts mid-stream once the limit is hit — so on
 non-Node runtimes, also bound request size at the platform/runtime layer.
