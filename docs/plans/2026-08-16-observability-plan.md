@@ -111,12 +111,26 @@ Tasks 1–3 are the correction; 4–6 are what consumes it. Do not start 4 befor
 
 **Step 4:** `route` on every payload is the **matched pattern**, never the concrete path. A metrics consumer labelling on raw URLs produces unbounded cardinality and takes down the metrics backend; the framework must not hand anyone that shape by default.
 
-### Task 7: Benchmark, and publish the number
+### Task 7: Benchmark, and publish the number — **DONE; D7 was wrong in shape**
 
 **Files:**
 - Modify: `BENCHMARKS.md`
 
-`npm run bench` before and after, same box, same run. D7 predicts ~0.25% per step and predicts it is invisible against a 0.3% CV. If the measurement disagrees with the design, the design is what changes — say so rather than quietly keeping the code.
+D7 predicted ~0.25% **per step**, invisible against the harness's own 0.3% CV. Measured over a real socket, on the box `BENCHMARKS.md` was produced on, same server config both sides:
+
+| Scenario | Before | After | |
+|---|---:|---:|---:|
+| JSON hello | 78,118 req/s | 75,075 req/s | −3.9% |
+| Pipeline (3 steps) | 70,671 req/s | 69,164 req/s | −2.1% |
+
+**The route with fewer steps loses more**, which falsifies the model rather than only the number. The per-step cost is real but is skipped entirely when nothing subscribes (`Bus.hasListeners`); what remains is a **fixed per-request** cost — generating the request id, reading two headers, and the guard checks. A shallow route amortises that over less work, so it shows up larger.
+
+Two regressions were found and fixed by measuring rather than reasoning, both larger than anything the design anticipated:
+
+- **A second `async` frame in `handle()` cost 0.43 µs/request** — a promise and two microtask ticks, an order of magnitude more than the four `Map` lookups it existed to arrange. `handle()` is no longer `async`.
+- **A closure allocated per request inside `correlateRequest`** cost 0.16 µs, 45% of the then-remaining overhead, for a helper capturing nothing.
+
+Recorded here because the lesson generalises: on this path, an extra promise costs more than any amount of bookkeeping, and a hot-path prediction reasoned from primitive costs was off by more than 10×.
 
 ### Task 8: Documentation
 

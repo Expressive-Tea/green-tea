@@ -149,6 +149,8 @@ Two things follow. `Date.now()` loses on both axes — slower *and* coarser — 
 
 At 0.25% per step the overhead sits **below the 0.3% run-to-run CV of the project's own benchmark**, so it is not measurable in the harness that would have to justify a flag. Making it opt-in would buy two code paths and a configuration surface in exchange for something nobody can observe. Always on.
 
+> **Correction, after implementation.** This decision survived; its reasoning did not. Measured over a real socket the cost is **−3.9% on JSON hello and −2.1% on a three-step pipeline** — the shallower route loses *more*, which is the opposite of a per-step model. Per-step work is skipped entirely when nothing subscribes; what is left is a fixed per-request cost. "Always on" is still right, and for a better reason: there is nothing per-step left to make optional. See Task 7 in the implementation plan.
+
 ### D8 — Request logging is a `Bus` subscriber, wrapped so a failing logger cannot go silent
 
 The logger is a callable sink either way — the 8 direct diagnostics (shutdown timeout, degraded provider) are not events and need one regardless. The decision is only about request logging, and it goes through the event stream: one path, and it is composable and removable exactly as #10 asks for ("a composable step, not a global middleware").
