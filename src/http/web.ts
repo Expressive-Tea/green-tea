@@ -100,6 +100,36 @@ async function acquireFetchBody(
   return { body: parsed.body };
 }
 
+/**
+ * Whatever the host runtime's `Response` accepts as a body. Derived from the constructor rather
+ * than written as `BodyInit`, because that name is not global under this `lib` (`es2020` plus
+ * `@types/node`) even though `Response` itself is — and Deno spells the same idea from its own lib.
+ */
+type ResponseBody = ConstructorParameters<typeof Response>[0];
+
+/**
+ * Narrows a buffered body to something the runtime's `Response` accepts.
+ *
+ * A Node `Buffer` is a `Uint8Array` at runtime, so every runtime here takes one — but its declared
+ * backing store is `ArrayBufferLike`, which admits `SharedArrayBuffer`, and `BodyInit` accepts only
+ * `ArrayBuffer`-backed views. Deno's lib therefore rejects it outright: this is the `app.fetch` path,
+ * so the mismatch reaches Deno, Bun and edge alike. Node never allocates a Buffer over a
+ * `SharedArrayBuffer`, which is what makes the assertion on the backing store safe to state.
+ *
+ * `byteOffset`/`byteLength` are load-bearing, not defensive. `Buffer.from` and `Buffer.allocUnsafe`
+ * hand back a window into a shared 8 KB pool, so re-viewing the backing store without them yields
+ * the whole pool — neighbouring allocations included. Today the only Buffer reaching here comes from
+ * `fs.promises.readFile`, which returns an exactly-sized allocation, so nothing currently trips that.
+ * `StaticHit.body` is typed `Buffer` though, and a pooled one is a correct value for it.
+ *
+ * Re-viewing rather than copying: this is the buffered-response path, and a copy per response would
+ * be a real cost on the runtimes that have no other adapter.
+ */
+export function toBodyInit(body: string | Buffer): ResponseBody {
+  if (typeof body === 'string') return body;
+  return new Uint8Array(body.buffer as ArrayBuffer, body.byteOffset, body.byteLength);
+}
+
 /** Converts a {@link HandleResult}'s outcome into a web `Response`, buffered or streamed. */
 function outcomeToResponse(result: HandleResult): Response {
   const headers = mergeInjectedHeaders(result.outcome.headers, result.injected) as Record<string, string>;
@@ -108,7 +138,7 @@ function outcomeToResponse(result: HandleResult): Response {
     return new Response(asReadableStream(result.outcome.stream, result.outcome.encoder), { headers });
   }
 
-  const body = [204, 205, 304].includes(result.outcome.status) ? null : result.outcome.body;
+  const body = [204, 205, 304].includes(result.outcome.status) ? null : toBodyInit(result.outcome.body);
   return new Response(body, { status: result.outcome.status, headers });
 }
 
