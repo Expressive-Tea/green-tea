@@ -1,6 +1,6 @@
 # Observability — Design
 
-**Issue:** [#10](https://github.com/Expressive-Tea/green-tea/issues/10) · **Status:** design, not yet implemented · **Constraint:** no new runtime dependency
+**Issue:** [#10](https://github.com/Expressive-Tea/green-tea/issues/10) · **Status:** reviewed, all decisions settled · **Constraint:** no new runtime dependency
 
 ---
 
@@ -127,11 +127,33 @@ No metrics registry in core, and no new event type for them. Per-step timings co
 
 ---
 
-## Open questions for review
+### D6 — A request span ends when the handler returns, and stream events carry its `requestId`
 
-1. **Is `request:start`/`end` the right boundary on a streaming route?** A stream returns from `handle()` long before it finishes. Ending the request span at return means an SSE connection reports as a 2 ms request; ending it at stream close means an hour-long request. The same split #21 hit with its concurrency gate, and it should be answered the same way in both places rather than differently.
-2. **Does `runSteps` measure per step, or only the pipeline total?** Per step is what makes the graph's timing story real, and it is `performance.now()` twice per step on the hot path. Benchmark before committing, `npm run bench` is already there.
-3. **Does the logger receive events, or do events feed the logger?** If the default logger is just a Bus subscriber, request logging is composable exactly as #10 asks ("a composable step, not a global middleware") and there is only one path. If it is separate, there are two. Leaning subscriber; wants a second opinion.
+A streaming route returns from `handle()` in milliseconds while the connection lives for minutes or hours. `request:end` fires at the handler's return, so latency histograms measure time-to-first-byte and stay meaningful instead of mixing 2 ms buffered requests with hour-long SSE connections in one distribution. Connection duration is already available from `stream:open`/`stream:close`, which now carry the same `requestId` so a consumer can join the two.
+
+This is the same boundary #21 chose for its concurrency gate — release when `handle()` returns, treat long-lived streams like upgrades. Answering it differently in the two places would mean the framework disagreed with itself about when a request is over.
+
+### D7 — Per-step timing is always on, measured at step boundaries
+
+Measured before deciding, on the box `BENCHMARKS.md` was produced on:
+
+| Approach | Cost per step | Share of one request |
+|---|---:|---:|
+| `performance.now()` ×2 per step | 45.3 ns | 0.44% |
+| **`performance.now()` at step boundaries (N+1 calls for N steps)** | **25.2 ns** | **0.25%** |
+| `Date.now()` ×1 | 28.6 ns | — |
+
+Baseline: 98,093 req/s ≈ 10.19 µs per request.
+
+Two things follow. `Date.now()` loses on both axes — slower *and* coarser — so `performance.now()` is unambiguous. And a step's end is the next step's start, so a pipeline of N steps needs N+1 timestamps rather than 2N, halving the cost.
+
+At 0.25% per step the overhead sits **below the 0.3% run-to-run CV of the project's own benchmark**, so it is not measurable in the harness that would have to justify a flag. Making it opt-in would buy two code paths and a configuration surface in exchange for something nobody can observe. Always on.
+
+### D8 — Request logging is a `Bus` subscriber, wrapped so a failing logger cannot go silent
+
+The logger is a callable sink either way — the 8 direct diagnostics (shutdown timeout, degraded provider) are not events and need one regardless. The decision is only about request logging, and it goes through the event stream: one path, and it is composable and removable exactly as #10 asks for ("a composable step, not a global middleware").
+
+The cost this closes: `emit` swallows listener failures by design (`src/bus.ts:41`), so a user-supplied logger that throws would stop writing with nobody informed. The built-in subscriber is therefore wrapped to fall back to `console` on failure. The Bus keeps its guarantee — an observer still cannot break a request — without buying it with silence.
 
 ---
 
