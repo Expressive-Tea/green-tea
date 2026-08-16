@@ -103,6 +103,13 @@ export function createApp(opts: {
   viewEngine?: (source: string, data: unknown) => string;
   /** Serve a static directory as a GET/HEAD fallback (after declared routes, before 404). `true` → `./public`. */
   static?: boolean | string;
+  /**
+   * How long `close()` gives in-flight work before forcing remaining connections shut, in ms
+   * (default: 10s). `close({ timeoutMs })` still wins per call. Set it here when `close()` is
+   * reached from a signal handler, a test helper or a shutdown hook you do not own, which is
+   * where passing it per call is not an option.
+   */
+  shutdownTimeoutMs?: number;
   /** Opt in to alpha features whose API may still change. Currently gates `mesh`. */
   experimental?: boolean;
   /**
@@ -260,7 +267,8 @@ export function createApp(opts: {
     return server;
   };
 
-  const close = (options: { timeoutMs?: number } = {}): Promise<void> => closeApp(server, meshLinks, streams, options);
+  const close = (options: { timeoutMs?: number } = {}): Promise<void> =>
+    closeApp(server, meshLinks, streams, options, opts.shutdownTimeoutMs);
 
   return {
     listen,
@@ -950,6 +958,7 @@ function closeApp(
   meshLinks: Link[],
   streams: Set<() => void>,
   options: { timeoutMs?: number },
+  defaultTimeoutMs: number | undefined,
 ): Promise<void> {
   return new Promise((resolve) => {
     // A mesh app booted through `app.fetch` has links but no server, and would leak every
@@ -967,8 +976,30 @@ function closeApp(
       return resolve();
     }
 
-    const timeoutMs = options.timeoutMs ?? 10_000;
+    const timeoutMs = options.timeoutMs ?? defaultTimeoutMs ?? 10_000;
     let settled = false;
+
+    // The timer is armed before `finish` exists, rather than the other way round, and the ordering
+    // is the point. Whichever one comes second is referenced by the other before its declaration
+    // runs, so what matters is which forward reference rests on a guarantee. setTimeout cannot
+    // invoke its callback synchronously — that is the event loop, not an implementation detail —
+    // so `finish` is always assigned by the time the callback can reach it. The reverse ordering
+    // relied on `server.close(cb)` deferring, which is Node's behaviour rather than a promise to
+    // us, and left a `ReferenceError` waiting in the shutdown path for whoever changed it.
+    const timer = setTimeout(() => {
+      if (settled) return;
+
+      console.warn(
+        `[green-tea] graceful shutdown timed out after ${timeoutMs}ms — ` + 'forcing remaining HTTP connections closed',
+      );
+
+      // closeAllConnections() requires Node >=18.2, same floor as closeIdleConnections()
+      // below — `engines` in package.json only guarantees >=18, so this matters.
+      server.closeAllConnections();
+      finish();
+    }, timeoutMs);
+
+    timer.unref?.();
 
     const finish = () => {
       if (settled) return;
@@ -981,21 +1012,6 @@ function closeApp(
 
     for (const closeStream of streams) closeStream();
     server.closeIdleConnections();
-
-    const timer = setTimeout(() => {
-      if (settled) return;
-
-      console.warn(
-        `[green-tea] graceful shutdown timed out after ${timeoutMs}ms — ` + 'forcing remaining HTTP connections closed',
-      );
-
-      // closeAllConnections() requires Node >=18.2, same floor as closeIdleConnections()
-      // above — `engines` in package.json only guarantees >=18, so this matters.
-      server.closeAllConnections();
-      finish();
-    }, timeoutMs);
-
-    timer.unref?.();
   });
 }
 
