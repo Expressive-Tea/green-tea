@@ -140,11 +140,29 @@ The 10s deadline is hardcoded. Make it configurable at app level, with `close({ 
 
 Per `AGENTS.md:81`, a new option on a public interface **must** also change `src/app/types.ts`. An implementation that grows a parameter alone is unreachable for anyone consuming the package.
 
-### Task 2.3: #15 — graceful shutdown is Node-only
+### Task 2.3: #15 — graceful shutdown is Node-only — **DECIDED, DONE**
 
-Decide and implement: either the Fetch adapters honour the deadline, or `close()` says plainly that they do not.
+**Decision: `app.close()` stays Node-only; each adapter that owns a server offers the same `close({ timeoutMs })`.** The framework's line is *it handles architecture, you handle business*, and draining is owned by whoever holds the handle.
 
-`AGENTS.md:82` governs the fallback: behaviour that differs between runtimes must be explicit. An "unavailable here" is fine; silently accepting an option that does nothing is a bug. Follow the precedent already set for `maxConnections` at `runtimes.md:37`, `src/bun.ts:59` and `src/deno.ts:34`, where the project documented the runtime gap rather than faking parity.
+What the runtimes turned out to allow, measured rather than assumed:
+
+| Runtime | Drain | After the deadline |
+|---|---|---|
+| Node | `server.close()` | `closeAllConnections()` — remainder cut |
+| Bun | `stop(false)` | `stop(true)` — remainder cut |
+| Deno | `shutdown()` | **returns anyway** — remainder ends with the process |
+
+Deno cannot escalate. Aborting the serve signal while `shutdown()` is pending throws `BadResource: Bad resource ID` from Deno's own listener — uncaught, and fatal under `deno test`. Measured on Deno 2.9: abort alone is clean, abort after shutdown is not. So on Deno the deadline bounds how long `close()` waits, not when connections die, and `runtimes.md` says so in a table rather than averaging the three.
+
+`closeWithDeadline` (`src/http/shutdown.ts`) is shared so the two adapters cannot drift into different meanings of the same `timeoutMs`, and it resolves on its own timer rather than awaiting the force call — Bun's `stop(true)` was measured waiting out a handler with a pending timer, which is the unbounded wait the deadline exists to prevent.
+
+### Task 2.5: Shutdown as an extension point — **OPEN, needs its own design**
+
+Raised while deciding #15: shutdown should emit signals so plugins and providers register their own teardown, instead of every consumer writing `process.on('SIGTERM', …)` by hand. Same principle as the decision above — the framework owns the plumbing.
+
+It does **not** fit the existing `Bus`, and that is the finding worth carrying forward. `Bus.on` takes a synchronous listener (`src/bus.ts:29`) and `emit` neither awaits nor surfaces failures (`src/bus.ts:38`, `catch {}`). That is deliberate — observers must never break the pipeline — but a plugin closing a database connection needs shutdown to *wait for it*. Registering a teardown is not observing an event, and bending `Bus` to do both would cost the guarantee that makes it safe.
+
+So it needs: an await-aware teardown registry, a new surface on `PluginApi` (public API — `src/plugin.ts:19`), and a decision about provider cleanup. That is Trust Release §14 "Graceful lifecycle guarantees" and CTO P0-4, and it belongs in a design document rather than inside a bug-fix cluster. Sequence it with Phase 3, whose observability contract shares the same lifecycle vocabulary.
 
 ### Task 2.4: #18 — docs still describe `close()` without the timeout
 
