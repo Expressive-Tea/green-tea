@@ -40,7 +40,7 @@ export {
   Options,
   Html,
 } from './metadata';
-export type { Transport, HttpMethod } from './metadata';
+export type { Transport, HttpMethod, RouteDecorator } from './metadata';
 export type { Plugin } from './plugin';
 
 // Transformers & error signals
@@ -63,7 +63,7 @@ export type { StepFn, CompiledFlow } from './flow';
 
 // Parameter decorators
 export { needs, ctx, param, query, body, headers, header, inbound, abort } from './params';
-export type { Query, Headers, Context, ArgSpec } from './params';
+export type { Query, Headers, Context, ArgSpec, ArgDecorator } from './params';
 
 // Streaming
 export { channel, isAsyncIterable } from './channel';
