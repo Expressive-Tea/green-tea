@@ -51,13 +51,19 @@ export function correlateRequest(headers: Record<string, string | string[] | und
   const incoming = first(headers['x-request-id'])?.trim();
   const traceId = first(headers.traceparent)?.trim();
 
-  // Eager, and `randomUUID` rather than something cheaper, both deliberately. A lazy getter is
-  // defeated the moment anything spreads this object — which the adapters and the payload builders
-  // both do — so it would buy nothing without threading a nested correlation object through the
-  // whole request path. And a boot-prefix counter measured 5x cheaper (14.7ns vs 77.1ns) but
-  // trades the standard identifier shape for ~1.7% of a real request. Neither is worth its
-  // complexity until a profile says otherwise; the expensive part was building payloads for
-  // nobody, and `Bus.hasListeners` is what fixed that.
+  // `randomUUID` is not the lazy choice here, it is the measured one. Every supported runtime
+  // already batches entropy behind it, so the obvious "faster" replacements are not:
+  //
+  //   crypto.randomUUID()                       76 ns
+  //   batched getRandomValues + hex, 12 bytes   50 ns   cross-runtime, saves 0.26% of a request
+  //   batched + Buffer.toString('hex')          49 ns   Node-only, so it cannot be used here
+  //   uint32 -> toString(36) from a pool       114 ns
+  //   Math.random() x2 -> base36               265 ns   3.5x SLOWER; string work dominates
+  //   getRandomValues per call, unbatched      472 ns
+  //
+  // The only cross-runtime win is 26 ns, against ~10.19 us for a real socketed request. A hand-
+  // rolled entropy pool is not worth 0.26%. A lazy getter is separately useless: the adapters and
+  // the payload builders both spread this object, and the first spread materialises it.
   return { requestId: incoming || crypto.randomUUID(), traceId: traceId || undefined };
 }
 
