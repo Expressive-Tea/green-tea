@@ -1,5 +1,5 @@
 ---
-title: Plugins & observability
+title: Plugins
 description: "Extending the app safely via bus.on and scope.add."
 ---
 
@@ -45,13 +45,19 @@ api.bus.on('request:step:enter', (p: any) => { /* ... */ });
 api.bus.on('request:step:leave', (p: any) => { /* ... */ });
 ```
 
-The full event vocabulary:
+The full event vocabulary, what each payload carries, and how requests are correlated across
+them live in [Observability](/docs/guides/observability/). The short version:
 
+- `request:start | request:end | request:failed` — the request itself
+- `route:matched | route:unmatched` — routing (`unmatched` covers both 404 and 405)
+- `request:step:*` — a step entering/exiting/failing, with its own `durationMs`
 - `boot:provider:*` — provider lifecycle during boot
-- `request:step:*` — a step entering/exiting during a request
 - `stream:open | stream:close | stream:error` — SSE/WS stream lifecycle
 - `mesh:connect | mesh:disconnect | mesh:rpc:error` — mesh link and RPC activity
 - `plugin:mounted` — a plugin finished mounting
+
+Every per-request payload carries a `requestId`, so a plugin can attribute events to the request
+that caused them — which matters the moment two requests overlap.
 
 Observation is read-only: handlers see the event payload but can't alter control flow. To
 change behavior, contribute a node to your scope — see

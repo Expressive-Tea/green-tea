@@ -26,6 +26,8 @@ const app = createApp(options);
 | `views` | `string` | `process.cwd()` | base dir `@Html('file.html')` paths resolve against — relative paths join it, absolute paths are used as-is ([HTML & views](/docs/guides/html/)) |
 | `viewEngine` | `(source: string, data: unknown) => string` | built-in `render` | swap in your own template engine for `@Html(..., { template: true })`; template mode only ([HTML & views](/docs/guides/html/)) |
 | `static` | `boolean \| string` | — | serve a directory as a `GET`/`HEAD` fallback (after declared routes, before `404`); `true` → `./public`, a string → that dir; path-traversal-safe; needs a filesystem — Node/Deno/Bun only ([HTML & views](/docs/guides/html/)) |
+| `logger` | `Logger` | structured JSON (readable on a TTY) | where every framework diagnostic is written; also injectable as `@needs('logger')` ([observability](/docs/guides/observability/)) |
+| `logRequests` | `boolean` | `false` | log one line per completed request and per failure; a removable Bus subscriber, not a middleware ([observability](/docs/guides/observability/)) |
 | `shutdownTimeoutMs` | `number` | `10_000` | how long `close()` gives in-flight work before forcing the rest shut; `close({ timeoutMs })` still wins per call. Set it here when `close()` is reached from a signal handler or shutdown hook you do not own ([runtimes](/docs/guides/runtimes/)) |
 | `mesh` | `MeshConfig` | — | distributed DI — **requires `experimental: true`** ([mesh](/docs/guides/mesh/)) |
 | `experimental` | `boolean` | `false` | opt in to alpha features (currently gates `mesh`) |
@@ -75,7 +77,8 @@ const app = createApp(options);
 | `toMermaid()` / `toDOT()` | `string` | render the graph |
 | `openapi(info?)` | `OpenApiDoc` | structural OpenAPI 3.1 document ([details](/docs/guides/openapi/)) |
 | `degraded()` | `string[]` | optional providers running degraded (empty until providers boot through `fetch`, `upgrade`, or `listen`) |
-| `bus` | `Bus` | lifecycle + request event bus |
+| `bus` | `Bus` | lifecycle + request event bus ([observability](/docs/guides/observability/)) |
+| `logger` | `Logger` | the app's logger — the one passed in, or the default |
 
 :::note
 On mesh apps, `graph` / `explain` / `inspect` / `degraded` are only available after `ready()` or the first serving call — the graph is finalized once remote scopes connect.
