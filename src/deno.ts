@@ -90,10 +90,10 @@ export function serveDeno(app: App, options?: DenoServeOptions): DenoServer {
         () => {},
         closeOptions.timeoutMs ?? 10_000,
         (ms) =>
-          console.warn(
-            `[green-tea] graceful shutdown timed out after ${ms}ms — returning anyway. Deno cannot ` +
-              'force-close a server that is already draining, so remaining connections end when the ' +
-              'process does.',
+          app.logger.warn(
+            `graceful shutdown timed out after ${ms}ms — returning anyway. Deno cannot force-close ` +
+              'a server that is already draining, so remaining connections end when the process does.',
+            { timeoutMs: ms, runtime: 'deno' },
           ),
       ),
   });

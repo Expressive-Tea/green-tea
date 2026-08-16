@@ -123,7 +123,10 @@ export function serveBun(app: App, options?: BunServeShortOptions): BunServeResu
         () => void server.stop(true),
         closeOptions.timeoutMs ?? 10_000,
         (ms) =>
-          console.warn(`[green-tea] graceful shutdown timed out after ${ms}ms — forcing remaining connections closed`),
+          app.logger.warn(`graceful shutdown timed out after ${ms}ms — forcing remaining connections closed`, {
+            timeoutMs: ms,
+            runtime: 'bun',
+          }),
       ),
   });
 }

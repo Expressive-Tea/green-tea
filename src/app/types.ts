@@ -1,5 +1,6 @@
 import type http from 'http';
 import type { Bus } from '../bus';
+import type { Logger } from '../logger';
 import type { GraphNode } from '../graph';
 import type { GraphView } from '../graph-viz';
 import type { HttpMethod, Transport } from '../metadata';
@@ -62,6 +63,12 @@ export interface App {
   /** Names of optional providers that failed to boot and are running degraded (empty until {@link App.listen}). */
   degraded(): string[];
   bus: Bus;
+  /**
+   * Where framework diagnostics are written — the one passed to `createApp({ logger })`, or the
+   * default. Exposed so the Deno and Bun adapters report through the application's logger rather
+   * than reaching past it to `console`, and so a plugin or a test can read what core would write.
+   */
+  logger: Logger;
 }
 
 /** Internal per-route plan: match criteria, its resolved provider/step closure, and the compiled handler. */

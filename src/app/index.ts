@@ -1,5 +1,6 @@
 import type http from 'http';
 import { Bus } from '../bus';
+import { createDefaultLogger, type Logger } from '../logger';
 import { Container } from '../container';
 import { topoSort, subgraphFor, GraphNode, nearest } from '../graph';
 import { toMermaid, toDOT, graphHtml, type GraphView } from '../graph-viz';
@@ -110,6 +111,16 @@ export function createApp(opts: {
    * where passing it per call is not an option.
    */
   shutdownTimeoutMs?: number;
+  /**
+   * Where every framework diagnostic is written (default: structured JSON, human-readable on a TTY).
+   *
+   * Registered here rather than declared as a provider, and the ordering is why: provider boot
+   * events and the failures they report happen *while* the graph resolves, so a provider cannot
+   * report its own boot failing, and shutdown warnings happen after the graph is gone. The logger
+   * has to outlive the graph on both ends. It is also reachable from a step or handler as
+   * `@needs('logger')` — one object, two access paths.
+   */
+  logger?: Logger;
   /** Opt in to alpha features whose API may still change. Currently gates `mesh`. */
   experimental?: boolean;
   /**
@@ -127,6 +138,7 @@ export function createApp(opts: {
   }
 
   const bus = new Bus();
+  const logger = opts.logger ?? createDefaultLogger();
   const container = new Container();
   let server: http.Server | undefined;
   const streams = new Set<() => void>();
@@ -137,7 +149,7 @@ export function createApp(opts: {
   const registry = collectModules(opts.modules, viewsCtx);
   const { providerNodes, stepNodes, runners, providerMeta, routePlans } = registry;
   mountPlugins(opts.plugins, bus, registry);
-  provideBuiltins(registry);
+  provideBuiltins(registry, logger);
 
   // For each route, resolve which providers/steps feed it via topo order.
   // MVP: every route depends on every declared step + provider in the app graph.
@@ -150,7 +162,7 @@ export function createApp(opts: {
   const meshLinks: Link[] = [];
 
   const finalize = (): void => {
-    ({ orderedProviders, orderedSteps } = finalizeGraph(registry, opts.warnGraphDepth));
+    ({ orderedProviders, orderedSteps } = finalizeGraph(registry, logger, opts.warnGraphDepth));
     booted = true;
   };
 
@@ -166,7 +178,7 @@ export function createApp(opts: {
   // can only be built here, after finalize(), and never at construction time.
   const prepareGraph = async (): Promise<void> => {
     if (opts.mesh && !booted) {
-      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry);
+      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry, logger);
       remoteRoutes = spliced.remoteRoutes;
       meshLinks.push(...spliced.meshLinks);
       finalize();
@@ -214,7 +226,7 @@ export function createApp(opts: {
     registry,
     opts.overrides,
     () => orderedProviders,
-    { runners, container, providerMeta, bus },
+    { runners, container, providerMeta, bus, logger },
     degradedProviders,
     ready,
   );
@@ -268,7 +280,7 @@ export function createApp(opts: {
   };
 
   const close = (options: { timeoutMs?: number } = {}): Promise<void> =>
-    closeApp(server, meshLinks, streams, options, opts.shutdownTimeoutMs);
+    closeApp(server, meshLinks, streams, options, opts.shutdownTimeoutMs, logger);
 
   return {
     listen,
@@ -284,6 +296,7 @@ export function createApp(opts: {
     openapi,
     degraded: () => [...degradedProviders],
     bus,
+    logger,
   };
 }
 
@@ -450,7 +463,17 @@ function mountPlugins(plugins: Plugin[] | undefined, bus: Bus, registry: Registr
 }
 
 /** Auto-provides a shared {@link Rooms} instance unless the user already declared a `rooms` provider. */
-function provideBuiltins(registry: Registry): void {
+function provideBuiltins(registry: Registry, logger: Logger): void {
+  // `logger` is registered as an ordinary provider *in addition to* being framework infrastructure,
+  // so a step or handler reaches it with `@needs('logger')` like any other dependency. It is the
+  // same object createApp holds, not a second one — core cannot depend on the graph for something
+  // it must use while the graph is still resolving.
+  if (!registry.runners.has('logger')) {
+    registry.providerNodes.push({ name: 'logger', needs: [], provides: ['logger'], origin: 'builtin' });
+    registry.providerMeta.set('logger', { optional: false });
+    registry.setRunner('logger', () => ({ logger }));
+  }
+
   if (registry.runners.has('rooms')) return;
   const roomsInstance = new Rooms();
   registry.providerNodes.push({ name: 'rooms', needs: [], provides: ['rooms'], origin: 'builtin' });
@@ -469,6 +492,7 @@ const DEEP_GRAPH_WARN = 20;
  */
 function finalizeGraph(
   registry: Registry,
+  logger: Logger,
   warnDepth: number | false = DEEP_GRAPH_WARN,
 ): { orderedProviders: GraphNode[]; orderedSteps: GraphNode[] } {
   const { providerNodes, stepNodes, routePlans } = registry;
@@ -488,10 +512,11 @@ function finalizeGraph(
     const depth = closure.filter((node) => stepNodes.includes(node)).length;
 
     if (warnDepth !== false && depth > warnDepth) {
-      console.warn(
-        `[green-tea] ${plan.method} ${plan.pattern} resolves to ${depth} steps — an unusually deep dependency chain. ` +
+      logger.warn(
+        `${plan.method} ${plan.pattern} resolves to ${depth} steps — an unusually deep dependency chain. ` +
           `It runs fine (per-request cost is linear), but ${warnDepth}+ steps on one route usually means a step ` +
           `is doing too much or the graph wants splitting. If it's intentional, ignore this.`,
+        { route: plan.pattern, method: plan.method, depth, threshold: warnDepth },
       );
     }
   }
@@ -524,6 +549,7 @@ async function spliceRemoteScopes(
   mesh: MeshConfig,
   bus: Bus,
   registry: Registry,
+  logger: Logger,
 ): Promise<{ remoteRoutes: RouteDef[]; meshLinks: Link[] }> {
   const remoteRoutes: RouteDef[] = [];
   const meshLinks: Link[] = [];
@@ -584,8 +610,8 @@ async function spliceRemoteScopes(
               compilePattern(plan.pattern).shape === compilePattern(route.pattern).shape,
           )
         ) {
-          console.warn(
-            `[green-tea] mesh: route '${display}' is exported by teapot ${teapot.url} but also declared locally — ` +
+          logger.warn(
+            `mesh: route '${display}' is exported by teapot ${teapot.url} but also declared locally — ` +
               'the local route takes precedence and the remote one will not be reached. ' +
               'Remove one if that is not what you meant.',
           );
@@ -630,9 +656,10 @@ async function bootProviders(
     container: Container;
     providerMeta: Map<string, { optional: boolean }>;
     bus: Bus;
+    logger: Logger;
   },
 ): Promise<string[]> {
-  const { runners, container, providerMeta, bus } = deps;
+  const { runners, container, providerMeta, bus, logger } = deps;
   const degraded: string[] = [];
 
   for (const node of orderedProviders) {
@@ -653,7 +680,10 @@ async function bootProviders(
       // optional: warn, leave it unregistered; routes needing it fail at request time
       // ponytail: full partial-degradation is out of scope (spec §10); warn is enough here
       degraded.push(node.name);
-      console.warn(`[green-tea] optional provider '${node.name}' failed: ${(error as Error).message}`);
+      logger.warn(`optional provider '${node.name}' failed: ${(error as Error).message}`, {
+        provider: node.name,
+        error,
+      });
     }
   }
 
@@ -676,6 +706,7 @@ function makeAppBooter(
     container: Container;
     providerMeta: Map<string, { optional: boolean }>;
     bus: Bus;
+    logger: Logger;
   },
   degradedProviders: string[],
   /** Resolves the graph (splices remote mesh scopes, finalizes). Must precede providers: remote nodes join the topo sort. */
@@ -688,8 +719,9 @@ function makeAppBooter(
     degradedProviders.push(...(await bootProviders(getOrderedProviders(), deps)));
 
     if (degradedProviders.length) {
-      console.warn(
-        `[green-tea] started with ${degradedProviders.length} degraded optional provider(s): ${degradedProviders.join(', ')} — routes that need them will fail at request time.`,
+      deps.logger.warn(
+        `started with ${degradedProviders.length} degraded optional provider(s): ${degradedProviders.join(', ')} — routes that need them will fail at request time.`,
+        { degraded: degradedProviders },
       );
     }
   };
@@ -968,6 +1000,7 @@ function closeApp(
   streams: Set<() => void>,
   options: { timeoutMs?: number },
   defaultTimeoutMs: number | undefined,
+  logger: Logger,
 ): Promise<void> {
   return new Promise((resolve) => {
     // A mesh app booted through `app.fetch` has links but no server, and would leak every
@@ -980,10 +1013,10 @@ function closeApp(
     // `serveDeno`/`serveBun` return a server with the same bounded `close({ timeoutMs })`.
     if (!server) {
       if (options.timeoutMs !== undefined) {
-        console.warn(
-          '[green-tea] close({ timeoutMs }) has no effect here — this app has no listen()ed ' +
-            'server. On Deno and Bun, call close() on the server serveDeno()/serveBun() returned; ' +
-            'it takes the same option. On the edge the platform owns the lifecycle.',
+        logger.warn(
+          'close({ timeoutMs }) has no effect here — this app has no listen()ed server. On Deno ' +
+            'and Bun, call close() on the server serveDeno()/serveBun() returned; it takes the ' +
+            'same option. On the edge the platform owns the lifecycle.',
         );
       }
 
@@ -1003,9 +1036,9 @@ function closeApp(
     const timer = setTimeout(() => {
       if (settled) return;
 
-      console.warn(
-        `[green-tea] graceful shutdown timed out after ${timeoutMs}ms — ` + 'forcing remaining HTTP connections closed',
-      );
+      logger.warn(`graceful shutdown timed out after ${timeoutMs}ms — forcing remaining HTTP connections closed`, {
+        timeoutMs,
+      });
 
       // closeAllConnections() requires Node >=18.2, same floor as closeIdleConnections()
       // below — `engines` in package.json only guarantees >=18, so this matters.
