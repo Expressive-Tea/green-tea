@@ -1,6 +1,6 @@
 import type http from 'http';
 import { Bus } from '../bus';
-import { createDefaultLogger, type Logger } from '../logger';
+import { createDefaultLogger, logRequests, type Logger } from '../logger';
 import { Container } from '../container';
 import { topoSort, subgraphFor, GraphNode, nearest } from '../graph';
 import { toMermaid, toDOT, graphHtml, type GraphView } from '../graph-viz';
@@ -121,6 +121,15 @@ export function createApp(opts: {
    * `@needs('logger')` — one object, two access paths.
    */
   logger?: Logger;
+  /**
+   * Log one line per completed request, and one per failed one (default: off).
+   *
+   * Off by default because a framework that writes to stdout without being asked is a framework
+   * you have to configure before you can use it. On, it is a subscriber to the lifecycle stream
+   * like any other consumer — `logRequests(app.bus, app.logger)` does the same thing by hand and
+   * hands back an unsubscribe, so nothing here is reachable only through this flag.
+   */
+  logRequests?: boolean;
   /** Opt in to alpha features whose API may still change. Currently gates `mesh`. */
   experimental?: boolean;
   /**
@@ -139,6 +148,7 @@ export function createApp(opts: {
 
   const bus = new Bus();
   const logger = opts.logger ?? createDefaultLogger();
+  if (opts.logRequests) logRequests(bus, logger);
   const container = new Container();
   let server: http.Server | undefined;
   const streams = new Set<() => void>();
@@ -234,6 +244,7 @@ export function createApp(opts: {
   const staticResolver = opts.static ? buildStaticResolver(opts.static) : undefined;
 
   const fetchOpts: HttpOptions = {
+    bus,
     limits: opts.limits,
     tls: opts.tls,
     trustProxy: opts.trustProxy,
@@ -264,6 +275,7 @@ export function createApp(opts: {
     const wsRoutes = buildWsRoutes(routePlans, deps);
 
     server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, {
+      bus,
       limits: opts.limits,
       streams,
       tls: opts.tls,

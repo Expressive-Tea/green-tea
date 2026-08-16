@@ -67,7 +67,7 @@ export { needs, ctx, param, query, body, headers, header, inbound, abort } from 
 export type { Query, Headers, Context, ArgSpec, ArgDecorator } from './params';
 
 // Observability
-export { createDefaultLogger } from './logger';
+export { createDefaultLogger, logRequests, withConsoleFallback } from './logger';
 export type { Logger, LogLevel, LogFields } from './logger';
 
 // Streaming

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createApp, createDefaultLogger, Route, Get, Step, Module, Provider, needs } from '../src/index';
+import { createApp, createDefaultLogger, logRequests, Route, Get, Step, Module, Provider, needs } from '../src/index';
 import type { Logger, LogFields } from '../src/index';
 
 /** Captures every call so a test can assert on what core wrote rather than on console output. */
@@ -118,6 +118,105 @@ describe('createApp({ logger })', () => {
     expect(warned).toBeDefined();
     // Structured, so a dashboard can group by route instead of parsing the sentence.
     expect(warned!.fields).toMatchObject({ route: '/deep/go', method: 'GET', depth: 2, threshold: 1 });
+  });
+});
+
+describe('request logging', () => {
+  @Route('/api')
+  class Ctl {
+    @Get('/ok')
+    ok() {
+      return { ok: true };
+    }
+    @Get('/boom')
+    boom(): never {
+      throw new Error('handler exploded');
+    }
+  }
+  @Module({ mountpoint: '/', controllers: [Ctl] })
+  class M {}
+
+  it('is off unless asked for', async () => {
+    const logger = recordingLogger();
+    const app = createApp({ modules: [M], logger });
+
+    await app.fetch(new Request('http://x/api/ok'));
+
+    // A framework that writes to stdout uninvited is one you must configure before using.
+    expect(logger.records).toHaveLength(0);
+  });
+
+  it('logs one info per completed request, with the pattern and a duration', async () => {
+    const logger = recordingLogger();
+    const app = createApp({ modules: [M], logger, logRequests: true });
+
+    await app.fetch(new Request('http://x/api/ok'));
+
+    expect(logger.records).toHaveLength(1);
+    const [record] = logger.records;
+    expect(record.level).toBe('info');
+    expect(record.fields).toMatchObject({ route: '/api/ok', method: 'GET', status: 200 });
+    expect(typeof record.fields!.requestId).toBe('string');
+    expect(record.fields!.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('logs an error for a failed request, correlated with it', async () => {
+    const logger = recordingLogger();
+    const app = createApp({ modules: [M], logger, logRequests: true });
+
+    await app.fetch(new Request('http://x/api/boom'));
+
+    const failed = logger.records.find((r) => r.level === 'error');
+    expect(failed).toBeDefined();
+    expect(failed!.fields).toMatchObject({ route: '/api/boom', error: 'handler exploded' });
+
+    // Same request, so the failure and the completion carry one identity between them.
+    const completed = logger.records.find((r) => r.level === 'info');
+    expect(completed!.fields!.requestId).toBe(failed!.fields!.requestId);
+  });
+
+  it('unsubscribes, so it is removable and not just optional', async () => {
+    const logger = recordingLogger();
+    const app = createApp({ modules: [M], logger });
+    const stop = logRequests(app.bus, logger);
+
+    await app.fetch(new Request('http://x/api/ok'));
+    expect(logger.records).toHaveLength(1);
+
+    stop();
+    await app.fetch(new Request('http://x/api/ok'));
+    expect(logger.records).toHaveLength(1);
+  });
+
+  it('keeps writing, and keeps serving, when the logger throws on every call', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const exploding: Logger = {
+      debug: () => {
+        throw new Error('logger is broken');
+      },
+      info: () => {
+        throw new Error('logger is broken');
+      },
+      warn: () => {
+        throw new Error('logger is broken');
+      },
+      error: () => {
+        throw new Error('logger is broken');
+      },
+    };
+    const app = createApp({ modules: [M], logger: exploding, logRequests: true });
+
+    const res = await app.fetch(new Request('http://x/api/ok'));
+
+    // The request is unharmed: Bus.emit isolates listener failures by design.
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+
+    // And the failure is not silent, which is what the wrapper buys on top of that guarantee.
+    expect(consoleError).toHaveBeenCalled();
+    const written = JSON.parse(consoleError.mock.calls[0][0] as string);
+    expect(written.msg).toContain('the configured logger threw');
+    expect(written.error).toBe('logger is broken');
   });
 });
 

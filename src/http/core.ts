@@ -7,6 +7,7 @@ import { resolveRoute, allowedMethods, normalizeRequestPath, parseQuery } from '
 import { pickEncoder } from './stream';
 import type { RouteDef, HttpOptions } from './types';
 import type { StreamEncoder } from '../encoders';
+import type { Bus } from '../bus';
 
 // The project tsconfig's `lib` is `es2020` with no `DOM`, so the Web Crypto global is undeclared
 // even though all four supported runtimes provide it. Ambient-declare only what is called — the
@@ -153,15 +154,91 @@ async function unmatchedOutcome(
   return errorOutcome(error, req, injected, opts, allow.length ? { allow: allow.join(', ') } : {});
 }
 
+/** What `dispatch` learned along the way that `handle` needs in order to describe the request afterwards. */
+interface Trace {
+  route?: string;
+}
+
 /**
  * Runtime-neutral request handler: security/CORS headers, preflight short-circuit, route match / 404 / 405,
  * route-handler invocation with error rendering, and the buffered-vs-stream decision. Does no I/O — the
  * caller (a Node adapter, a fetch adapter, …) reads/writes the actual request/response.
+ *
+ * Wraps {@link dispatch} with the request-level lifecycle events. `request:end` fires when the handler
+ * returns, **not** when a stream it produced finishes: a route that returns an `AsyncIterable` is done
+ * here in milliseconds while its connection may live for hours, and ending the span at close would put
+ * hour-long SSE connections and 2 ms buffered replies in one latency distribution, ruining both.
+ * `stream:open`/`stream:close` already describe the connection, and now carry the same `requestId`.
  */
-export async function handle(
+export function handle(
   routes: RouteDef[],
   opts: HttpOptions | undefined,
   req: NeutralRequest,
+): Promise<HandleResult | Preflight> {
+  const bus = opts?.bus;
+
+  // Deliberately not `async`. Wrapping `dispatch` in a second async frame costs a promise and two
+  // microtask ticks per request — measured at 0.43 us, an order of magnitude more than the four
+  // Map lookups this branch avoids. An unobserved app returns dispatch's own promise untouched.
+  if (
+    bus === undefined ||
+    !(
+      bus.hasListeners('request:start') ||
+      bus.hasListeners('request:end') ||
+      bus.hasListeners('route:matched') ||
+      bus.hasListeners('route:unmatched')
+    )
+  ) {
+    return dispatch(routes, opts, req, undefined, undefined);
+  }
+
+  return observedDispatch(routes, opts, req, bus);
+}
+
+async function observedDispatch(
+  routes: RouteDef[],
+  opts: HttpOptions | undefined,
+  req: NeutralRequest,
+  bus: Bus,
+): Promise<HandleResult | Preflight> {
+  const watchingEnd = bus.hasListeners('request:end');
+  const startedAt = watchingEnd ? performance.now() : 0;
+  const trace: Trace = {};
+
+  if (bus.hasListeners('request:start'))
+    bus.emit('request:start', {
+      name: `${req.method} ${req.url}`,
+      method: req.method,
+      requestId: req.requestId,
+      traceId: req.traceId,
+    });
+
+  const result = await dispatch(routes, opts, req, bus, trace);
+
+  if (watchingEnd) {
+    // A preflight is a 204 the router never routed; a stream has no status of its own and is a 200
+    // by the time anything is piped.
+    const status = 'preflight' in result ? 204 : result.outcome.kind === 'buffered' ? result.outcome.status : 200;
+    bus.emit('request:end', {
+      name: trace.route ?? `${req.method} ${req.url}`,
+      method: req.method,
+      route: trace.route,
+      status,
+      durationMs: performance.now() - startedAt,
+      requestId: req.requestId,
+      traceId: req.traceId,
+    });
+  }
+
+  return result;
+}
+
+async function dispatch(
+  routes: RouteDef[],
+  opts: HttpOptions | undefined,
+  req: NeutralRequest,
+  bus: Bus | undefined,
+  trace: Trace | undefined,
 ): Promise<HandleResult | Preflight> {
   const injected = computeInjected(opts, req);
   let path: string;
@@ -178,7 +255,29 @@ export async function handle(
 
   const matched = resolveRoute(routes, req.method, path);
 
-  if (!matched) return unmatchedOutcome(routes, opts, req, path, injected);
+  if (!matched) {
+    if (bus?.hasListeners('route:unmatched'))
+      bus.emit('route:unmatched', {
+        name: `${req.method} ${path}`,
+        method: req.method,
+        requestId: req.requestId,
+        traceId: req.traceId,
+      });
+
+    return unmatchedOutcome(routes, opts, req, path, injected);
+  }
+
+  if (trace) trace.route = matched.def.pattern;
+
+  if (bus?.hasListeners('route:matched'))
+    bus.emit('route:matched', {
+      name: matched.def.pattern,
+      route: matched.def.pattern,
+      method: req.method,
+      transport: matched.def.transport,
+      requestId: req.requestId,
+      traceId: req.traceId,
+    });
 
   let result: PipelineResult;
 

@@ -13,7 +13,13 @@ export type LifecycleEvent =
   | 'mesh:disconnect'
   | 'mesh:rpc:error'
   | 'plugin:mounted'
-  | 'request:failed';
+  | 'request:start'
+  | 'request:end'
+  | 'request:failed'
+  | 'route:matched'
+  // Covers a 404 *and* a 405 — the report's `route.not_found` names one outcome and would
+  // misreport the other, and "no route ran" is the fact a consumer actually wants.
+  | 'route:unmatched';
 
 /**
  * Data carried by a lifecycle event: the subject's name plus optional scope, error, timing and
