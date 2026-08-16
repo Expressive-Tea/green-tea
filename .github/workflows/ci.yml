@@ -63,3 +63,34 @@ jobs:
       - run: npm audit --prefix website
         continue-on-error: true
       - run: npm run docs:build
+
+  # Runs everywhere is the headline claim, so it gets tested rather than asserted. `npm test` is
+  # Node only: a change to shared code can pass it and still be broken on Deno or Bun, which is
+  # exactly why these suites exist separately. Leaving them out of CI meant the claim rested on
+  # whoever remembered to run them locally.
+  #
+  # Its own job, not more steps on `build`, for the reason the audit sits where it does: a Bun
+  # failure should read as a Bun failure instead of burying the Node lint output.
+  runtimes:
+    runs-on: ubuntu-latest
+    strategy:
+      # One runtime breaking must not cancel the others — which one else broke is the useful part
+      # of the answer, and a cancelled job reports as if it had never been asked.
+      fail-fast: false
+      matrix:
+        runtime: [deno, bun, edge]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # All three need the dependency tree: the edge suite drives workerd from a Node process, and
+      # Deno and Bun resolve `reflect-metadata` out of node_modules like any other import.
+      - run: npm ci
+      - if: matrix.runtime == 'deno'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - if: matrix.runtime == 'bun'
+        uses: oven-sh/setup-bun@v2
+      - run: npm run test:${{ matrix.runtime }}

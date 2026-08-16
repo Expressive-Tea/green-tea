@@ -256,7 +256,10 @@ green-tea is **beta**, on the road to a release candidate. Express and Fastify h
 
 ```bash
 npm install
-npm test           # vitest (Node); test:deno / test:bun / test:edge for the other runtimes
+npm test           # vitest (Node only — CI additionally runs the three below on every push)
+npm run test:deno  # deno test    } a change to shared code can pass `npm test`
+npm run test:bun   # bun test     } and still be broken on one of these
+npm run test:edge  # workerd via miniflare
 npm run typecheck  # tsc --noEmit (includes the compile-time-guarantee type test)
 npm run build      # emit dist/ (tsup: dual ESM + CJS)
 npm run bench      # regenerate BENCHMARKS.md
@@ -270,7 +273,7 @@ npm run docs:dev   # the documentation site (website/)
 - ✅ **streams** — SSE / ndjson / WebSocket duplex over a multicast `AsyncIterable` channel, with backpressure and cleanup.
 - ✅ **graph introspection** — `explain` / `graph` / `toMermaid` / `GET /__graph__`.
 - ✅ **mesh (walking skeleton)** — `teapot`/`teacup` distributed DI over a secret-gated WS control channel. A BEAM/OTP-style cluster, *not* microservices.
-- ✅ **runs everywhere** — Node, Deno, Bun, and Cloudflare Workers over web-standard `Request`/`Response`, with identical WebSocket behaviour on all four.
+- ✅ **runs everywhere** — Node, Deno, Bun, and Cloudflare Workers over web-standard `Request`/`Response`, with identical WebSocket behaviour on all four. Every CI run exercises all four; the Deno, Bun, and workerd suites gate a merge exactly as the Node one does.
 - ✅ **HTML** — `@Html` (string / file / template), a built-in template engine with a bring-your-own `viewEngine` hook, and `static` serving.
 - ✅ **router completeness for beta** — safe constrained params, deterministic precedence, explicit/automatic HEAD and OPTIONS, strict path validation, and ambiguity checks across local and mesh routes.
 - **next** — API freeze + first published release, mesh sub-specs (discovery, load-balancing, failover), official plugins, and a radix-tree matcher for very large route tables.

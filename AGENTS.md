@@ -25,7 +25,7 @@ npm run test:bun
 npm run test:edge
 ```
 
-Run the first four before proposing anything as finished. The runtime suites are separate on purpose — a change to shared code that passes `npm test` may still be broken on Deno or Bun.
+Run the first four before proposing anything as finished. The runtime suites stay separate commands on purpose — a change to shared code that passes `npm test` may still be broken on Deno or Bun — but they are no longer optional: CI runs all three on every push and each one gates a merge. Run them yourself for anything touching `src/http/`, the adapters, or `src/mesh/`, rather than finding out from CI.
 
 ## Two forges
 
