@@ -1,5 +1,5 @@
 import type { StreamEncoder } from '../encoders';
-import { handle, computeInjected, type HandleResult } from './core';
+import { handle, computeInjected, correlateRequest, type HandleResult } from './core';
 import { mergeInjectedHeaders } from './headers';
 import { parseRequestBody } from './server';
 import { normalizeRequestPath, resolveRoute } from './router';
@@ -154,6 +154,8 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
     const url = new URL(request.url);
     const path = url.pathname + url.search;
     const headers = headersToRecord(request.headers);
+    // Derived before the body is read, so a 413 rejected below still carries an identity.
+    const correlation = correlateRequest(headers);
     let matched: ReturnType<typeof resolveRoute>;
 
     try {
@@ -176,6 +178,7 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
     }
 
     const result = await handle(routes, opts, {
+      ...correlation,
       method: request.method,
       url: path,
       headers,

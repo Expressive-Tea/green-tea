@@ -8,6 +8,13 @@ import { pickEncoder } from './stream';
 import type { RouteDef, HttpOptions } from './types';
 import type { StreamEncoder } from '../encoders';
 
+// The project tsconfig's `lib` is `es2020` with no `DOM`, so the Web Crypto global is undeclared
+// even though all four supported runtimes provide it. Ambient-declare only what is called — the
+// same approach `src/deno.ts` takes for the Deno globals. Deliberately *not* `node:crypto`: this
+// file is the runtime-neutral core, and the web-standard global is what Deno, Bun and workerd all
+// have without a compatibility flag.
+declare const crypto: { randomUUID(): string };
+
 /** A runtime-neutral inbound request: body already parsed by the caller's ingress (Node stream, fetch Request, …). */
 export interface NeutralRequest {
   method: string;
@@ -16,6 +23,31 @@ export interface NeutralRequest {
   body: unknown; // already-parsed body
   secure: boolean;
   ip: string;
+  requestId: string;
+  traceId?: string;
+}
+
+/**
+ * Derives a request's identity from its headers, for the adapters to stamp on a `NeutralRequest`.
+ *
+ * **Called by the adapters, not by {@link handle}**, and the placement is the point. Both adapters
+ * read and size-check the body before they reach `handle()` (`server.ts`, `web.ts`), so a `413` is
+ * answered without `handle()` ever seeing the request. Generating identity in here would leave
+ * precisely the failures an operator most wants to correlate with nothing to correlate them by.
+ *
+ * An `x-request-id` from a gateway is adopted rather than replaced — a service behind a proxy must
+ * not open a second identity for a request that already has one. `traceparent` is carried through
+ * untouched: core implements no propagation spec, and W3C Trace Context belongs to the exporter.
+ */
+export function correlateRequest(headers: Record<string, string | string[] | undefined>): {
+  requestId: string;
+  traceId?: string;
+} {
+  const first = (value: string | string[] | undefined): string | undefined => (Array.isArray(value) ? value[0] : value);
+  const incoming = first(headers['x-request-id'])?.trim();
+  const traceId = first(headers.traceparent)?.trim();
+
+  return { requestId: incoming || crypto.randomUUID(), traceId: traceId || undefined };
 }
 
 /** The neutral shape of a response: a fully buffered body, or a stream to pipe frame-by-frame. */
@@ -143,6 +175,8 @@ export async function handle(
       body: req.body,
       protocol: req.secure ? 'https' : 'http',
       ip: req.ip,
+      requestId: req.requestId,
+      traceId: req.traceId,
     });
   } catch (error) {
     result = renderError(error, { method: req.method, url: req.url, headers: req.headers }, opts?.onError);

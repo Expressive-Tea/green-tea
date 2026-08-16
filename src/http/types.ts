@@ -38,6 +38,10 @@ export type RouteHandler = (req: {
   body: unknown;
   protocol: 'http' | 'https';
   ip: string;
+  /** Correlates every lifecycle event this request emits; see `correlateRequest` in `./core`. */
+  requestId: string;
+  /** An incoming `traceparent`, carried verbatim for an exporter to interpret. */
+  traceId?: string;
 }) => Promise<PipelineResult>;
 
 /** A registered HTTP route: method, path pattern, streaming transport, and handler. */

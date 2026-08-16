@@ -785,6 +785,15 @@ function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps
           bus,
           onError,
           transport: plan.transport,
+          // `route` is the pattern, never req.url — a metrics consumer labelling on concrete
+          // paths gets one label per distinct URL, and that takes down the metrics backend.
+          correlation: {
+            requestId: req.requestId,
+            traceId: req.traceId,
+            route: plan.pattern,
+            method: plan.method,
+            transport: plan.transport,
+          },
           seed: {
             ...provided,
             req,

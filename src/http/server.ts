@@ -10,7 +10,7 @@ import { readBody, deriveSecure, deriveIp } from './request';
 import { pipeStream } from './stream';
 import { attachWs } from './ws';
 import { mergeInjectedHeaders } from './headers';
-import { handle } from './core';
+import { handle, correlateRequest } from './core';
 import type { RouteDef, WsRouteDef, MatchedRoute, MeshControl, HttpOptions } from './types';
 
 interface HandlerConfig {
@@ -85,6 +85,8 @@ function createRequestHandler(cfg: HandlerConfig) {
     // Install the security-header patch BEFORE any routing/response so every path
     // (200, 404, error, stream) writes headers through the same patched writeHead.
     const secure = deriveSecure(req, trustProxy);
+    // Derived before the body is read, so a 413 rejected below still carries an identity.
+    const correlation = correlateRequest(req.headers);
     const injected: Record<string, string> = { ...buildSecurityHeaders(opts?.security ?? true, secure) };
     patchResponseHeaders(res, injected);
 
@@ -118,6 +120,7 @@ function createRequestHandler(cfg: HandlerConfig) {
     }
 
     const result = await handle(routes, opts, {
+      ...correlation,
       method,
       url,
       headers: req.headers,
