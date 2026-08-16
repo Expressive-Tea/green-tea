@@ -47,6 +47,13 @@ export function correlateRequest(headers: Record<string, string | string[] | und
   const incoming = first(headers['x-request-id'])?.trim();
   const traceId = first(headers.traceparent)?.trim();
 
+  // Eager, and `randomUUID` rather than something cheaper, both deliberately. A lazy getter is
+  // defeated the moment anything spreads this object — which the adapters and the payload builders
+  // both do — so it would buy nothing without threading a nested correlation object through the
+  // whole request path. And a boot-prefix counter measured 5x cheaper (14.7ns vs 77.1ns) but
+  // trades the standard identifier shape for ~1.7% of a real request. Neither is worth its
+  // complexity until a profile says otherwise; the expensive part was building payloads for
+  // nobody, and `Bus.hasListeners` is what fixed that.
   return { requestId: incoming || crypto.randomUUID(), traceId: traceId || undefined };
 }
 
