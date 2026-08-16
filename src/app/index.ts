@@ -965,11 +965,16 @@ function closeApp(
     // teapot connection otherwise — so links close before we even check for a server.
     closeLinks(meshLinks);
 
+    // No server means the app is served through `app.fetch` rather than `listen()`, which is how
+    // Deno, Bun and the edge all run. Draining is the transport's job and only the transport holds
+    // the handle, so `close()` is deliberately Node-only here rather than pretending otherwise;
+    // `serveDeno`/`serveBun` return a server with the same bounded `close({ timeoutMs })`.
     if (!server) {
       if (options.timeoutMs !== undefined) {
         console.warn(
-          '[green-tea] close({ timeoutMs }) has no effect here — this app has no ' +
-            'listen()ed server (Bun/Deno run through app.fetch). See #15.',
+          '[green-tea] close({ timeoutMs }) has no effect here — this app has no listen()ed ' +
+            'server. On Deno and Bun, call close() on the server serveDeno()/serveBun() returned; ' +
+            'it takes the same option. On the edge the platform owns the lifecycle.',
         );
       }
 
