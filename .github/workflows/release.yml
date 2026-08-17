@@ -23,13 +23,33 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
       - run: npm install -g npm@latest # npm >= 11.5.1 is required for OIDC trusted publishing
       - run: npm ci
+      # Same scoped gate as ci.yml: only what we ship blocks a publish. With `reflect-metadata`
+      # as the sole runtime dependency, a blocking advisory here is rare and genuinely reaches
+      # users; a build-tooling one never does. The full audit still reports.
+      - run: npm audit --omit=dev
       - run: npm audit
+        continue-on-error: true
       # `npm publish` runs prepublishOnly (lint + complexity + typecheck + test + build) first.
       # No NODE_AUTH_TOKEN — npm exchanges the OIDC id-token for a short-lived publish token.
       # A prerelease (26.7.0-beta.N) publishes under its channel tag (beta/alpha/rc) so `latest`
       # never points at a beta; a stable version publishes under `latest`.
-      - name: Publish
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      # Gate both registries before either one ships. JSR checks things npm never looks at — slow
+      # types, module analysis — and learning about them after npm has published leaves the tag
+      # half-shipped. Seconds, against a failure mode with no clean recovery.
+      - run: deno publish --dry-run
+      - name: Publish to npmjs
         run: |
           TAG=$(node -e "const v=require('./package.json').version;const m=v.match(/-([a-z]+)/);console.log(m?m[1]:'latest')")
           echo "dist-tag: $TAG"
           npm publish --access public --tag "$TAG"
+      # JSR last, deliberately. npm allows an unpublish within 72 hours; JSR versions are immutable
+      # and can never be replaced or removed. Ordered so a failure here costs a re-run, while a
+      # failure *after* it would cost a version number permanently. Version and entry points come
+      # from deno.json, which `test/package-metadata.test.ts` pins to package.json — JSR has no
+      # dist-tags, so a prerelease simply publishes under its own version. Auth is the same OIDC
+      # id-token npm just used; the package is linked to this repository on jsr.io.
+      - name: Publish to JSR
+        run: deno publish

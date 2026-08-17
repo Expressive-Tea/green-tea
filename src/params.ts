@@ -32,34 +32,45 @@ function record(target: object, methodKey: string | symbol | undefined, spec: Ar
   Reflect.defineMetadata(ARGS, map, ctor);
 }
 
-function envelope(source: ArgSource) {
-  return (arg?: string | string[] | StandardSchemaV1, schema?: StandardSchemaV1): ParameterDecorator =>
-    (target, methodKey, index) => {
-      const spec: ArgSpec = { index, source };
-      if (Array.isArray(arg)) spec.keys = arg;
-      else if (typeof arg === 'string') spec.key = arg;
-      else if (isStandardSchema(arg)) spec.schema = arg;
-      else if (arg !== undefined) throw new Error(`@${source}: expected a Standard Schema or a string/array key`);
+/**
+ * The shape every argument decorator shares: an optional key, key list or schema, an optional
+ * second schema, and the `ParameterDecorator` that records the resulting spec.
+ *
+ * Named for the same reason as `RouteDecorator` in `./metadata` — JSR rejects an inferred type on a
+ * public symbol, because consumers would have to re-derive it from the implementation on every check.
+ */
+export type ArgDecorator = (
+  arg?: string | string[] | StandardSchemaV1,
+  schema?: StandardSchemaV1,
+) => ParameterDecorator;
 
-      if (schema !== undefined) {
-        if (!isStandardSchema(schema)) throw new Error(`@${source}: second argument must be a Standard Schema`);
-        spec.schema = schema;
-      }
+function envelope(source: ArgSource): ArgDecorator {
+  return (arg, schema) => (target, methodKey, index) => {
+    const spec: ArgSpec = { index, source };
+    if (Array.isArray(arg)) spec.keys = arg;
+    else if (typeof arg === 'string') spec.key = arg;
+    else if (isStandardSchema(arg)) spec.schema = arg;
+    else if (arg !== undefined) throw new Error(`@${source}: expected a Standard Schema or a string/array key`);
 
-      record(target, methodKey, spec);
-    };
+    if (schema !== undefined) {
+      if (!isStandardSchema(schema)) throw new Error(`@${source}: second argument must be a Standard Schema`);
+      spec.schema = schema;
+    }
+
+    record(target, methodKey, spec);
+  };
 }
 
 /** Inject a route path parameter; pass a key to pick one, or a schema/array to shape it. */
-export const param = envelope('params');
+export const param: ArgDecorator = envelope('params');
 /** Inject a query-string value; pass a key to pick one, or a schema/array to shape it. */
-export const query = envelope('query');
+export const query: ArgDecorator = envelope('query');
 /** Inject the request body; pass a schema to validate it. */
-export const body = envelope('body');
+export const body: ArgDecorator = envelope('body');
 /** Inject request headers; pass a key to pick one, an array to pick several, or no arg for the whole bag. */
-export const headers = envelope('headers');
+export const headers: ArgDecorator = envelope('headers');
 /** Inject a single request header by name (singular alias of {@link headers}); accepts a schema to validate it. */
-export const header = envelope('headers');
+export const header: ArgDecorator = envelope('headers');
 
 /** Inject a value produced upstream by a step or provider, addressed by key. */
 export function needs(key: string): ParameterDecorator {

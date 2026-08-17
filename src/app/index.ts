@@ -1,5 +1,6 @@
 import type http from 'http';
 import { Bus } from '../bus';
+import { createDefaultLogger, logRequests, type Logger } from '../logger';
 import { Container } from '../container';
 import { topoSort, subgraphFor, GraphNode, nearest } from '../graph';
 import { toMermaid, toDOT, graphHtml, type GraphView } from '../graph-viz';
@@ -11,6 +12,8 @@ import { matchWsRoute, runWsConnection, trackUntil, type WsRequest, type WsSocke
 import { isAsyncIterable } from '../channel';
 import { JsonTransformer, type ErrorRenderer } from '../transformers';
 import { mountPlugin, Plugin, ScopeApi, ScopeNode } from '../plugin';
+import { TeardownRegistry } from '../lifecycle';
+import type { Hooks } from './types';
 import {
   Ctor,
   getModuleMeta,
@@ -47,6 +50,13 @@ interface Registry {
   stepNodes: GraphNode[];
   runners: Map<string, Runner>;
   providerMeta: Map<string, { optional: boolean }>;
+  /**
+   * The `@Provider` instance behind each node, kept only so a `dispose()` can be reached.
+   *
+   * `collectProviders` used to build the instance and let it live on solely inside the runner's
+   * closure, which meant nothing could ever call a method on it again.
+   */
+  providerInstances: Map<string, { dispose?: () => void | Promise<void> }>;
   routePlans: RoutePlan[];
   exportedProviders: string[];
   exportedSteps: string[];
@@ -85,6 +95,14 @@ interface PipelineDeps {
 export function createApp(opts: {
   modules: Ctor[];
   plugins?: Plugin[];
+  /**
+   * Lifecycle participation without extending the graph.
+   *
+   * A plugin means "I want to add nodes"; someone who only needs to close a connection should not
+   * have to declare an extension they do not want. Methods are optional so later stages can join
+   * without a breaking change — only `onShutdown` exists today.
+   */
+  hooks?: Hooks[];
   mesh?: MeshConfig;
   limits?: RequestLimits;
   devGraph?: boolean;
@@ -103,6 +121,43 @@ export function createApp(opts: {
   viewEngine?: (source: string, data: unknown) => string;
   /** Serve a static directory as a GET/HEAD fallback (after declared routes, before 404). `true` → `./public`. */
   static?: boolean | string;
+  /**
+   * How long `close()` gives in-flight work before forcing remaining connections shut, in ms
+   * (default: 10s). `close({ timeoutMs })` still wins per call. Set it here when `close()` is
+   * reached from a signal handler, a test helper or a shutdown hook you do not own, which is
+   * where passing it per call is not an option.
+   */
+  shutdownTimeoutMs?: number;
+  /**
+   * Milliseconds reserved out of the shutdown budget for teardown, in ms (default: none reserved).
+   *
+   * Teardown runs after the drain and inside the same `timeoutMs`, so `close()` never takes longer
+   * than the caller asked for. Left unset, the drain may use the whole budget and teardown gets
+   * whatever remains — possibly nothing. Set it when a connection *must* get its chance to close:
+   * the drain is then bounded to `timeoutMs - teardownTimeoutMs` and this slice is guaranteed.
+   *
+   * Must not exceed `shutdownTimeoutMs`; `createApp` throws rather than clamping silently.
+   */
+  teardownTimeoutMs?: number;
+  /**
+   * Where every framework diagnostic is written (default: structured JSON, human-readable on a TTY).
+   *
+   * Registered here rather than declared as a provider, and the ordering is why: provider boot
+   * events and the failures they report happen *while* the graph resolves, so a provider cannot
+   * report its own boot failing, and shutdown warnings happen after the graph is gone. The logger
+   * has to outlive the graph on both ends. It is also reachable from a step or handler as
+   * `@needs('logger')` — one object, two access paths.
+   */
+  logger?: Logger;
+  /**
+   * Log one line per completed request, and one per failed one (default: off).
+   *
+   * Off by default because a framework that writes to stdout without being asked is a framework
+   * you have to configure before you can use it. On, it is a subscriber to the lifecycle stream
+   * like any other consumer — `logRequests(app.bus, app.logger)` does the same thing by hand and
+   * hands back an unsubscribe, so nothing here is reachable only through this flag.
+   */
+  logRequests?: boolean;
   /** Opt in to alpha features whose API may still change. Currently gates `mesh`. */
   experimental?: boolean;
   /**
@@ -120,6 +175,8 @@ export function createApp(opts: {
   }
 
   const bus = new Bus();
+  const logger = opts.logger ?? createDefaultLogger();
+  if (opts.logRequests) logRequests(bus, logger);
   const container = new Container();
   let server: http.Server | undefined;
   const streams = new Set<() => void>();
@@ -129,8 +186,9 @@ export function createApp(opts: {
   const viewsCtx: ViewsContext = { views: opts.views, viewEngine: opts.viewEngine };
   const registry = collectModules(opts.modules, viewsCtx);
   const { providerNodes, stepNodes, runners, providerMeta, routePlans } = registry;
-  mountPlugins(opts.plugins, bus, registry);
-  provideBuiltins(registry);
+  const teardown = buildTeardownRegistry(opts.hooks, opts.teardownTimeoutMs, opts.shutdownTimeoutMs);
+  mountPlugins(opts.plugins, bus, registry, teardown);
+  provideBuiltins(registry, logger);
 
   // For each route, resolve which providers/steps feed it via topo order.
   // MVP: every route depends on every declared step + provider in the app graph.
@@ -143,7 +201,7 @@ export function createApp(opts: {
   const meshLinks: Link[] = [];
 
   const finalize = (): void => {
-    ({ orderedProviders, orderedSteps } = finalizeGraph(registry, opts.warnGraphDepth));
+    ({ orderedProviders, orderedSteps } = finalizeGraph(registry, logger, opts.warnGraphDepth));
     booted = true;
   };
 
@@ -159,7 +217,7 @@ export function createApp(opts: {
   // can only be built here, after finalize(), and never at construction time.
   const prepareGraph = async (): Promise<void> => {
     if (opts.mesh && !booted) {
-      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry);
+      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry, logger);
       remoteRoutes = spliced.remoteRoutes;
       meshLinks.push(...spliced.meshLinks);
       finalize();
@@ -207,7 +265,7 @@ export function createApp(opts: {
     registry,
     opts.overrides,
     () => orderedProviders,
-    { runners, container, providerMeta, bus },
+    { runners, container, providerMeta, providerInstances: registry.providerInstances, teardown, bus, logger },
     degradedProviders,
     ready,
   );
@@ -215,6 +273,7 @@ export function createApp(opts: {
   const staticResolver = opts.static ? buildStaticResolver(opts.static) : undefined;
 
   const fetchOpts: HttpOptions = {
+    bus,
     limits: opts.limits,
     tls: opts.tls,
     trustProxy: opts.trustProxy,
@@ -245,6 +304,7 @@ export function createApp(opts: {
     const wsRoutes = buildWsRoutes(routePlans, deps);
 
     server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, {
+      bus,
       limits: opts.limits,
       streams,
       tls: opts.tls,
@@ -260,7 +320,8 @@ export function createApp(opts: {
     return server;
   };
 
-  const close = (options: { timeoutMs?: number } = {}): Promise<void> => closeApp(server, meshLinks, streams, options);
+  const close = (options: { timeoutMs?: number } = {}): Promise<void> =>
+    closeApp(server, meshLinks, streams, options, opts.shutdownTimeoutMs, logger, teardown, opts.teardownTimeoutMs);
 
   return {
     listen,
@@ -276,6 +337,7 @@ export function createApp(opts: {
     openapi,
     degraded: () => [...degradedProviders],
     bus,
+    logger,
   };
 }
 
@@ -294,6 +356,7 @@ function emptyRegistry(): Registry {
     stepNodes: [],
     runners,
     providerMeta: new Map(),
+    providerInstances: new Map(),
     routePlans: [],
     exportedProviders: [],
     exportedSteps: [],
@@ -310,6 +373,7 @@ function collectProviders(providers: Ctor[], origin: string, registry: Registry)
     registry.providerMeta.set(meta.provides, { optional: meta.optional });
     if (meta.export) registry.exportedProviders.push(meta.provides);
     const instance: any = new ProviderClass();
+    registry.providerInstances.set(meta.provides, instance);
     registry.setRunner(meta.provides, (ctx) => instance.provide(ctx));
   }
 }
@@ -426,12 +490,40 @@ function collectModules(modules: Ctor[], viewsCtx: ViewsContext): Registry {
   return registry;
 }
 
+/**
+ * Builds the teardown registry, seeds it with the application's hooks, and validates the reservation.
+ *
+ * Hooks land before plugins, so the registry running in reverse tears plugins down before the hooks
+ * an application registered around them. Both go into the same list: one order, one failure policy.
+ */
+function buildTeardownRegistry(
+  hooks: Hooks[] | undefined,
+  teardownTimeoutMs: number | undefined,
+  shutdownTimeoutMs: number | undefined,
+): TeardownRegistry {
+  const budget = shutdownTimeoutMs ?? 10_000;
+
+  // Rejected rather than clamped: a reservation larger than the budget it is carved from is a
+  // mistake in the caller's numbers, and quietly shrinking it would hide which of the two they got
+  // wrong — at boot, where there is time to fix it, rather than during a shutdown.
+  if (teardownTimeoutMs !== undefined && teardownTimeoutMs > budget) {
+    throw new Error(
+      `teardownTimeoutMs (${teardownTimeoutMs}) cannot exceed shutdownTimeoutMs (${budget}) — ` +
+        'it is reserved out of that budget, not added to it',
+    );
+  }
+
+  const teardown = new TeardownRegistry();
+  for (const hook of hooks ?? []) if (hook.onShutdown) teardown.add(hook.onShutdown);
+  return teardown;
+}
+
 /** Mounts plugins and splices any steps/providers they add into the registry as their own scope. */
-function mountPlugins(plugins: Plugin[] | undefined, bus: Bus, registry: Registry): void {
+function mountPlugins(plugins: Plugin[] | undefined, bus: Bus, registry: Registry, teardown: TeardownRegistry): void {
   const extraSteps: ScopeNode[] = [];
   const scope: ScopeApi = { add: (node) => extraSteps.push(node) };
 
-  for (const plugin of plugins ?? []) mountPlugin(plugin, bus, scope);
+  for (const plugin of plugins ?? []) mountPlugin(plugin, bus, scope, (fn) => teardown.add(fn));
 
   for (const scopeNode of extraSteps) {
     const node = { name: scopeNode.name, needs: scopeNode.needs, provides: scopeNode.provides, origin: 'plugin' };
@@ -442,7 +534,17 @@ function mountPlugins(plugins: Plugin[] | undefined, bus: Bus, registry: Registr
 }
 
 /** Auto-provides a shared {@link Rooms} instance unless the user already declared a `rooms` provider. */
-function provideBuiltins(registry: Registry): void {
+function provideBuiltins(registry: Registry, logger: Logger): void {
+  // `logger` is registered as an ordinary provider *in addition to* being framework infrastructure,
+  // so a step or handler reaches it with `@needs('logger')` like any other dependency. It is the
+  // same object createApp holds, not a second one — core cannot depend on the graph for something
+  // it must use while the graph is still resolving.
+  if (!registry.runners.has('logger')) {
+    registry.providerNodes.push({ name: 'logger', needs: [], provides: ['logger'], origin: 'builtin' });
+    registry.providerMeta.set('logger', { optional: false });
+    registry.setRunner('logger', () => ({ logger }));
+  }
+
   if (registry.runners.has('rooms')) return;
   const roomsInstance = new Rooms();
   registry.providerNodes.push({ name: 'rooms', needs: [], provides: ['rooms'], origin: 'builtin' });
@@ -461,6 +563,7 @@ const DEEP_GRAPH_WARN = 20;
  */
 function finalizeGraph(
   registry: Registry,
+  logger: Logger,
   warnDepth: number | false = DEEP_GRAPH_WARN,
 ): { orderedProviders: GraphNode[]; orderedSteps: GraphNode[] } {
   const { providerNodes, stepNodes, routePlans } = registry;
@@ -480,10 +583,11 @@ function finalizeGraph(
     const depth = closure.filter((node) => stepNodes.includes(node)).length;
 
     if (warnDepth !== false && depth > warnDepth) {
-      console.warn(
-        `[green-tea] ${plan.method} ${plan.pattern} resolves to ${depth} steps — an unusually deep dependency chain. ` +
+      logger.warn(
+        `${plan.method} ${plan.pattern} resolves to ${depth} steps — an unusually deep dependency chain. ` +
           `It runs fine (per-request cost is linear), but ${warnDepth}+ steps on one route usually means a step ` +
           `is doing too much or the graph wants splitting. If it's intentional, ignore this.`,
+        { route: plan.pattern, method: plan.method, depth, threshold: warnDepth },
       );
     }
   }
@@ -516,6 +620,7 @@ async function spliceRemoteScopes(
   mesh: MeshConfig,
   bus: Bus,
   registry: Registry,
+  logger: Logger,
 ): Promise<{ remoteRoutes: RouteDef[]; meshLinks: Link[] }> {
   const remoteRoutes: RouteDef[] = [];
   const meshLinks: Link[] = [];
@@ -576,8 +681,8 @@ async function spliceRemoteScopes(
               compilePattern(plan.pattern).shape === compilePattern(route.pattern).shape,
           )
         ) {
-          console.warn(
-            `[green-tea] mesh: route '${display}' is exported by teapot ${teapot.url} but also declared locally — ` +
+          logger.warn(
+            `mesh: route '${display}' is exported by teapot ${teapot.url} but also declared locally — ` +
               'the local route takes precedence and the remote one will not be reached. ' +
               'Remove one if that is not what you meant.',
           );
@@ -621,10 +726,13 @@ async function bootProviders(
     runners: Map<string, Runner>;
     container: Container;
     providerMeta: Map<string, { optional: boolean }>;
+    providerInstances: Map<string, { dispose?: () => void | Promise<void> }>;
+    teardown: TeardownRegistry;
     bus: Bus;
+    logger: Logger;
   },
 ): Promise<string[]> {
-  const { runners, container, providerMeta, bus } = deps;
+  const { runners, container, providerMeta, providerInstances, teardown, bus, logger } = deps;
   const degraded: string[] = [];
 
   for (const node of orderedProviders) {
@@ -634,6 +742,15 @@ async function bootProviders(
       const value = await runners.get(node.name)!(await snapshot(container, node.needs));
       container.register(node.name, 'app', () => value);
       await container.resolve(node.name); // warm the cache
+      // Registered here, as it boots, rather than where it was collected. `orderedProviders` is
+      // topologically sorted, so registration order *is* boot order — and the registry running in
+      // reverse then gives dependants teardown before their dependencies for free, with no second
+      // sort to keep in step with this one.
+      //
+      // Inside the try on purpose: a provider that threw never provided anything, and calling
+      // dispose() on a half-constructed one is how a teardown finds a null connection.
+      const instance = providerInstances.get(node.name);
+      if (instance?.dispose) teardown.add(() => instance.dispose!());
       bus.emit('boot:provider:ok', { name: node.name });
     } catch (error) {
       bus.emit('boot:provider:fail', { name: node.name, error });
@@ -645,7 +762,10 @@ async function bootProviders(
       // optional: warn, leave it unregistered; routes needing it fail at request time
       // ponytail: full partial-degradation is out of scope (spec §10); warn is enough here
       degraded.push(node.name);
-      console.warn(`[green-tea] optional provider '${node.name}' failed: ${(error as Error).message}`);
+      logger.warn(`optional provider '${node.name}' failed: ${(error as Error).message}`, {
+        provider: node.name,
+        error,
+      });
     }
   }
 
@@ -667,7 +787,10 @@ function makeAppBooter(
     runners: Map<string, Runner>;
     container: Container;
     providerMeta: Map<string, { optional: boolean }>;
+    providerInstances: Map<string, { dispose?: () => void | Promise<void> }>;
+    teardown: TeardownRegistry;
     bus: Bus;
+    logger: Logger;
   },
   degradedProviders: string[],
   /** Resolves the graph (splices remote mesh scopes, finalizes). Must precede providers: remote nodes join the topo sort. */
@@ -680,8 +803,9 @@ function makeAppBooter(
     degradedProviders.push(...(await bootProviders(getOrderedProviders(), deps)));
 
     if (degradedProviders.length) {
-      console.warn(
-        `[green-tea] started with ${degradedProviders.length} degraded optional provider(s): ${degradedProviders.join(', ')} — routes that need them will fail at request time.`,
+      deps.logger.warn(
+        `started with ${degradedProviders.length} degraded optional provider(s): ${degradedProviders.join(', ')} — routes that need them will fail at request time.`,
+        { degraded: degradedProviders },
       );
     }
   };
@@ -777,6 +901,15 @@ function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps
           bus,
           onError,
           transport: plan.transport,
+          // `route` is the pattern, never req.url — a metrics consumer labelling on concrete
+          // paths gets one label per distinct URL, and that takes down the metrics backend.
+          correlation: {
+            requestId: req.requestId,
+            traceId: req.traceId,
+            route: plan.pattern,
+            method: plan.method,
+            transport: plan.transport,
+          },
           seed: {
             ...provided,
             req,
@@ -945,30 +1078,112 @@ function buildWsRoutes(routePlans: RoutePlan[], deps: PipelineDeps): WsRouteDef[
     }));
 }
 
+/**
+ * Runs registered teardown, bounded so it cannot push `close()` past the budget it was given.
+ *
+ * Bounding lives here rather than in {@link TeardownRegistry} because the registry has no business
+ * knowing about deadlines — `closeApp` and `closeWithDeadline` each already own one, and a third
+ * implementation is how the three drift into different meanings of the same `timeoutMs`.
+ *
+ * A teardown that overruns is left running rather than awaited: the callback is someone else's code
+ * and there is no way to interrupt it, so the choice is between returning on time and waiting
+ * indefinitely. It resolves on its own timer for the same reason `closeWithDeadline` does.
+ */
+function runTeardown(teardown: TeardownRegistry, logger: Logger, budgetMs: number): Promise<void> {
+  if (teardown.size === 0) return Promise.resolve();
+
+  return new Promise<void>((resolve) => {
+    let settled = false;
+
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+
+    const timer = setTimeout(
+      () => {
+        if (settled) return;
+        logger.warn(`shutdown teardown exceeded its ${Math.max(0, budgetMs)}ms budget — returning without it`, {
+          budgetMs: Math.max(0, budgetMs),
+        });
+        finish();
+      },
+      Math.max(0, budgetMs),
+    );
+
+    timer.unref?.();
+    void teardown.run(logger).then(finish, finish);
+  });
+}
+
 function closeApp(
   server: http.Server | undefined,
   meshLinks: Link[],
   streams: Set<() => void>,
   options: { timeoutMs?: number },
+  defaultTimeoutMs: number | undefined,
+  logger: Logger,
+  teardown: TeardownRegistry,
+  reservedMs: number | undefined,
 ): Promise<void> {
-  return new Promise((resolve) => {
+  const timeoutMs = options.timeoutMs ?? defaultTimeoutMs ?? 10_000;
+  const startedAt = Date.now();
+  // Unset reserves nothing: the drain may use the whole budget and teardown takes what is left.
+  // Set, it is carved out of the same budget rather than added to it, so `close()` still returns
+  // within `timeoutMs` — which is the whole reason the caller set that number.
+  const drainBudget = timeoutMs - (reservedMs ?? 0);
+
+  const drain = new Promise<void>((resolve) => {
     // A mesh app booted through `app.fetch` has links but no server, and would leak every
     // teapot connection otherwise — so links close before we even check for a server.
     closeLinks(meshLinks);
 
+    // No server means the app is served through `app.fetch` rather than `listen()`, which is how
+    // Deno, Bun and the edge all run. Draining is the transport's job and only the transport holds
+    // the handle, so `close()` is deliberately Node-only here rather than pretending otherwise;
+    // `serveDeno`/`serveBun` return a server with the same bounded `close({ timeoutMs })`.
     if (!server) {
       if (options.timeoutMs !== undefined) {
-        console.warn(
-          '[green-tea] close({ timeoutMs }) has no effect here — this app has no ' +
-            'listen()ed server (Bun/Deno run through app.fetch). See #15.',
+        logger.warn(
+          'close({ timeoutMs }) does not drain connections here — this app has no listen()ed ' +
+            'server, so it only bounds teardown. On Deno and Bun, call close() on the server ' +
+            'serveDeno()/serveBun() returned; it takes the same option and drains too. On the ' +
+            'edge the platform owns the lifecycle.',
         );
       }
 
+      // Falls through to teardown rather than returning from close(). An app served through
+      // `app.fetch` still booted its providers, so it still has connections that were opened and
+      // are owed a close — the transport being someone else's job does not make them not ours.
+      // Running teardown twice is safe: the registry drains once, whichever entry point is first.
       return resolve();
     }
 
-    const timeoutMs = options.timeoutMs ?? 10_000;
     let settled = false;
+
+    // The timer is armed before `finish` exists, rather than the other way round, and the ordering
+    // is the point. Whichever one comes second is referenced by the other before its declaration
+    // runs, so what matters is which forward reference rests on a guarantee. setTimeout cannot
+    // invoke its callback synchronously — that is the event loop, not an implementation detail —
+    // so `finish` is always assigned by the time the callback can reach it. The reverse ordering
+    // relied on `server.close(cb)` deferring, which is Node's behaviour rather than a promise to
+    // us, and left a `ReferenceError` waiting in the shutdown path for whoever changed it.
+    const timer = setTimeout(() => {
+      if (settled) return;
+
+      logger.warn(`graceful shutdown timed out after ${timeoutMs}ms — forcing remaining HTTP connections closed`, {
+        timeoutMs,
+      });
+
+      // closeAllConnections() requires Node >=18.2, same floor as closeIdleConnections()
+      // below — `engines` in package.json only guarantees >=18, so this matters.
+      server.closeAllConnections();
+      finish();
+    }, drainBudget);
+
+    timer.unref?.();
 
     const finish = () => {
       if (settled) return;
@@ -981,22 +1196,12 @@ function closeApp(
 
     for (const closeStream of streams) closeStream();
     server.closeIdleConnections();
-
-    const timer = setTimeout(() => {
-      if (settled) return;
-
-      console.warn(
-        `[green-tea] graceful shutdown timed out after ${timeoutMs}ms — ` + 'forcing remaining HTTP connections closed',
-      );
-
-      // closeAllConnections() requires Node >=18.2, same floor as closeIdleConnections()
-      // above — `engines` in package.json only guarantees >=18, so this matters.
-      server.closeAllConnections();
-      finish();
-    }, timeoutMs);
-
-    timer.unref?.();
   });
+
+  // Teardown runs after the drain and before close() resolves: an in-flight request may still be
+  // using the connection a teardown is about to close, so draining first is not an ordering
+  // preference. It gets whatever is left of the budget — at least the reservation, if one was made.
+  return drain.then(() => runTeardown(teardown, logger, timeoutMs - (Date.now() - startedAt)));
 }
 
 /** Best-effort close of every mesh link, ignoring individual failures. */

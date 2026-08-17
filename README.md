@@ -7,8 +7,13 @@
 <p align="center"><b>A zen, opinionated, type-safe framework.</b></p>
 
 <p align="center">
-  Your API is an explicit <b>dependency graph</b> you can see, slice, and trust —<br />
-  not a mutable bag threaded through positional middleware. <i>That's the tea.</i> 🍵
+  <b>Declare intent. Derive execution.</b><br />
+  You declare what each step <b>needs</b> and <b>produces</b>; green-tea derives the order,<br />
+  validates the wiring before it serves traffic, and runs only the slice each route requires.
+</p>
+
+<p align="center">
+  <i>Less infrastructure in your application. Less infrastructure in your head.</i> 🍵
 </p>
 
 ---
@@ -53,7 +58,33 @@ npm install busboy   # multipart/form-data file uploads
 - **One primitive for real-time.** Declare the transport — SSE, ndjson, or a WebSocket duplex — and return an `AsyncIterable`; backpressure and cleanup are handled. *Why it matters:* no separate gateway, adapter, or library to bolt on.
 - **The same app runs on Node, Deno, Bun, and the edge.** One codebase, one import; you swap the entry point (`app.listen` → `serveDeno` / `serveBun` / `edgeHandler`) and nothing else. HTTP, SSE, and WebSocket — including rooms and channels — behave identically on all four. *Why it matters:* the graph model isn't a bet on one runtime's future, and no other opinionated/DI framework runs everywhere.
 - **A remote dependency looks like a local one.** `@needs('billing')` resolves the same whether `billing` lives in this process or on another node (mesh, experimental). *Why it matters:* no gRPC layer or message-pattern DSL to learn — there's the graph, and some nodes happen to live elsewhere.
-- **Plugins can't sabotage you.** A plugin gets `bus.on(...)` (observe) and `scope.add(...)` (extend its own scope). There is no API to reorder or delete another scope's steps. *Why it matters:* installing a plugin can't break your body parser.
+- **Plugins can't sabotage you.** A plugin gets `bus.on(...)` (observe), `scope.add(...)` (extend its own scope) and `onShutdown(...)` (release what it opened). There is no API to reorder or delete another scope's steps. *Why it matters:* installing a plugin can't break your body parser.
+
+## Who does the work?
+
+Every backend has the same set of infrastructure decisions. The question is which side of the
+`import` they live on.
+
+| Decision | Owned by |
+|---|---|
+| Execution order | green-tea — derived from `needs`/`provides`, never maintained by hand |
+| Dependency validation | green-tea — boot fails when nothing provides a key |
+| Which steps a route runs | green-tea — the graph slice its handler actually depends on |
+| Streaming mechanics — framing, backpressure, cleanup, disconnects | green-tea |
+| OpenAPI projection | green-tea — from the same metadata that runs the app |
+| Secure transport defaults | green-tea — headers, CORS, TLS |
+| Runtime serving boundary | green-tea — `listen`, `fetch`, `upgrade` per runtime |
+| Shutdown sequencing | green-tea — drain, then teardown, inside one deadline |
+| **Business rules** | **you** |
+
+That division is the whole design, and it is why `reflect-metadata` is the only runtime dependency:
+the goal is not a small number for its own sake, it is **fewer moving parts your team has to
+understand, upgrade, coordinate and debug**. A framework that owns less pushes the difference into
+your application, where it becomes your maintenance instead of disappearing.
+
+Automated does not mean invisible. `app.explain()` prints the ordered chain, `app.graph()` renders
+the live graph, and `app.openapi()` projects the same metadata — the graph is not documentation drawn
+after the fact, it is the structure green-tea validates and executes.
 
 ## Real-time is a primitive, not a second framework
 
@@ -98,9 +129,10 @@ class Live {
 
 Same `@Route`, same handler shape, same `AsyncIterable` — real-time is not a separate framework you also have to learn.
 
-## Batteries included — still one dependency
+## What the foundation already carries
 
-Beta shipped the parts a real API needs, without growing the runtime dependency tree past `reflect-metadata`:
+The parts a real API needs, owned by the framework rather than assembled in your application — and
+without growing the runtime dependency tree past `reflect-metadata`:
 
 - **TLS → https/wss** natively, plus proxy-aware `trustProxy` (`X-Forwarded-*` → `ctx.protocol`/`ctx.ip`).
 - **Secure by default.** `nosniff`, `X-Frame-Options`, `Referrer-Policy`, HSTS-when-secure — on every response, opt-out with one flag.
@@ -110,7 +142,9 @@ Beta shipped the parts a real API needs, without growing the runtime dependency 
 - **Errors, your way.** Throw typed errors (`Unauthorized`, `NotFound`, `HttpError(status, msg, body?)`) anywhere; they convert centrally to `4xx`/`5xx`. Render them however you like — HTML, RFC 7807, content-negotiated — with a single `createApp({ onError })` hook that covers every error response.
 - **HTML without a view layer.** `@Html` returns a string, serves a file, or renders one with the built-in `{{ }}` template engine — swap in EJS or handlebars with `createApp({ viewEngine })`. `createApp({ static: true })` serves `./public` with path-traversal guards and no mime dependency.
 - **Ceilings that are already on.** `limits` caps body size (`413`), multipart parts, concurrent Node connections (default `1000`; `<= 0` leaves connections unlimited), and the request / headers / keep-alive timeouts — defaulting to `30s` / `10s` / `5s`, tighter than Node's own two-minute default. When Node's connection cap is reached, excess sockets are destroyed without an HTTP response. Deno and Bun expose no equivalent active-socket cap, so enforce one at the deployment platform or reverse proxy there. Configurable, and safe before you configure anything.
-- **Graceful shutdown.** `app.close()` drains in-flight requests, closes live streams and mesh links.
+- **Observability without an integration.** Every request carries an id and a trace id through every lifecycle event, each step reports its own duration, and `createApp({ logger })` accepts any logger — the default writes structured JSON. Nothing in core writes to `console`. Metrics and tracing exporters read the same stream from outside core.
+- **Graceful shutdown, with a deadline.** `app.close()` drains in-flight requests and closes live streams and mesh links, then warns and force-closes whatever is still open after 10 seconds — so a stuck handler cannot hold a deploy open forever. Change the number per call with `close({ timeoutMs })` or for the whole app with `createApp({ shutdownTimeoutMs })`. Connection *draining* is Node-only; on Deno and Bun the server `serveDeno()`/`serveBun()` returns carries the same `close({ timeoutMs })`.
+- **Shutdown is an extension point, not a `SIGTERM` handler you write.** A provider that opened a pool closes it in `dispose()`; a plugin registers `onShutdown(...)`; an application that wants neither passes `createApp({ hooks: [{ onShutdown }] })`. All three land in one registry, run in reverse boot order — a `cache` that needs `db` closes first — and are *awaited*, unlike a `bus.on` listener. A failure is logged and the rest still run, because one broken teardown must not leave the process up. Everything happens inside `close()`'s deadline; `createApp({ teardownTimeoutMs })` reserves a slice of it when a connection must get its chance. *Not available on the edge* — workerd has no shutdown to hook.
 - **Testable by construction.** `createApp({ overrides: { db: fakeDb } })` swaps any node in one line.
 - **Dual ESM + CommonJS.** Ships both builds behind an `exports` map — `import` and `require` both resolve, with matching type declarations.
 
@@ -243,25 +277,45 @@ green-tea is **beta**, on the road to a release candidate. Express and Fastify h
 
 **Bring your own auth (and friends).** green-tea ships transport security — TLS/wss, secure-by-default headers, CORS — but **not** authentication, authorization, rate-limiting, CSRF, or sessions. You compose those as steps and plugins (the `Authenticate` step in the quick look is the pattern). Unlike Express/Fastify, there is no off-the-shelf plugin ecosystem for them yet.
 
-**No observability layer, either.** There is no built-in logger, no metrics export, and no tracing hooks; core does not depend on a logging library and does not intend to. Today you compose those as steps and providers like anything else. A first-class contract — an injectable logger, structured output, and hooks an OpenTelemetry exporter can attach to — is [tracked as one design](https://github.com/Expressive-Tea/green-tea/issues/10), because doing it piecemeal produces three mechanisms that don't fit together. If your team's definition of production-ready includes shipping traces on day one, this is the gap to know about.
+**Observability is a contract, not an integration.** Core emits a correlated lifecycle event stream — every request gets an id (an incoming `x-request-id` is adopted, not replaced), every event carries it, and each step reports its own duration. `createApp({ logger })` takes any logger; the default writes structured JSON, or a readable line on a TTY. Nothing in core writes to `console`, which is enforced by a lint rule rather than a promise. `createApp({ logRequests: true })` logs a line per request, off by default.
+
+**What is not here:** no metrics registry, and **no OpenTelemetry exporter in core** — that is a separate package, because core has one runtime dependency and intends to keep it. A `traceparent` header is carried through untouched for an exporter to interpret; core implements no propagation spec. If your definition of production-ready includes shipping traces on day one, you are writing the exporter, and the stream it needs is the part that now exists.
 
 **Runtimes differ in what they can offer.** Node ≥ 18, Deno, and Bun run everything. On the edge (Cloudflare Workers) there is no `app.listen()`, no filesystem — so `@Html` file/template modes and `static` serving are unavailable — and mesh does not run there at all (the teapot's secret comparison needs `node:crypto`'s `timingSafeEqual`, which `nodejs_compat` doesn't provide). Workers also require the `nodejs_compat` flag.
 
 **mesh is alpha.** Distributed DI works, but discovery, load-balancing, and failover are not built, and its API and wire protocol may change between releases. It is gated behind an explicit opt-in — `createApp({ mesh, experimental: true })` — and `createApp` throws if you configure `mesh` without it. Don't ship mesh to production yet.
 
+**What is settled, and what is still moving.** Present state, not a roadmap and not the API freeze — this is spare-time work by one person, and a schedule it cannot keep would cost more than it earns. The **graph is the settled part**: `needs`/`provides`, the order derived from them, and the boot-time failure when nothing provides a key have not changed since the beta hardening on 7 July, and `@Provider`, `@Step`, `@Route` and handler shapes still mean what they meant then — the decorator *set* has grown (`@Head`, `@Options`, `@Html`), which only ever adds. **Still moving:** the plugin API, which gained `onShutdown` this week; `createApp`'s options, which gain fields most months; and the pipeline context, which in July became one object mutated in place rather than copied per step — so a step that captured it now sees later steps' writes. **Alpha:** mesh, above. Legacy decorators are a standing *external* risk rather than a green-tea one — see [Why legacy decorators](#why-legacy-decorators). The [matcha](https://github.com/Expressive-Tea/matcha) CLI ships from its own repository on its own version line, so nothing here speaks for it.
+
 ## Docs & development
 
-- **[green-tea.expressive-tea.io/docs](https://green-tea.expressive-tea.io/docs)** — getting started, concepts (the graph, `flow`), and guides: routing, DI, validation, uploads, streaming, HTML, security, errors, introspection, OpenAPI, plugins, mesh, runtimes, testing.
+- **[green-tea.expressive-tea.io/docs](https://green-tea.expressive-tea.io/docs)** — getting started, concepts (the graph, `flow`), and guides: routing, DI, validation, uploads, streaming, HTML, security, errors, introspection, OpenAPI, plugins, mesh, runtimes, testing. Its source lives in [green-tea-docs](https://github.com/Expressive-Tea/green-tea-docs).
 - **[matcha](https://github.com/Expressive-Tea/matcha)** — the CLI. `matcha new` scaffolds a project (Node, Deno, or Bun), `matcha create` generates and auto-wires controllers/steps/providers/modules, `matcha run` detects your runtime and watches. A standalone Rust binary — no JS runtime needed to install it.
+
+> **Changing public API? The docs are a separate repository now, and nothing tells you when you break them.**
+> [green-tea-docs](https://github.com/Expressive-Tea/green-tea-docs) imports nothing from here, so no build fails and no test turns red when a guide describes an API that no longer exists. **A pull request that changes public API updates the page documenting it, in the same pull request.** This is a rule rather than a check because no check exists yet — issue #18 is what a stale page looks like from a user's side, and that happened while both still lived in this repository.
 
 ```bash
 npm install
-npm test           # vitest (Node); test:deno / test:bun / test:edge for the other runtimes
+npm test           # vitest (Node only) — the fast loop, ~2s
+npm run test:all   # everything below, plus the JSR gate — the pre-push check
+npm run test:deno  # deno test    } a change to shared code can pass `npm test`
+npm run test:bun   # bun test     } and still be broken on one of these
+npm run test:edge  # workerd via miniflare
 npm run typecheck  # tsc --noEmit (includes the compile-time-guarantee type test)
 npm run build      # emit dist/ (tsup: dual ESM + CJS)
 npm run bench      # regenerate BENCHMARKS.md
-npm run docs:dev   # the documentation site (website/)
 ```
+
+`npm test` stays Node-only on purpose: it is the loop you run constantly, and booting Deno, Bun and
+workerd into it would tax every run to catch what CI already catches on every push. Nothing here is
+unguarded — the `runtimes` job runs all three, and `deno publish --dry-run` gates JSR. `test:all` is
+for the moment before you push, when you would rather find out locally.
+
+That last one is a second type-checker, not a packaging formality: `npm run typecheck` is `tsc` with
+this repository's config, while `deno publish --dry-run` is Deno's checker with Deno's lib plus JSR's
+slow-types rules over the public API. JSR serves `src/` directly, so what it rejects is what a JSR
+consumer would have received.
 
 ## Roadmap
 
@@ -270,9 +324,10 @@ npm run docs:dev   # the documentation site (website/)
 - ✅ **streams** — SSE / ndjson / WebSocket duplex over a multicast `AsyncIterable` channel, with backpressure and cleanup.
 - ✅ **graph introspection** — `explain` / `graph` / `toMermaid` / `GET /__graph__`.
 - ✅ **mesh (walking skeleton)** — `teapot`/`teacup` distributed DI over a secret-gated WS control channel. A BEAM/OTP-style cluster, *not* microservices.
-- ✅ **runs everywhere** — Node, Deno, Bun, and Cloudflare Workers over web-standard `Request`/`Response`, with identical WebSocket behaviour on all four.
+- ✅ **runs everywhere** — Node, Deno, Bun, and Cloudflare Workers over web-standard `Request`/`Response`, with identical WebSocket behaviour on all four. Every CI run exercises all four; the Deno, Bun, and workerd suites gate a merge exactly as the Node one does.
 - ✅ **HTML** — `@Html` (string / file / template), a built-in template engine with a bring-your-own `viewEngine` hook, and `static` serving.
 - ✅ **router completeness for beta** — safe constrained params, deterministic precedence, explicit/automatic HEAD and OPTIONS, strict path validation, and ambiguity checks across local and mesh routes.
+- ✅ **observability** — a correlated lifecycle event stream (request id, trace id, route pattern, per-step timings) and an injectable `Logger`. Exporters live outside core.
 - **next** — API freeze + first published release, mesh sub-specs (discovery, load-balancing, failover), official plugins, and a radix-tree matcher for very large route tables.
 
 ## Versioning

@@ -56,10 +56,50 @@ jobs:
       - run: npm audit --omit=dev
       - run: npm audit
         continue-on-error: true
+
+  # Runs everywhere is the headline claim, so it gets tested rather than asserted. `npm test` is
+  # Node only: a change to shared code can pass it and still be broken on Deno or Bun, which is
+  # exactly why these suites exist separately. Leaving them out of CI meant the claim rested on
+  # whoever remembered to run them locally.
+  #
+  # Its own job, not more steps on `build`, for the reason the audit sits where it does: a Bun
+  # failure should read as a Bun failure instead of burying the Node lint output.
+  runtimes:
+    runs-on: ubuntu-latest
+    strategy:
+      # One runtime breaking must not cancel the others — which one else broke is the useful part
+      # of the answer, and a cancelled job reports as if it had never been asked.
+      fail-fast: false
+      matrix:
+        runtime: [deno, bun, edge]
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.12'
-      - run: npm ci --prefix website
-      - run: npm audit --prefix website
-        continue-on-error: true
-      - run: npm run docs:build
+          node-version: '22'
+      # All three need the dependency tree: the edge suite drives workerd from a Node process, and
+      # Deno and Bun resolve `reflect-metadata` out of node_modules like any other import.
+      - run: npm ci
+      - if: matrix.runtime == 'deno'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - if: matrix.runtime == 'bun'
+        uses: oven-sh/setup-bun@v2
+      - run: npm run test:${{ matrix.runtime }}
+      # JSR's gate, moved off the release tag. `release.yml` runs this too and keeps doing so —
+      # that copy protects an immutable JSR version and is the last thing standing between a tag
+      # and a version number that can never be replaced. This copy exists because that one runs
+      # too late to be useful as feedback: a slow type or a Deno type error would otherwise land
+      # on `main` in silence and surface while cutting a release, which is the same "least time
+      # to judge a fix" the audit steps above are ordered to avoid.
+      #
+      # It is a second compiler over the same source, not a formality. `npm run typecheck` is tsc
+      # with this repo's tsconfig; this is Deno's checker with Deno's lib, and it is what found
+      # the `BodyInit` hole on the fetch path that tsc accepted. JSR serves `src/` directly, so
+      # anything it rejects is something a JSR consumer would have received.
+      #
+      # 0.68s against 2.0s for the whole vitest suite. No `--allow-dirty`: a checkout is clean,
+      # and if it somehow is not, that is worth failing on.
+      - if: matrix.runtime == 'deno'
+        run: deno publish --dry-run

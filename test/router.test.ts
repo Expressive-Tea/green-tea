@@ -76,6 +76,33 @@ describe('normalizeRequestPath', () => {
     expect(() => normalizeRequestPath('/users//42')).toThrow(/repeated slash/);
     expect(() => normalizeRequestPath('/users/%E0%A4%A')).toThrow(/malformed path encoding/);
   });
+
+  // The reference for every case below is `new URL('http://x' + path).pathname`, because that is
+  // what Deno, Bun and workerd apply before green-tea is handed the request. Node has no such step,
+  // so this is where the two adapters are made to agree.
+  it('resolves dot segments the way the URL parser does', () => {
+    expect(normalizeRequestPath('/public/../admin')).toBe('/admin');
+    expect(normalizeRequestPath('/./admin')).toBe('/admin');
+    expect(normalizeRequestPath('/a/b/../../c')).toBe('/c');
+    expect(normalizeRequestPath('/a/.')).toBe('/a');
+    expect(normalizeRequestPath('/..')).toBe('/');
+    expect(normalizeRequestPath('/a/../..')).toBe('/');
+  });
+
+  it('resolves percent-encoded dot segments, which the URL parser also treats as dots', () => {
+    expect(normalizeRequestPath('/public/%2e%2e/admin')).toBe('/admin');
+    expect(normalizeRequestPath('/public/%2E%2E/admin')).toBe('/admin');
+    expect(normalizeRequestPath('/%2e/admin')).toBe('/admin');
+    expect(normalizeRequestPath('/public/.%2e/admin')).toBe('/admin');
+  });
+
+  it('leaves dots that are not whole segments alone', () => {
+    expect(normalizeRequestPath('/assets/logo.png')).toBe('/assets/logo.png');
+    expect(normalizeRequestPath('/files/.hidden')).toBe('/files/.hidden');
+    expect(normalizeRequestPath('/v1.2/status')).toBe('/v1.2/status');
+    // %2f is not a separator to the URL parser, so `..%2fb` is one ordinary segment.
+    expect(normalizeRequestPath('/a/..%2fb')).toBe('/a/..%2fb');
+  });
 });
 
 describe('matchRoute precedence', () => {

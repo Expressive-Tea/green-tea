@@ -3,6 +3,7 @@ import type { Channel } from './channel';
 import type { App } from './app/types';
 import type { WsSocket, WsRequest } from './http/ws-core';
 import { decodeMessage, neutralSocket, toWsRequest, upgradeSafely } from './http/ws-adapter';
+import { closeWithDeadline } from './http/shutdown';
 
 // Minimal ambient for the Bun globals we use — avoids a @types/bun devDep.
 // Mirrors the real Bun.serve / server.upgrade / ServerWebSocket signatures we call.
@@ -21,9 +22,24 @@ interface BunWebSocketHandler {
 }
 interface BunServer {
   port: number;
-  stop(closeActiveConnections?: boolean): void;
+  // Returns a promise, verified on Bun 1.3 — the previous `void` here was simply wrong, and it
+  // hid the fact that this is awaitable at all.
+  stop(closeActiveConnections?: boolean): Promise<void>;
   upgrade(request: Request, options?: { data?: unknown; headers?: Record<string, string> }): boolean;
   requestIP(request: Request): { address: string; family: string; port: number } | null;
+}
+
+/**
+ * What {@link serveBun} hands back: Bun's own server, plus the bounded `close()` that
+ * `app.close()` cannot provide here. `app.close()` returns at its `if (!server)` guard on Bun,
+ * because a Bun app is served through `app.fetch` and never through `listen()`.
+ */
+export interface BunServeResult extends BunServer {
+  /**
+   * Drains in-flight requests, then force-closes whatever is left after `timeoutMs` (default:
+   * 10s). Same meaning as `app.close({ timeoutMs })` on Node.
+   */
+  close(options?: { timeoutMs?: number }): Promise<void>;
 }
 interface BunServeOptions {
   port?: number;
@@ -59,8 +75,8 @@ function bunSocket(ws: BunServerWebSocket): WsSocket {
  * Bun.serve exposes no equivalent to Node's server.maxConnections; enforce connection caps at
  * the deployment platform or reverse proxy.
  */
-export function serveBun(app: App, options?: BunServeShortOptions): BunServer {
-  return Bun.serve({
+export function serveBun(app: App, options?: BunServeShortOptions): BunServeResult {
+  const server = Bun.serve({
     ...options,
     fetch(request, server) {
       if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
@@ -96,5 +112,26 @@ export function serveBun(app: App, options?: BunServeShortOptions): BunServer {
         ac.abort();
       },
     },
+  });
+
+  // Object.assign rather than a fresh object: Bun.serve returns more than the ambient above
+  // declares (reload, ref, unref, …), and rebuilding would silently drop whatever we did not name.
+  return Object.assign(server, {
+    close: (closeOptions: { timeoutMs?: number } = {}): Promise<void> =>
+      closeWithDeadline(
+        // Drain, then hand over to the app so registered teardown runs — D7 of the teardown design.
+        // `app.close()` returns at its no-server guard on Bun, but still drains the teardown
+        // registry, which is what makes one `close()` enough here instead of two. Called without
+        // options on purpose: passing a timeout it cannot use to drain would only earn its warning,
+        // and the deadline below already bounds the whole call.
+        () => server.stop(false).then(() => app.close()),
+        () => void server.stop(true),
+        closeOptions.timeoutMs ?? 10_000,
+        (ms) =>
+          app.logger.warn(`graceful shutdown timed out after ${ms}ms — forcing remaining connections closed`, {
+            timeoutMs: ms,
+            runtime: 'bun',
+          }),
+      ),
   });
 }

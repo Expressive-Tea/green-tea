@@ -5,23 +5,110 @@ import { isStreamResult, type PipelineResult } from '../pipeline';
 import { buildSecurityHeaders, resolveCors, corsPreflightHeaders } from '../security';
 import { resolveRoute, allowedMethods, normalizeRequestPath, parseQuery } from './router';
 import { pickEncoder } from './stream';
+import { acquireBody, type BodyReader } from './body';
 import type { RouteDef, HttpOptions } from './types';
 import type { StreamEncoder } from '../encoders';
+import type { Bus } from '../bus';
 
-/** A runtime-neutral inbound request: body already parsed by the caller's ingress (Node stream, fetch Request, …). */
+/**
+ * `randomUUID`, from wherever this runtime keeps it. Resolved once, at import.
+ *
+ * The web-standard global stays the primary path, and that is deliberate rather than stylistic:
+ * this file is the runtime-neutral core, and Deno, Bun and workerd all expose `crypto` without a
+ * compatibility flag, while `node:crypto` is unavailable to at least one of them.
+ *
+ * Node is the exception. The global arrived **unflagged in 19**, and `engines` promises `>=18`,
+ * where it does not exist at all — so the previous `declare const crypto` compiled cleanly and then
+ * threw `ReferenceError: crypto is not defined` on the first request of every Node 18 process. Only
+ * CI's Node 18 job caught it; every newer Node and every other runtime hides it, which is exactly
+ * why that job is pinned to the floor rather than to the current release.
+ *
+ * The fallback is reached only by a runtime that lacks the global, so workerd never evaluates the
+ * `require` — and the ESM build has a real one, from the `createRequire` banner in `tsup.config.ts`.
+ */
+const randomUUID: () => string = (() => {
+  const webCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (typeof webCrypto?.randomUUID === 'function') return () => webCrypto.randomUUID!();
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return (require('node:crypto') as { randomUUID: () => string }).randomUUID;
+})();
+
+/**
+ * A runtime-neutral inbound request.
+ *
+ * The body arrives as a {@link BodyReader} rather than a value, and that is the whole reason this
+ * core resolves each request exactly once. When the adapter had to hand over an already-parsed
+ * body, it first had to route the request itself — a body is only read for a request that reaches
+ * a handler — so both the adapter and `dispatch` resolved the same route from the same inputs, and
+ * a four-route app walked its table two and a half times per request. Handing over the *ability*
+ * to read instead of the result moves that decision here, where the route is known anyway.
+ */
 export interface NeutralRequest {
   method: string;
   url: string; // path + query, e.g. "/users/9?x=1"
   headers: Record<string, string | string[] | undefined>;
-  body: unknown; // already-parsed body
+  /** Called only once a route matches, so an unmatched request still never reads a body. */
+  readBody: BodyReader;
+  /** The runtime's own request object, passed back to {@link readBody} untouched and never inspected here. */
+  source: unknown;
   secure: boolean;
   ip: string;
+  requestId: string;
+  traceId?: string;
+}
+
+// Module scope, not a local inside `correlateRequest`. Declared there it was a closure allocated
+// on every single request, which measured at 0.16 us against a ~4.4 us one — 45% of the whole
+// observability overhead, for a helper that captures nothing.
+const first = (value: string | string[] | undefined): string | undefined => (Array.isArray(value) ? value[0] : value);
+
+/**
+ * Derives a request's identity from its headers, for the adapters to stamp on a `NeutralRequest`.
+ *
+ * **Called by the adapters, not by {@link handle}**, and the placement is the point. An adapter's
+ * `BodyReader` renders its own `413` (`server.ts`, `web.ts`) without `handle()` ever producing it,
+ * so identity has to exist before the read starts. Generating it in here would leave precisely the
+ * failures an operator most wants to correlate with nothing to correlate them by.
+ *
+ * An `x-request-id` from a gateway is adopted rather than replaced — a service behind a proxy must
+ * not open a second identity for a request that already has one. `traceparent` is carried through
+ * untouched: core implements no propagation spec, and W3C Trace Context belongs to the exporter.
+ */
+export function correlateRequest(headers: Record<string, string | string[] | undefined>): {
+  requestId: string;
+  traceId?: string;
+} {
+  const incoming = first(headers['x-request-id'])?.trim();
+  const traceId = first(headers.traceparent)?.trim();
+
+  // `randomUUID` is not the lazy choice here, it is the measured one. Every supported runtime
+  // already batches entropy behind it, so the obvious "faster" replacements are not:
+  //
+  //   crypto.randomUUID()                       76 ns
+  //   batched getRandomValues + hex, 12 bytes   50 ns   cross-runtime, saves 0.26% of a request
+  //   batched + Buffer.toString('hex')          49 ns   Node-only, so it cannot be used here
+  //   uint32 -> toString(36) from a pool       114 ns
+  //   Math.random() x2 -> base36               265 ns   3.5x SLOWER; string work dominates
+  //   getRandomValues per call, unbatched      472 ns
+  //
+  // The only cross-runtime win is 26 ns, against ~10.19 us for a real socketed request. A hand-
+  // rolled entropy pool is not worth 0.26%. A lazy getter is separately useless: the adapters and
+  // the payload builders both spread this object, and the first spread materialises it.
+  return { requestId: incoming || randomUUID(), traceId: traceId || undefined };
 }
 
 /** The neutral shape of a response: a fully buffered body, or a stream to pipe frame-by-frame. */
 export type NeutralOutcome =
   | { kind: 'buffered'; status: number; headers: Record<string, string>; body: string | Buffer }
-  | { kind: 'stream'; headers: Record<string, string>; stream: AsyncIterable<unknown>; encoder: StreamEncoder };
+  | {
+      kind: 'stream';
+      headers: Record<string, string>;
+      stream: AsyncIterable<unknown>;
+      encoder: StreamEncoder;
+      /** The matched route's pattern, for naming the stream lifecycle events. */
+      route: string;
+    };
 
 /** {@link handle}'s result for a normal (non-preflight) request. */
 export interface HandleResult {
@@ -56,7 +143,7 @@ function errorOutcome(
   opts: HttpOptions | undefined,
   headers: Record<string, string> = {},
 ): HandleResult {
-  const rendered = renderError(error, { method: req.method, url: req.url, headers: req.headers }, opts?.onError);
+  const rendered = renderError(error, req, opts?.onError);
   return {
     injected,
     outcome: {
@@ -104,15 +191,91 @@ async function unmatchedOutcome(
   return errorOutcome(error, req, injected, opts, allow.length ? { allow: allow.join(', ') } : {});
 }
 
+/** What `dispatch` learned along the way that `handle` needs in order to describe the request afterwards. */
+interface Trace {
+  route?: string;
+}
+
 /**
  * Runtime-neutral request handler: security/CORS headers, preflight short-circuit, route match / 404 / 405,
  * route-handler invocation with error rendering, and the buffered-vs-stream decision. Does no I/O — the
  * caller (a Node adapter, a fetch adapter, …) reads/writes the actual request/response.
+ *
+ * Wraps {@link dispatch} with the request-level lifecycle events. `request:end` fires when the handler
+ * returns, **not** when a stream it produced finishes: a route that returns an `AsyncIterable` is done
+ * here in milliseconds while its connection may live for hours, and ending the span at close would put
+ * hour-long SSE connections and 2 ms buffered replies in one latency distribution, ruining both.
+ * `stream:open`/`stream:close` already describe the connection, and now carry the same `requestId`.
  */
-export async function handle(
+export function handle(
   routes: RouteDef[],
   opts: HttpOptions | undefined,
   req: NeutralRequest,
+): Promise<HandleResult | Preflight> {
+  const bus = opts?.bus;
+
+  // Deliberately not `async`. Wrapping `dispatch` in a second async frame costs a promise and two
+  // microtask ticks per request — measured at 0.43 us, an order of magnitude more than the four
+  // Map lookups this branch avoids. An unobserved app returns dispatch's own promise untouched.
+  if (
+    bus === undefined ||
+    !(
+      bus.hasListeners('request:start') ||
+      bus.hasListeners('request:end') ||
+      bus.hasListeners('route:matched') ||
+      bus.hasListeners('route:unmatched')
+    )
+  ) {
+    return dispatch(routes, opts, req, undefined, undefined);
+  }
+
+  return observedDispatch(routes, opts, req, bus);
+}
+
+async function observedDispatch(
+  routes: RouteDef[],
+  opts: HttpOptions | undefined,
+  req: NeutralRequest,
+  bus: Bus,
+): Promise<HandleResult | Preflight> {
+  const watchingEnd = bus.hasListeners('request:end');
+  const startedAt = watchingEnd ? performance.now() : 0;
+  const trace: Trace = {};
+
+  if (bus.hasListeners('request:start'))
+    bus.emit('request:start', {
+      name: `${req.method} ${req.url}`,
+      method: req.method,
+      requestId: req.requestId,
+      traceId: req.traceId,
+    });
+
+  const result = await dispatch(routes, opts, req, bus, trace);
+
+  if (watchingEnd) {
+    // A preflight is a 204 the router never routed; a stream has no status of its own and is a 200
+    // by the time anything is piped.
+    const status = 'preflight' in result ? 204 : result.outcome.kind === 'buffered' ? result.outcome.status : 200;
+    bus.emit('request:end', {
+      name: trace.route ?? `${req.method} ${req.url}`,
+      method: req.method,
+      route: trace.route,
+      status,
+      durationMs: performance.now() - startedAt,
+      requestId: req.requestId,
+      traceId: req.traceId,
+    });
+  }
+
+  return result;
+}
+
+async function dispatch(
+  routes: RouteDef[],
+  opts: HttpOptions | undefined,
+  req: NeutralRequest,
+  bus: Bus | undefined,
+  trace: Trace | undefined,
 ): Promise<HandleResult | Preflight> {
   const injected = computeInjected(opts, req);
   let path: string;
@@ -129,7 +292,39 @@ export async function handle(
 
   const matched = resolveRoute(routes, req.method, path);
 
-  if (!matched) return unmatchedOutcome(routes, opts, req, path, injected);
+  if (!matched) {
+    if (bus?.hasListeners('route:unmatched'))
+      bus.emit('route:unmatched', {
+        name: `${req.method} ${path}`,
+        method: req.method,
+        requestId: req.requestId,
+        traceId: req.traceId,
+      });
+
+    return unmatchedOutcome(routes, opts, req, path, injected);
+  }
+
+  if (trace) trace.route = matched.def.pattern;
+
+  if (bus?.hasListeners('route:matched'))
+    bus.emit('route:matched', {
+      name: matched.def.pattern,
+      route: matched.def.pattern,
+      method: req.method,
+      transport: matched.def.transport,
+      requestId: req.requestId,
+      traceId: req.traceId,
+    });
+
+  // `req` is passed straight through as the error context: a `NeutralRequest` already has the
+  // `method`/`url`/`headers` an `ErrorRequest` is, so copying those three fields into a fresh
+  // object per request bought nothing.
+  const acquired = await acquireBody(req.readBody, req.source, matched, opts, req);
+
+  // The adapter rendered this one itself (a 413 it had to answer while reading), or `acquireBody`
+  // did (a malformed or unsupported body). Either way it is already the standard envelope, and the
+  // caller merges `injected` into it exactly as it does for every other outcome.
+  if ('fail' in acquired) return { injected, outcome: { kind: 'buffered', ...acquired.fail } };
 
   let result: PipelineResult;
 
@@ -140,17 +335,28 @@ export async function handle(
       headers: req.headers,
       params: matched.params,
       query: parseQuery(req.url),
-      body: req.body,
+      body: acquired.body,
       protocol: req.secure ? 'https' : 'http',
       ip: req.ip,
+      requestId: req.requestId,
+      traceId: req.traceId,
     });
   } catch (error) {
-    result = renderError(error, { method: req.method, url: req.url, headers: req.headers }, opts?.onError);
+    result = renderError(error, req, opts?.onError);
   }
 
   if (isStreamResult(result)) {
     const encoder = pickEncoder(matched.def.transport, String(req.headers.accept ?? ''));
-    return { injected, outcome: { kind: 'stream', headers: encoder.headers, stream: result.stream, encoder } };
+    return {
+      injected,
+      outcome: {
+        kind: 'stream',
+        headers: encoder.headers,
+        stream: result.stream,
+        encoder,
+        route: matched.def.pattern,
+      },
+    };
   }
 
   return {

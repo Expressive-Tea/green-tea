@@ -40,7 +40,7 @@ export {
   Options,
   Html,
 } from './metadata';
-export type { Transport, HttpMethod } from './metadata';
+export type { Transport, HttpMethod, RouteDecorator } from './metadata';
 export type { Plugin } from './plugin';
 
 // Transformers & error signals
@@ -58,12 +58,17 @@ export {
 
 // Bus & flow
 export { Bus } from './bus';
+export type { LifecycleEvent, EventPayload, Correlation } from './bus';
 export { flow, Flow } from './flow';
 export type { StepFn, CompiledFlow } from './flow';
 
 // Parameter decorators
 export { needs, ctx, param, query, body, headers, header, inbound, abort } from './params';
-export type { Query, Headers, Context, ArgSpec } from './params';
+export type { Query, Headers, Context, ArgSpec, ArgDecorator } from './params';
+
+// Observability
+export { createDefaultLogger, logRequests, withConsoleFallback } from './logger';
+export type { Logger, LogLevel, LogFields } from './logger';
 
 // Streaming
 export { channel, isAsyncIterable } from './channel';

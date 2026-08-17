@@ -23,4 +23,12 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Nothing in core writes to console directly — every diagnostic goes through the injectable
+    // `Logger`, or an application cannot redirect it. This is the rule form of a check that was
+    // otherwise a `grep` somebody has to remember to run.
+    files: ['src/**/*.ts'],
+    ignores: ['src/logger.ts'], // the default logger *is* the console sink; that is its whole job
+    rules: { 'no-console': 'error' },
+  },
 );

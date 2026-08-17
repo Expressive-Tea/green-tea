@@ -100,48 +100,57 @@ export function Route(prefix: string): ClassDecorator {
   };
 }
 
-function routeDecorator(method: HttpMethod, transport: Transport) {
-  return (
-      path: string,
-      opts?: { export?: boolean; duplicates?: 'array' | 'last'; maxBodyBytes?: number; maxParts?: number },
-    ): MethodDecorator =>
-    (target, propertyKey) => {
-      const ctor = target.constructor;
-      const routes = (Reflect.getMetadata(K.routes, ctor) as RouteMeta[]) ?? [];
-      routes.push({
-        method,
-        path,
-        handlerName: String(propertyKey),
-        transport,
-        export: opts?.export ?? false,
-        duplicates: opts?.duplicates,
-        maxBodyBytes: opts?.maxBodyBytes,
-        maxParts: opts?.maxParts,
-      });
-      Reflect.defineMetadata(K.routes, routes, ctor);
-    };
+/**
+ * The shape every route decorator shares: a path, optional per-route overrides, and the
+ * `MethodDecorator` that records them against the controller.
+ *
+ * Named rather than inferred because JSR rejects an inferred type on a public symbol — an inferred
+ * one forces every consumer's type checker to re-derive it from the implementation instead of
+ * reading it from the declaration. It also gives callers a name for the shape.
+ */
+export type RouteDecorator = (
+  path: string,
+  opts?: { export?: boolean; duplicates?: 'array' | 'last'; maxBodyBytes?: number; maxParts?: number },
+) => MethodDecorator;
+
+function routeDecorator(method: HttpMethod, transport: Transport): RouteDecorator {
+  return (path, opts) => (target, propertyKey) => {
+    const ctor = target.constructor;
+    const routes = (Reflect.getMetadata(K.routes, ctor) as RouteMeta[]) ?? [];
+    routes.push({
+      method,
+      path,
+      handlerName: String(propertyKey),
+      transport,
+      export: opts?.export ?? false,
+      duplicates: opts?.duplicates,
+      maxBodyBytes: opts?.maxBodyBytes,
+      maxParts: opts?.maxParts,
+    });
+    Reflect.defineMetadata(K.routes, routes, ctor);
+  };
 }
 
 /** Declares a buffered `GET` route. */
-export const Get = routeDecorator('GET', 'buffer');
+export const Get: RouteDecorator = routeDecorator('GET', 'buffer');
 /** Declares a buffered `HEAD` route. */
-export const Head = routeDecorator('HEAD', 'buffer');
+export const Head: RouteDecorator = routeDecorator('HEAD', 'buffer');
 /** Declares a buffered `POST` route. */
-export const Post = routeDecorator('POST', 'buffer');
+export const Post: RouteDecorator = routeDecorator('POST', 'buffer');
 /** Declares a buffered `PUT` route. */
-export const Put = routeDecorator('PUT', 'buffer');
+export const Put: RouteDecorator = routeDecorator('PUT', 'buffer');
 /** Declares a buffered `PATCH` route. */
-export const Patch = routeDecorator('PATCH', 'buffer');
+export const Patch: RouteDecorator = routeDecorator('PATCH', 'buffer');
 /** Declares a buffered `DELETE` route. */
-export const Delete = routeDecorator('DELETE', 'buffer');
+export const Delete: RouteDecorator = routeDecorator('DELETE', 'buffer');
 /** Declares a buffered `OPTIONS` route. */
-export const Options = routeDecorator('OPTIONS', 'buffer');
+export const Options: RouteDecorator = routeDecorator('OPTIONS', 'buffer');
 /** Declares a `GET` route streamed as Server-Sent Events. */
-export const Sse = routeDecorator('GET', 'sse');
+export const Sse: RouteDecorator = routeDecorator('GET', 'sse');
 /** Declares a `GET` route whose transport is content-negotiated at request time. */
-export const Stream = routeDecorator('GET', 'negotiate');
+export const Stream: RouteDecorator = routeDecorator('GET', 'negotiate');
 /** Declares a `GET` route upgraded to a WebSocket. */
-export const Ws = routeDecorator('GET', 'ws');
+export const Ws: RouteDecorator = routeDecorator('GET', 'ws');
 
 /** Attaches a response transformer to a handler method. */
 export function Transformer(fn: TransformerFn): MethodDecorator {

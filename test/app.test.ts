@@ -439,6 +439,28 @@ describe('devGraph endpoint', () => {
 });
 
 describe('graceful shutdown', () => {
+  // A module whose only route never responds, so shutdown always has something in flight to give
+  // up on — the deadline is the only thing that can end close().
+  const hangModule = () => {
+    @Route('/')
+    class Ctl {
+      @Get('/hang') hang() {
+        return new Promise(() => {});
+      }
+    }
+    @Module({ mountpoint: '/', controllers: [Ctl] })
+    class M {}
+    return M;
+  };
+
+  const listenHanging = async (app: ReturnType<typeof createApp>): Promise<number> => {
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    fetch(`http://127.0.0.1:${port}/hang`).catch(() => {});
+    await new Promise((r) => setTimeout(r, 50)); // let the request reach the handler
+    return port;
+  };
+
   it('app.close() stops accepting and resolves, even with an SSE stream open', async () => {
     @Route('/')
     class Ctl {
@@ -480,6 +502,28 @@ describe('graceful shutdown', () => {
 
     fetch(`http://127.0.0.1:${port}/hang`).catch(() => {});
     await new Promise((r) => setTimeout(r, 50));
+
+    const start = Date.now();
+    await app.close({ timeoutMs: 300 });
+    expect(Date.now() - start).toBeLessThan(600);
+  });
+
+  // The app-level default exists for the case where close() is reached from a signal handler or a
+  // test helper nobody local owns, so it has to work with close() called bare.
+  it('createApp({ shutdownTimeoutMs }) applies when close() is called with no options', async () => {
+    const app = createApp({ modules: [hangModule()], shutdownTimeoutMs: 300 });
+    await listenHanging(app);
+
+    const start = Date.now();
+    await app.close();
+    expect(Date.now() - start).toBeLessThan(600);
+  });
+
+  // The interesting half of the precedence rule: an app-level default long enough to fail this
+  // test if it won, so the assertion can only pass if the per-call value took priority.
+  it('close({ timeoutMs }) overrides the app-level default', async () => {
+    const app = createApp({ modules: [hangModule()], shutdownTimeoutMs: 30_000 });
+    await listenHanging(app);
 
     const start = Date.now();
     await app.close({ timeoutMs: 300 });

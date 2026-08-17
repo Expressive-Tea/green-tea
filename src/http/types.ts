@@ -4,6 +4,7 @@ import type { ErrorRenderer } from '../transformers';
 import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
 import type { WsRequest, WsSocket } from './ws-core';
 import type { StaticResolver } from '../views';
+import type { Bus } from '../bus';
 
 /** Per-request and per-server resource ceilings applied by the server. */
 export interface RequestLimits {
@@ -17,6 +18,12 @@ export interface RequestLimits {
 
 /** Options controlling server construction: limits, TLS, proxy trust, security headers, CORS, and body parsing. */
 export interface HttpOptions {
+  /**
+   * Lifecycle events go here. Carried on the options rather than as a parameter so `handle()` —
+   * the one place both the Node and Fetch adapters meet — can emit without either adapter growing
+   * a separate channel for it.
+   */
+  bus?: Bus;
   limits?: RequestLimits;
   streams?: Set<() => void>;
   tls?: TlsOptions;
@@ -38,6 +45,10 @@ export type RouteHandler = (req: {
   body: unknown;
   protocol: 'http' | 'https';
   ip: string;
+  /** Correlates every lifecycle event this request emits; see `correlateRequest` in `./core`. */
+  requestId: string;
+  /** An incoming `traceparent`, carried verbatim for an exporter to interpret. */
+  traceId?: string;
 }) => Promise<PipelineResult>;
 
 /** A registered HTTP route: method, path pattern, streaming transport, and handler. */
