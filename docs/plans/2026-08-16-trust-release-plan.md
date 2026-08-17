@@ -245,7 +245,14 @@ The split trades CI coupling for drift risk: docs and code can now disagree with
 
 What governs behaviour is `AGENTS.md:83` and the pre-PR checklist in `CONTRIBUTING.md`, both of which already carried *"New public API needs a note in `README.md`"* — written before the split and never updated for it, so the two documents that a contributor (or an assistant) actually reads mid-change said nothing about the new repository. Both now name it and say why the rule exists, since a rule without its reason is the first one dropped under time pressure.
 
-Neither automated option was built. The **link check against the published package** remains the one worth building: it targets #18's actual failure mode — a page naming a decorator, a `createApp` option or a method that no longer exists — and it is cheap, because it only has to extract identifiers from the pages' code blocks and compare them against the package's exports. It catches lies, not staleness. A **docs job triggered from core releases** is the weaker of the two: it fires after the API has already shipped.
+**The link check was prototyped and then rejected, on measurement rather than taste.** It had been recommended here as the one worth building; building enough of it to decide showed otherwise.
+
+- Every symbol the pages import is real: **24 distinct imports from `@green-tea/core` across 25 pages, all present** among the package's 101 exports. No bug for it to find today.
+- More decisively, **an import check could not have caught #18**. That issue was *"docs still describe `close()` without the timeout"* — the method existed; the **option** was undocumented. Imports are the part that does not drift. Options, option shapes and method signatures are.
+- Extending it to options and methods was tried and produced **17 findings, all 17 false** — a regex cannot tell a nested `tls: { key, cert }` from a top-level option, `app.example.com` in a CORS example from an `app.*` call, or prose describing Express's `app.use()` from a green-tea API. A check with that signal-to-noise trains people to ignore it, which is worse than not having one.
+- What would genuinely catch #18's class is **type-checking the code blocks** (twoslash / Expressive Code). That requires the documentation repository to depend on `@green-tea/core` and its examples to be complete and compilable — many are deliberately fragments. It buys the guarantee back by spending exactly the independence this split was for.
+
+So the accepted risk stands, now as an informed choice rather than a default. A **docs job triggered from core releases** was the other option and remains the weaker one: it fires after the API has already shipped.
 
 One page is covered by more than a rule: `test/circuit-breaker-recipe.test.ts` executes the recipe published in `guides/circuit-breaker.md`. That is one page of twenty-five, and is not a substitute for the check above.
 
