@@ -116,14 +116,18 @@ Tasks 1–3 are the correction; 4–6 are what consumes it. Do not start 4 befor
 **Files:**
 - Modify: `BENCHMARKS.md`
 
-D7 predicted ~0.25% **per step**, invisible against the harness's own 0.3% CV. Measured over a real socket, on the box `BENCHMARKS.md` was produced on, same server config both sides:
+D7 predicted ~0.25% **per step**, invisible against the harness's own 0.3% CV.
 
-| Scenario | Before | After | |
-|---|---:|---:|---:|
-| JSON hello | 78,118 req/s | 75,075 req/s | −3.9% |
-| Pipeline (3 steps) | 70,671 req/s | 69,164 req/s | −2.1% |
+**Measured: +7.0% of the framework's own per-request work** — 4.074 µs → 4.361 µs, medians of five interleaved rounds, ranges not overlapping. About 0.29 µs, or ~2% of a request over a real socket.
 
-**The route with fewer steps loses more**, which falsifies the model rather than only the number. The per-step cost is real but is skipped entirely when nothing subscribes (`Bus.hasListeners`); what remains is a **fixed per-request** cost — generating the request id, reading two headers, and the guard checks. A shallow route amortises that over less work, so it shows up larger.
+The prediction was wrong in **shape**, not only magnitude. Per-step work is skipped entirely when nothing subscribes (`Bus.hasListeners`), so a deep pipeline pays no more than a shallow one; what remains is a **fixed per-request** cost — generating the request id, reading two headers, and the guard checks. "Always on" survives, for a better reason than it was made with: there is nothing per-step left to make optional.
+
+**Three earlier numbers for this were published and all three were wrong**, which is the more useful lesson: −3.9%, then 0.8%, then −6.8%. Each came from a comparison with more than one variable moving.
+
+- The first two were sequential rather than interleaved. The same code measured at the start and end of one session differed by **12%** as the machine warmed, so run order was indistinguishable from effect — one of them even reported the wrong sign.
+- The third compared `7bd11bf` against `HEAD`, which differ by observability **and** three performance fixes pulling the other way. It reported their net as if it were one of them.
+
+The number above compares `7bd11bf` against `523e318`, the last commit before those fixes, alternating round by round.
 
 Two regressions were found and fixed by measuring rather than reasoning, both larger than anything the design anticipated:
 

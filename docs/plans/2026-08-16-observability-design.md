@@ -149,7 +149,9 @@ Two things follow. `Date.now()` loses on both axes — slower *and* coarser — 
 
 At 0.25% per step the overhead sits **below the 0.3% run-to-run CV of the project's own benchmark**, so it is not measurable in the harness that would have to justify a flag. Making it opt-in would buy two code paths and a configuration surface in exchange for something nobody can observe. Always on.
 
-> **Correction, after implementation.** This decision survived; its reasoning did not. Measured over a real socket the cost is **−3.9% on JSON hello and −2.1% on a three-step pipeline** — the shallower route loses *more*, which is the opposite of a per-step model. Per-step work is skipped entirely when nothing subscribes; what is left is a fixed per-request cost. "Always on" is still right, and for a better reason: there is nothing per-step left to make optional. See Task 7 in the implementation plan.
+> **Correction, after implementation.** This decision survived; its reasoning did not. The measured cost is **+7.0% of the framework's own per-request work** (~0.29 µs, ~2% over a real socket), and it is *fixed per request* rather than per step — per-step work is skipped entirely when nothing subscribes. "Always on" is still right, and for a better reason: there is nothing per-step left to make optional.
+>
+> Three earlier figures for this were published before that one and all three were wrong, each from a comparison with more than one variable moving. See Task 7 in the implementation plan for what went wrong and why interleaving is not optional here.
 
 ### D8 — Request logging is a `Bus` subscriber, wrapped so a failing logger cannot go silent
 

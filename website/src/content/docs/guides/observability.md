@@ -131,13 +131,15 @@ instrumentation — the graph already knows every node.
 
 ## What it costs
 
-Measured, not asserted, on the box that produced [BENCHMARKS.md](https://github.com/Expressive-Tea/green-tea/blob/main/BENCHMARKS.md):
+**About 0.29 µs per request** — roughly **7% of the framework's own work**, or **~2% of a request
+measured over a real socket**, where the transport dominates.
 
-| Scenario | Before | After | |
-|---|---:|---:|---:|
-| JSON hello | 78,118 req/s | 75,075 req/s | −3.9% |
-| Pipeline (3 steps) | 70,671 req/s | 69,164 req/s | −2.1% |
+The cost is **per request, not per step**. Per-step timing and payload construction are skipped
+entirely when nothing is subscribed, so a deep pipeline pays no more than a shallow one. What
+remains is fixed: generating the request id, reading two headers, and the checks that decide
+whether anyone is listening.
 
-The cost is **per request, not per step** — which is why the route with *fewer* steps loses more.
-Most of it is generating the request id; per-step timing and payload construction are skipped
-entirely when nothing is subscribed.
+Absolute throughput numbers are deliberately not quoted here. The figure above comes from an
+interleaved A/B — alternating both versions round by round — because the same code measured at the
+start and end of one session on the same machine differed by 12% as it warmed up. Any before/after
+that does not interleave is measuring the clock as much as the code.
