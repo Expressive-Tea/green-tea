@@ -10,6 +10,26 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Added
 
+- **Observability: a correlated lifecycle event stream and an injectable logger.** Every request is
+  given an id — an incoming `x-request-id` is adopted rather than replaced — and every event of that
+  request carries it, alongside the matched route *pattern* (never the concrete URL, which would give
+  a metrics backend one label per distinct path). Each step reports its own duration. `createApp({
+  logger })` accepts any object with `debug`/`info`/`warn`/`error`; the default writes structured JSON,
+  or a readable line on a TTY, decided once at boot. Nothing in core writes to `console`, enforced by a
+  lint rule rather than by intention. `createApp({ logRequests: true })` logs one line per request, off
+  by default. New exports: `Logger`, `LogLevel`, `LogFields`, `createDefaultLogger`,
+  `withConsoleFallback`, `logRequests`, `LifecycleEvent`, `EventPayload`, `Correlation`.
+
+  No metrics registry and no OpenTelemetry exporter in core — those live outside it, because core
+  keeps one runtime dependency. A `traceparent` header is carried through untouched for an exporter to
+  interpret; core implements no propagation spec. Closes [#10](https://github.com/Expressive-Tea/green-tea/issues/10).
+
+- **A bounded `close()` on the Deno and Bun adapters**, and `createApp({ shutdownTimeoutMs })` for the
+  Node one. `app.close()` returns at its no-server guard on Deno and Bun, so the deadline lives on the
+  server `serveDeno()`/`serveBun()` returns. One difference the deadline cannot hide: Node and Bun
+  force the remainder shut, while Deno cannot — aborting a server that is already draining throws from
+  Deno's own listener, so there the deadline bounds how long `close()` waits, not when connections die.
+
 - Shutdown is now an extension point. A `@Provider` may declare `dispose()`, a plugin may call
   `api.onShutdown(fn)`, and an application may pass `createApp({ hooks: [{ onShutdown }] })` — three
   doors into one registry, so an app closing a connection no longer writes `process.on('SIGTERM')`
@@ -32,6 +52,28 @@ npm treats versions as semver and semver forbids leading zeros.
 - `limits.maxConnections` changes Node's previously unlimited concurrent socket count to a
   default cap of `1000`; values `<= 0` leave Node unlimited. Deno and Bun have no equivalent
   runtime setting and require a platform or reverse-proxy connection cap.
+
+### Changed
+
+- **`.` and `..` in a request path are now resolved rather than 404'd.** `GET /public/../admin` reaches
+  a route declared as `/admin`, and `%2e` counts as a dot, so the encoded spelling cannot reach a route
+  the plain one resolves away from. This is a **behaviour change on Node only**, and it exists to end a
+  divergence: Deno, Bun and Workers resolve dot segments inside the `Request` constructor before the
+  framework sees anything, so the same bytes on the wire already reached different routes depending on
+  where you deployed. Rejecting them — the stricter option, and what this module does for `//` — is not
+  implementable on three of the four runtimes. If a proxy or WAF in front of you matches on the literal
+  path, note that it sees `/public/...` where the application now routes `/admin`.
+
+### Fixed
+
+- **Buffered response bodies are narrowed to what the host runtime's `Response` accepts.** A Node
+  `Buffer` is a `Uint8Array` at runtime but its declared backing store admits `SharedArrayBuffer`, which
+  `BodyInit` does not — so Deno's types rejected it. This was a real typing hole on the `app.fetch`
+  path, which is the path Deno, Bun and the edge all use, rather than a JSR formality.
+
+- **`close()`'s shutdown timer is armed before `finish()` is referenced.** The previous ordering relied
+  on `server.close(cb)` deferring, which is Node's behaviour rather than a guarantee to us, and left a
+  `ReferenceError` waiting in the shutdown path for whoever changed it.
 
 ## [26.8.0-beta.0] - 2026-08-02
 
