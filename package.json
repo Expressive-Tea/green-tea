@@ -1,6 +1,6 @@
 {
   "name": "@green-tea/core",
-  "version": "26.8.0-beta.0",
+  "version": "26.8.0-beta.1",
   "description": "A zen, opinionated, type-safe framework \u2014 your API is a graph, not a middleware chain.",
   "license": "MIT",
   "author": "green-tea contributors <projects@expressive-tea.io>",

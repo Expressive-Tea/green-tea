@@ -1,6 +1,6 @@
 {
   "name": "@green-tea/core",
-  "version": "26.8.0-beta.0",
+  "version": "26.8.0-beta.1",
   "license": "MIT",
   // JSR serves TypeScript source, not the tsup build, so these point at `src/` where npm's
   // `exports` point at `dist/`. Same four entry points on purpose: a docs example that imports

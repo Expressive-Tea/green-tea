@@ -8,6 +8,8 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ## [Unreleased]
 
+## [26.8.0-beta.1] - 2026-08-17
+
 ### Added
 
 - **Observability: a correlated lifecycle event stream and an injectable logger.** Every request is
