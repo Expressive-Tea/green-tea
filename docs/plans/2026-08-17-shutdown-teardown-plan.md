@@ -72,7 +72,7 @@ Tests: `dispose()` is called; a provider without one is skipped; `cache` needing
 
 Teardown runs **after** the server drain and **before** `close()` resolves (D8): in-flight requests may still need the database while draining.
 
-The budget: `timeoutMs` is a hard ceiling on the whole of `close()`. `teardownTimeoutMs` defaults to `timeoutMs`; when set lower it **reserves**, so the drain is bounded to `timeoutMs − teardownTimeoutMs` and teardown is guaranteed its slice. `teardownTimeoutMs > shutdownTimeoutMs` throws at `createApp` rather than being clamped silently.
+The budget: `timeoutMs` is a hard ceiling on the whole of `close()`. `teardownTimeoutMs` **unset** means no reservation — the drain may use all of `timeoutMs` and teardown gets what is left, possibly nothing. **Set**, it reserves: the drain is bounded to `timeoutMs − teardownTimeoutMs`. `teardownTimeoutMs > shutdownTimeoutMs` throws at `createApp` rather than being clamped silently.
 
 `closeApp` already arms a timer before `finish` exists, for a reason its comment spells out at length. Read that comment before touching the ordering.
 

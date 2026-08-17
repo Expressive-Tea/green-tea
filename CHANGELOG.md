@@ -10,6 +10,25 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Added
 
+- Shutdown is now an extension point. A `@Provider` may declare `dispose()`, a plugin may call
+  `api.onShutdown(fn)`, and an application may pass `createApp({ hooks: [{ onShutdown }] })` — three
+  doors into one registry, so an app closing a connection no longer writes `process.on('SIGTERM')`
+  by hand. Callbacks are **awaited**, unlike `bus.on` listeners, and take no arguments: whatever
+  needs closing is already in the closure that registered it.
+
+  They run in reverse boot order, so a `cache` that needs `db` closes before the `db` it is holding.
+  A failing teardown is logged and the rest still run — one broken callback must not leave the
+  process up. Everything happens inside `close()`'s existing deadline; `createApp({ teardownTimeoutMs })`
+  reserves a slice of that budget when a connection must get its chance to close, and is rejected at
+  boot if it exceeds `shutdownTimeoutMs`.
+
+  Node, Deno and Bun behave identically — on Deno and Bun the teardown runs from the `close()` on the
+  server `serveDeno()`/`serveBun()` returned. **The edge cannot participate**: workerd has no
+  shutdown to intercept, so anything that must be released belongs in the request that acquired it.
+
+  Nothing changes for existing code. `Plugin`'s signature is unchanged, `Hooks` methods are optional,
+  and `dispose()` is called only if present.
+
 - `limits.maxConnections` changes Node's previously unlimited concurrent socket count to a
   default cap of `1000`; values `<= 0` leave Node unlimited. Deno and Bun have no equivalent
   runtime setting and require a platform or reverse-proxy connection cap.

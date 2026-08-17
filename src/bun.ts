@@ -119,7 +119,12 @@ export function serveBun(app: App, options?: BunServeShortOptions): BunServeResu
   return Object.assign(server, {
     close: (closeOptions: { timeoutMs?: number } = {}): Promise<void> =>
       closeWithDeadline(
-        () => server.stop(false),
+        // Drain, then hand over to the app so registered teardown runs — D7 of the teardown design.
+        // `app.close()` returns at its no-server guard on Bun, but still drains the teardown
+        // registry, which is what makes one `close()` enough here instead of two. Called without
+        // options on purpose: passing a timeout it cannot use to drain would only earn its warning,
+        // and the deadline below already bounds the whole call.
+        () => server.stop(false).then(() => app.close()),
         () => void server.stop(true),
         closeOptions.timeoutMs ?? 10_000,
         (ms) =>

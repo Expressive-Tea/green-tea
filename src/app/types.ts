@@ -1,6 +1,7 @@
 import type http from 'http';
 import type { Bus } from '../bus';
 import type { Logger } from '../logger';
+import type { TeardownFn } from '../lifecycle';
 import type { GraphNode } from '../graph';
 import type { GraphView } from '../graph-viz';
 import type { HttpMethod, Transport } from '../metadata';
@@ -102,4 +103,15 @@ export interface MeshConfig {
    * `timeoutMs` first. Lower it to notice a dead teapot sooner, at the cost of more chatter.
    */
   heartbeatMs?: number;
+}
+
+/**
+ * Lifecycle participation for an application that does not want to be a plugin.
+ *
+ * Every method is optional, and the shape is an object rather than a single callback so later
+ * stages (`onBoot`, `onReady`) can be added without a breaking change. Only `onShutdown` exists.
+ */
+export interface Hooks {
+  /** Run before the app closes. Awaited, bounded by `close()`'s deadline, failures logged. */
+  onShutdown?: TeardownFn;
 }

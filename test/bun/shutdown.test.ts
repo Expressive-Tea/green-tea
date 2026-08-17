@@ -49,3 +49,23 @@ test('serveBun close() drains an in-flight request rather than cutting it', asyn
 
   expect(await inFlight).toEqual({ ok: true });
 });
+
+// D7 of the teardown design: proving the Node path works proves nothing here, because app.close()
+// returns at its no-server guard on Bun. The teardown has to run from the close() Bun actually uses.
+test('serveBun close() runs registered teardown', async () => {
+  const closed: string[] = [];
+  const app = createApp({
+    modules: [M],
+    hooks: [{ onShutdown: () => void closed.push('hook') }],
+    plugins: [(api) => api.onShutdown(async () => {
+      await Bun.sleep(10);
+      closed.push('plugin');
+    })],
+  });
+  const server = serveBun(app, { port: 0 });
+
+  await server.close({ timeoutMs: 2000 });
+
+  // Reverse registration order: the plugin registered after the hook, so it tears down first.
+  expect(closed).toEqual(['plugin', 'hook']);
+});

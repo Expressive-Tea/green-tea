@@ -63,3 +63,24 @@ Deno.test('a caller-supplied signal still aborts the server', async () => {
   ac.abort();
   await server.finished; // hangs here if chaining the caller's signal into ours dropped it
 });
+
+// D7 of the teardown design: a teardown must run on every runtime that has a shutdown, and it must
+// run from the close() the runtime actually uses. app.close() returns at its no-server guard here,
+// so proving the Node path works proves nothing about this one — hence a Deno assertion of its own.
+Deno.test('serveDeno close() runs registered teardown', async () => {
+  const closed: string[] = [];
+  const app = createApp({
+    modules: [M],
+    hooks: [{ onShutdown: () => void closed.push('hook') }],
+    plugins: [(api) => api.onShutdown(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      closed.push('plugin');
+    })],
+  });
+  const server = serveDeno(app, { port: 0 });
+
+  await server.close({ timeoutMs: 2000 });
+
+  // Reverse registration order: the plugin registered after the hook, so it tears down first.
+  if (closed.join(',') !== 'plugin,hook') throw new Error(`expected plugin,hook — got ${closed.join(',')}`);
+});

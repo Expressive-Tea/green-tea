@@ -122,9 +122,11 @@ Node, Deno and Bun behave identically. **Edge cannot, and no design fixes it**: 
 `timeoutMs` is a hard ceiling on the whole of `close()`. That is what it is for, and nothing here is allowed to make `close()` take longer than the caller asked for.
 
 - Drain runs first. Teardown runs after, within the same budget.
-- `teardownTimeoutMs` is optional and defaults to `timeoutMs` — no separate cap, teardown may use whatever the drain left.
-- Setting it lower **reserves**: the drain is bounded to `timeoutMs − teardownTimeoutMs`, so teardown is guaranteed its slice.
+- **Unset** (the default): the drain may use the whole of `timeoutMs`, and teardown gets whatever is left — possibly nothing. No reservation is taken from a caller who never asked for one.
+- **Set**: it **reserves**. The drain is bounded to `timeoutMs − teardownTimeoutMs`, so teardown is guaranteed its slice.
 - `teardownTimeoutMs > timeoutMs` is rejected at `createApp`, not silently clamped.
+
+An earlier draft of this decision said the option "defaults to `timeoutMs`". Read together with the reservation rule that gives the drain `timeoutMs − timeoutMs`, which is zero, and no drain at all. The default is *no reservation*, which is a different statement.
 
 Reserve rather than cap, and the difference is the whole reason this decision exists. A cap only bounds how long teardown *may* run; it does nothing when the drain has already spent the budget, and teardown then gets zero milliseconds and the database does not close. Reserving is what makes `teardownTimeoutMs` a guarantee rather than a ceiling on something that may never run.
 

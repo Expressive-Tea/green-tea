@@ -78,7 +78,12 @@ export function serveDeno(app: App, options?: DenoServeOptions): DenoServer {
   return Object.assign(server, {
     close: (closeOptions: { timeoutMs?: number } = {}): Promise<void> =>
       closeWithDeadline(
-        () => server.shutdown(),
+        // Drain, then hand over to the app so registered teardown runs — D7 of the teardown design.
+        // `app.close()` returns at its no-server guard on Deno, but still drains the teardown
+        // registry, which is what makes one `close()` enough here instead of two. Called without
+        // options on purpose: passing a timeout it cannot use to drain would only earn its warning,
+        // and the deadline below already bounds the whole call.
+        () => server.shutdown().then(() => app.close()),
         // Nothing to force, and that is Deno's constraint rather than an omission here. Its two
         // levers are mutually exclusive: aborting the serve signal after `shutdown()` is already
         // pending throws `BadResource: Bad resource ID` from Deno's own abort listener, which

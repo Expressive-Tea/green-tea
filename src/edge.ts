@@ -15,6 +15,13 @@ declare const WebSocketPair: { new (): { 0: EdgeWebSocket; 1: EdgeWebSocket } };
  * Cloudflare Workers / edge handler: HTTP + SSE via app.fetch, WebSocket via WebSocketPair.
  * Use as `export default { fetch: edgeHandler(app) }`. Requires the `nodejs_compat`
  * compatibility flag. The WS lifecycle runs on ctx.waitUntil so it survives past the 101 response.
+ *
+ * **Shutdown teardown never runs here, and nothing can make it.** Node, Deno and Bun all reach the
+ * teardown registry through a `close()` that some object owns; workerd has no shutdown to intercept
+ * — an isolate is discarded, not closed. A plugin or provider that relies on `onShutdown`/`dispose()`
+ * to release something is therefore *silently* inert on the edge, which is why this says so rather
+ * than a best-effort call on an event that does not exist. Anything that must be released belongs in
+ * the request that acquired it, or in a platform binding that manages its own lifetime.
  */
 export function edgeHandler(
   app: App,
