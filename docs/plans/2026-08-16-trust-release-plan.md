@@ -272,10 +272,7 @@ Leave `release.yml` alone. The tag-time gate stays: it is the one that protects 
 
 Add `test:all` — `npm test` plus `test:deno`, `test:bun`, `test:edge`, and the JSR dry run. Say in `README.md` which one is the fast loop and which one is the pre-push check, so the split reads as a decision rather than an oversight.
 
-### Task 4.5.3: Record the decorator deprecation as a known risk
-
-**Files:**
-- Modify: `README.md` (*Honest scope*), or wherever Phase 6 puts the stability contract
+### The decorator warning is expected — no task, and no new documentation
 
 Every `deno publish --dry-run` prints:
 
@@ -283,9 +280,11 @@ Every `deno publish --dry-run` prints:
 Warning experimentalDecorators compiler option is deprecated and may be removed at any time
 ```
 
-This framework is decorator-driven and depends on `emitDecoratorMetadata`, which the TC39 decorators that replace it do not provide an equivalent for. Nothing to fix today, and no workaround worth inventing ahead of the change.
+Whoever adds this gate to CI will see that warning arrive with it and should not treat it as something the gate found. It is **already documented, and better than a new note would manage**: `README.md:233` (*Why legacy decorators*) and `concepts/the-graph.md:43` in the docs repository both carry the reasoning — parameter decorators are deliberately absent from the TC39 Stage 3 proposal, so `handler(@param('id') id: string)` is only expressible with legacy decorators, and Stage 3 means the replacement is not finalized either.
 
-What is worth doing is naming it, because it is a dependency on a deprecated compiler option in the runtime the package publishes to. It belongs beside the other things *Honest scope* already admits. Do not turn the warning into an error to force the issue — that breaks releases on someone else's schedule.
+An earlier draft of this phase claimed the framework "depends on `emitDecoratorMetadata`". That is **wrong**, and both documents already say so: argument positions are recorded explicitly, and `grep -rn 'design:type\|design:paramtypes' src/` returns nothing — the flag is set in `tsconfig.json` and `deno.json`, but no `design:*` reflection is read anywhere. Legacy parameter decorators are the only legacy surface this project actually depends on.
+
+Do not turn the warning into an error to force the issue: that breaks releases on someone else's schedule.
 
 ---
 
