@@ -57,7 +57,8 @@ In scope: anything in `src/` that ships in the published package — route match
 pipeline, body parsing and its limits, the security headers and CORS handling, TLS setup, the
 WebSocket upgrade path, the mesh wire protocol, static file serving and view rendering.
 
-Out of scope: the benchmarks in `bench/`, the docs site in `website/`, dev-only tooling, and
+Out of scope: the benchmarks in `bench/`, the documentation site (now its own repository,
+[green-tea-docs](https://github.com/Expressive-Tea/green-tea-docs)), dev-only tooling, and
 anything that requires an attacker to already control your application code. Advisories in
 build-time dependencies are worth telling us about, but they are not vulnerabilities in
 green-tea and we handle them as ordinary dependency updates.

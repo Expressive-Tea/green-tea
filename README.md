@@ -254,7 +254,7 @@ green-tea is **beta**, on the road to a release candidate. Express and Fastify h
 
 ## Docs & development
 
-- **[green-tea.expressive-tea.io/docs](https://green-tea.expressive-tea.io/docs)** — getting started, concepts (the graph, `flow`), and guides: routing, DI, validation, uploads, streaming, HTML, security, errors, introspection, OpenAPI, plugins, mesh, runtimes, testing.
+- **[green-tea.expressive-tea.io/docs](https://green-tea.expressive-tea.io/docs)** — getting started, concepts (the graph, `flow`), and guides: routing, DI, validation, uploads, streaming, HTML, security, errors, introspection, OpenAPI, plugins, mesh, runtimes, testing. Its source lives in [green-tea-docs](https://github.com/Expressive-Tea/green-tea-docs); a change to public API here needs a matching change there, because nothing fails when the two disagree.
 - **[matcha](https://github.com/Expressive-Tea/matcha)** — the CLI. `matcha new` scaffolds a project (Node, Deno, or Bun), `matcha create` generates and auto-wires controllers/steps/providers/modules, `matcha run` detects your runtime and watches. A standalone Rust binary — no JS runtime needed to install it.
 
 ```bash
@@ -266,7 +266,6 @@ npm run test:edge  # workerd via miniflare
 npm run typecheck  # tsc --noEmit (includes the compile-time-guarantee type test)
 npm run build      # emit dist/ (tsup: dual ESM + CJS)
 npm run bench      # regenerate BENCHMARKS.md
-npm run docs:dev   # the documentation site (website/)
 ```
 
 ## Roadmap

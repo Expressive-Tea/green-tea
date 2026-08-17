@@ -56,13 +56,6 @@ jobs:
       - run: npm audit --omit=dev
       - run: npm audit
         continue-on-error: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.12'
-      - run: npm ci --prefix website
-      - run: npm audit --prefix website
-        continue-on-error: true
-      - run: npm run docs:build
 
   # Runs everywhere is the headline claim, so it gets tested rather than asserted. `npm test` is
   # Node only: a change to shared code can pass it and still be broken on Deno or Bun, which is
