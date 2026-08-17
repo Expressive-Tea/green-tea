@@ -166,11 +166,64 @@ export function compilePattern(pattern: string): CompiledPattern {
   return compiled;
 }
 
+/** Matches a `.` or `..` segment, percent-encoded or not, sitting alone between separators. */
+const DOT_SEGMENT = /(?:^|\/)(?:\.|%2e){1,2}(?:\/|$)/i;
+
+/**
+ * Classifies one path segment as `.`, `..`, or neither.
+ *
+ * `%2e` is a dot as far as the URL spec is concerned, so `/a/%2e%2e/b` and `/a/../b` are the same
+ * path. Skipping the encoded spelling would leave the encoded form as a way to reach a route the
+ * plain form resolves away from.
+ */
+function dotSegment(segment: string): '.' | '..' | undefined {
+  if (segment === '.' || segment === '..') return segment;
+  if (segment.length > 6 || !segment.includes('%')) return undefined;
+  const decoded = segment.toLowerCase().replace(/%2e/g, '.');
+  return decoded === '.' || decoded === '..' ? decoded : undefined;
+}
+
+/**
+ * Resolves `.` and `..` segments, the way RFC 3986 §5.2.4 and the WHATWG URL parser both do.
+ *
+ * This runs for the *Node* adapter's benefit. Every fetch-based runtime — Deno, Bun, workerd —
+ * resolves dot segments inside the `Request` constructor, before green-tea is handed anything:
+ * `new Request('http://x/public/../admin').url` is already `http://x/admin`. The raw target is
+ * simply not recoverable there, so rejecting dot segments outright — which is what this module
+ * does for `//`, and would be the stricter policy — cannot be implemented on three of the four
+ * runtimes. Resolving is the only rule all four can agree on.
+ *
+ * Before this, the same bytes on the wire routed differently per runtime: `GET /public/../admin`
+ * reached a `/admin` route under Deno/Bun/edge and 404'd under Node.
+ */
+function resolveDotSegments(path: string): string {
+  const out: string[] = [];
+
+  for (const segment of path.split('/').slice(1)) {
+    const dots = dotSegment(segment);
+    if (dots === '.') continue;
+
+    if (dots === '..') {
+      out.pop();
+      continue;
+    }
+
+    out.push(segment);
+  }
+
+  return `/${out.join('/')}`;
+}
+
 /** Applies the public trailing-slash policy and validates every segment's percent encoding. */
 export function normalizeRequestPath(path: string): string {
   if (!path.startsWith('/')) throw new InvalidRequestPathError('invalid request path: path must start with slash');
   if (path.includes('//')) throw new InvalidRequestPathError('invalid request path: repeated slash');
-  const normalized = path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
+
+  // Two `indexOf` scans gate the regex, and the regex gates the split. A path with no `.` and no
+  // `%` at all — which is most of them — pays only the scans.
+  const resolved =
+    (path.includes('.') || path.includes('%')) && DOT_SEGMENT.test(path) ? resolveDotSegments(path) : path;
+  const normalized = resolved.length > 1 && resolved.endsWith('/') ? resolved.slice(0, -1) : resolved;
 
   // Validation only — the decoded value is deliberately discarded, matching is done on the raw
   // path. So the work is skipped entirely unless there is something to validate.

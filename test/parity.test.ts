@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { Server } from 'http';
+import { connect } from 'net';
 import { createApp, Provider, Route, Get, Head, Options, Post, Module, needs, body, Sse } from '../src/index';
 
 @Provider({ provides: 'db' })
@@ -69,6 +70,25 @@ async function both(path: string, init?: RequestInit) {
   return { node, web };
 }
 
+/**
+ * Sends a request line verbatim, bypassing `fetch`.
+ *
+ * `both()` cannot reach the cases below: `fetch()` normalizes the URL before it hits the wire, and
+ * `new Request()` does the same, so a dot segment written into either is already resolved by the
+ * time the adapter sees it. Only a hand-written request line proves what Node does with one.
+ */
+function rawStatus(target: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(Number(new URL(base).port), '127.0.0.1', () => {
+      socket.write(`GET ${target} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`);
+    });
+    let raw = '';
+    socket.on('data', (chunk) => (raw += chunk.toString()));
+    socket.on('error', reject);
+    socket.on('end', () => resolve(Number(raw.split(' ')[1])));
+  });
+}
+
 describe('Node vs app.fetch parity (Node is truth)', () => {
   it('GET /api/x', async () => {
     const { node, web } = await both('/api/x');
@@ -125,6 +145,21 @@ describe('Node vs app.fetch parity (Node is truth)', () => {
       expect(web.headers.get('x-content-type-options')).toBe('nosniff');
     }
   });
+  // Regression: the same bytes on the wire used to route differently per runtime. Deno, Bun and
+  // workerd resolve dot segments inside the `Request` constructor before green-tea sees anything,
+  // and the raw target is unrecoverable there — so Node had to be taught to resolve them too.
+  it('resolves dot segments to the same route the fetch adapter reaches', async () => {
+    for (const target of ['/api/nope/../x', '/api/./x', '/api/nope/%2e%2e/x', '/nope/../api/x']) {
+      expect(await rawStatus(target), `node ${target}`).toBe(200);
+      expect((await app.fetch(new Request(base + target))).status, `fetch ${target}`).toBe(200);
+    }
+  });
+
+  it('does not treat dots inside a segment as dot segments', async () => {
+    expect(await rawStatus('/api/x.y')).toBe(404);
+    expect((await app.fetch(new Request(base + '/api/x.y'))).status).toBe(404);
+  });
+
   it('SSE first two events', async () => {
     const nodeText = await (await fetch(base + '/api/s')).text();
     const webText = await (await app.fetch(new Request(base + '/api/s'))).text();
