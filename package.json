@@ -91,6 +91,7 @@
     "test:deno": "deno test --allow-net --allow-read --allow-run --allow-env --no-check test/deno/",
     "test:bun": "bun test test/bun/",
     "test:edge": "tsx test/edge/run.ts",
+    "test:all": "npm test && npm run test:deno && npm run test:bun && npm run test:edge && deno publish --dry-run --allow-dirty",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "typecheck:bench": "tsc --noEmit -p bench/tsconfig.json",
     "lint": "eslint src",

@@ -259,7 +259,8 @@ green-tea is **beta**, on the road to a release candidate. Express and Fastify h
 
 ```bash
 npm install
-npm test           # vitest (Node only — CI additionally runs the three below on every push)
+npm test           # vitest (Node only) — the fast loop, ~2s
+npm run test:all   # everything below, plus the JSR gate — the pre-push check
 npm run test:deno  # deno test    } a change to shared code can pass `npm test`
 npm run test:bun   # bun test     } and still be broken on one of these
 npm run test:edge  # workerd via miniflare
@@ -267,6 +268,16 @@ npm run typecheck  # tsc --noEmit (includes the compile-time-guarantee type test
 npm run build      # emit dist/ (tsup: dual ESM + CJS)
 npm run bench      # regenerate BENCHMARKS.md
 ```
+
+`npm test` stays Node-only on purpose: it is the loop you run constantly, and booting Deno, Bun and
+workerd into it would tax every run to catch what CI already catches on every push. Nothing here is
+unguarded — the `runtimes` job runs all three, and `deno publish --dry-run` gates JSR. `test:all` is
+for the moment before you push, when you would rather find out locally.
+
+That last one is a second type-checker, not a packaging formality: `npm run typecheck` is `tsc` with
+this repository's config, while `deno publish --dry-run` is Deno's checker with Deno's lib plus JSR's
+slow-types rules over the public API. JSR serves `src/` directly, so what it rejects is what a JSR
+consumer would have received.
 
 ## Roadmap
 

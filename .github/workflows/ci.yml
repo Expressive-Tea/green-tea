@@ -87,3 +87,19 @@ jobs:
       - if: matrix.runtime == 'bun'
         uses: oven-sh/setup-bun@v2
       - run: npm run test:${{ matrix.runtime }}
+      # JSR's gate, moved off the release tag. `release.yml` runs this too and keeps doing so —
+      # that copy protects an immutable JSR version and is the last thing standing between a tag
+      # and a version number that can never be replaced. This copy exists because that one runs
+      # too late to be useful as feedback: a slow type or a Deno type error would otherwise land
+      # on `main` in silence and surface while cutting a release, which is the same "least time
+      # to judge a fix" the audit steps above are ordered to avoid.
+      #
+      # It is a second compiler over the same source, not a formality. `npm run typecheck` is tsc
+      # with this repo's tsconfig; this is Deno's checker with Deno's lib, and it is what found
+      # the `BodyInit` hole on the fetch path that tsc accepted. JSR serves `src/` directly, so
+      # anything it rejects is something a JSR consumer would have received.
+      #
+      # 0.68s against 2.0s for the whole vitest suite. No `--allow-dirty`: a checkout is clean,
+      # and if it somehow is not, that is worth failing on.
+      - if: matrix.runtime == 'deno'
+        run: deno publish --dry-run
