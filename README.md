@@ -7,8 +7,13 @@
 <p align="center"><b>A zen, opinionated, type-safe framework.</b></p>
 
 <p align="center">
-  Your API is an explicit <b>dependency graph</b> you can see, slice, and trust —<br />
-  not a mutable bag threaded through positional middleware. <i>That's the tea.</i> 🍵
+  <b>Declare intent. Derive execution.</b><br />
+  You declare what each step <b>needs</b> and <b>produces</b>; green-tea derives the order,<br />
+  validates the wiring before it serves traffic, and runs only the slice each route requires.
+</p>
+
+<p align="center">
+  <i>Less infrastructure in your application. Less infrastructure in your head.</i> 🍵
 </p>
 
 ---
@@ -55,6 +60,32 @@ npm install busboy   # multipart/form-data file uploads
 - **A remote dependency looks like a local one.** `@needs('billing')` resolves the same whether `billing` lives in this process or on another node (mesh, experimental). *Why it matters:* no gRPC layer or message-pattern DSL to learn — there's the graph, and some nodes happen to live elsewhere.
 - **Plugins can't sabotage you.** A plugin gets `bus.on(...)` (observe), `scope.add(...)` (extend its own scope) and `onShutdown(...)` (release what it opened). There is no API to reorder or delete another scope's steps. *Why it matters:* installing a plugin can't break your body parser.
 
+## Who does the work?
+
+Every backend has the same set of infrastructure decisions. The question is which side of the
+`import` they live on.
+
+| Decision | Owned by |
+|---|---|
+| Execution order | green-tea — derived from `needs`/`provides`, never maintained by hand |
+| Dependency validation | green-tea — boot fails when nothing provides a key |
+| Which steps a route runs | green-tea — the graph slice its handler actually depends on |
+| Streaming mechanics — framing, backpressure, cleanup, disconnects | green-tea |
+| OpenAPI projection | green-tea — from the same metadata that runs the app |
+| Secure transport defaults | green-tea — headers, CORS, TLS |
+| Runtime serving boundary | green-tea — `listen`, `fetch`, `upgrade` per runtime |
+| Shutdown sequencing | green-tea — drain, then teardown, inside one deadline |
+| **Business rules** | **you** |
+
+That division is the whole design, and it is why `reflect-metadata` is the only runtime dependency:
+the goal is not a small number for its own sake, it is **fewer moving parts your team has to
+understand, upgrade, coordinate and debug**. A framework that owns less pushes the difference into
+your application, where it becomes your maintenance instead of disappearing.
+
+Automated does not mean invisible. `app.explain()` prints the ordered chain, `app.graph()` renders
+the live graph, and `app.openapi()` projects the same metadata — the graph is not documentation drawn
+after the fact, it is the structure green-tea validates and executes.
+
 ## Real-time is a primitive, not a second framework
 
 Most stacks treat "push data over time" as a bolt-on: Express reaches for a `ws` or SSE library, Fastify for a plugin, NestJS for a separate **WebSocket Gateway** with its own adapter and decorators. That's a second mental model, a second error surface, glued to your HTTP app.
@@ -98,9 +129,10 @@ class Live {
 
 Same `@Route`, same handler shape, same `AsyncIterable` — real-time is not a separate framework you also have to learn.
 
-## Batteries included — still one dependency
+## What the foundation already carries
 
-Beta shipped the parts a real API needs, without growing the runtime dependency tree past `reflect-metadata`:
+The parts a real API needs, owned by the framework rather than assembled in your application — and
+without growing the runtime dependency tree past `reflect-metadata`:
 
 - **TLS → https/wss** natively, plus proxy-aware `trustProxy` (`X-Forwarded-*` → `ctx.protocol`/`ctx.ip`).
 - **Secure by default.** `nosniff`, `X-Frame-Options`, `Referrer-Policy`, HSTS-when-secure — on every response, opt-out with one flag.
