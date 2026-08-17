@@ -10,12 +10,29 @@ import type { RouteDef, HttpOptions } from './types';
 import type { StreamEncoder } from '../encoders';
 import type { Bus } from '../bus';
 
-// The project tsconfig's `lib` is `es2020` with no `DOM`, so the Web Crypto global is undeclared
-// even though all four supported runtimes provide it. Ambient-declare only what is called — the
-// same approach `src/deno.ts` takes for the Deno globals. Deliberately *not* `node:crypto`: this
-// file is the runtime-neutral core, and the web-standard global is what Deno, Bun and workerd all
-// have without a compatibility flag.
-declare const crypto: { randomUUID(): string };
+/**
+ * `randomUUID`, from wherever this runtime keeps it. Resolved once, at import.
+ *
+ * The web-standard global stays the primary path, and that is deliberate rather than stylistic:
+ * this file is the runtime-neutral core, and Deno, Bun and workerd all expose `crypto` without a
+ * compatibility flag, while `node:crypto` is unavailable to at least one of them.
+ *
+ * Node is the exception. The global arrived **unflagged in 19**, and `engines` promises `>=18`,
+ * where it does not exist at all — so the previous `declare const crypto` compiled cleanly and then
+ * threw `ReferenceError: crypto is not defined` on the first request of every Node 18 process. Only
+ * CI's Node 18 job caught it; every newer Node and every other runtime hides it, which is exactly
+ * why that job is pinned to the floor rather than to the current release.
+ *
+ * The fallback is reached only by a runtime that lacks the global, so workerd never evaluates the
+ * `require` — and the ESM build has a real one, from the `createRequire` banner in `tsup.config.ts`.
+ */
+const randomUUID: () => string = (() => {
+  const webCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (typeof webCrypto?.randomUUID === 'function') return () => webCrypto.randomUUID!();
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return (require('node:crypto') as { randomUUID: () => string }).randomUUID;
+})();
 
 /**
  * A runtime-neutral inbound request.
@@ -78,7 +95,7 @@ export function correlateRequest(headers: Record<string, string | string[] | und
   // The only cross-runtime win is 26 ns, against ~10.19 us for a real socketed request. A hand-
   // rolled entropy pool is not worth 0.26%. A lazy getter is separately useless: the adapters and
   // the payload builders both spread this object, and the first spread materialises it.
-  return { requestId: incoming || crypto.randomUUID(), traceId: traceId || undefined };
+  return { requestId: incoming || randomUUID(), traceId: traceId || undefined };
 }
 
 /** The neutral shape of a response: a fully buffered body, or a stream to pipe frame-by-frame. */
