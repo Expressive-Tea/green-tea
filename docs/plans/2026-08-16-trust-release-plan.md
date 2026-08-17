@@ -243,6 +243,52 @@ The split trades CI coupling for drift risk: docs and code can now disagree with
 
 ---
 
+## Phase 4.5: Move the JSR gate off the tag — **run this before Task 2.5's code**
+
+Numbered as an insertion because that is what it is, the same way Task 2.5 was. It is small, and its position is the whole point: **Task 2.5 adds public API** — `Hooks`, `TeardownFn`, `PluginApi.onShutdown` — and exported types are exactly what JSR's slow-types check polices. Writing that surface with no JSR gate on pull requests means learning at release time whether the shape is publishable.
+
+Verified before writing this, because the first reading was wrong: `release.yml:42` **already** runs `deno publish --dry-run`, before publishing to either registry, and its comment already makes the argument — *"JSR checks things npm never looks at — slow types, module analysis — and learning about them after npm has published leaves the tag half-shipped."* Phase 1 already published to JSR, and a dry run passes today, slow-types check included.
+
+The gap is not that the gate is missing. It is **when it runs**: only on a version tag. A change that breaks Deno's type-checker or introduces a slow type lands on `main` in silence and surfaces while cutting a release — the moment `release.yml`'s own npm-audit comment identifies as having the least time to judge a fix. The workflow makes that argument for advisories and not for JSR.
+
+Worth stating plainly: `deno publish --dry-run` type-checks the four entry points with **Deno's** checker and lib, which is not the same pass as `tsc --noEmit -p tsconfig.json`. A second compiler over the same source is a real gate, not a formality — Task 1.1 exists because that second compiler found a hole the first one did not. And JSR serves `src/` directly, so anything it would reject is something a JSR user gets.
+
+### Task 4.5.1: Run the JSR gate on every push and pull request
+
+**Files:**
+- Modify: `.github/workflows/ci.yml`
+
+Add `deno publish --dry-run` to the `runtimes` job's Deno leg, which already installs Deno. Measured at **0.68s** against 2.0s for the whole vitest suite — cheap enough that placing it anywhere else is over-thinking.
+
+Leave `release.yml` alone. The tag-time gate stays: it is the one that protects an immutable JSR version, and a gate that runs twice is not a duplication worth removing.
+
+### Task 4.5.2: One command for the whole matrix
+
+**Files:**
+- Modify: `package.json`
+- Modify: `README.md`
+
+`npm test` is Node-only, deliberately — it is the fast local loop, 2s, and booting Deno, Bun and workerd into it would tax every run to catch what CI already catches on every push. The `runtimes` job means these suites are not unguarded; what is missing is a way for a contributor to run everything with one command before pushing.
+
+Add `test:all` — `npm test` plus `test:deno`, `test:bun`, `test:edge`, and the JSR dry run. Say in `README.md` which one is the fast loop and which one is the pre-push check, so the split reads as a decision rather than an oversight.
+
+### Task 4.5.3: Record the decorator deprecation as a known risk
+
+**Files:**
+- Modify: `README.md` (*Honest scope*), or wherever Phase 6 puts the stability contract
+
+Every `deno publish --dry-run` prints:
+
+```
+Warning experimentalDecorators compiler option is deprecated and may be removed at any time
+```
+
+This framework is decorator-driven and depends on `emitDecoratorMetadata`, which the TC39 decorators that replace it do not provide an equivalent for. Nothing to fix today, and no workaround worth inventing ahead of the change.
+
+What is worth doing is naming it, because it is a dependency on a deprecated compiler option in the runtime the package publishes to. It belongs beside the other things *Honest scope* already admits. Do not turn the warning into an error to force the issue — that breaks releases on someone else's schedule.
+
+---
+
 ## Phase 5: Close #13 as documentation
 
 ### Task 5.1: Write the circuit-breaker recipe
