@@ -1,6 +1,6 @@
 # Shutdown teardown — Design
 
-**Task:** 2.5 in the [trust-release plan](./2026-08-16-trust-release-plan.md) · Trust Release §14, CTO P0-4 · **Status:** awaiting review, no code written · **Constraint:** no new runtime dependency
+**Task:** 2.5 in the [trust-release plan](./2026-08-16-trust-release-plan.md) · Trust Release §14, CTO P0-4 · **Status:** reviewed, D1–D8 settled · **Constraint:** no new runtime dependency
 
 ---
 
@@ -126,7 +126,7 @@ Node, Deno and Bun behave identically. **Edge cannot, and no design fixes it**: 
 - Setting it lower **reserves**: the drain is bounded to `timeoutMs − teardownTimeoutMs`, so teardown is guaranteed its slice.
 - `teardownTimeoutMs > timeoutMs` is rejected at `createApp`, not silently clamped.
 
-> **Open for review — this is an interpretation, not a settled instruction.** "Shares, default `timeoutMs`, may be lowered, never above `timeoutMs`" was the direction given. Whether lowering it should **reserve** (as written above) or merely **cap** teardown's slice was not stated. Reserve is written here because it answers the failure it was raised to answer: with cap-only, a drain that eats the whole budget leaves teardown zero milliseconds and the database does not close. If cap-only is intended, D8 changes and that starvation case stays open.
+Reserve rather than cap, and the difference is the whole reason this decision exists. A cap only bounds how long teardown *may* run; it does nothing when the drain has already spent the budget, and teardown then gets zero milliseconds and the database does not close. Reserving is what makes `teardownTimeoutMs` a guarantee rather than a ceiling on something that may never run.
 
 ---
 
