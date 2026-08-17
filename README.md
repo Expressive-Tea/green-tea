@@ -257,8 +257,11 @@ green-tea is **beta**, on the road to a release candidate. Express and Fastify h
 
 ## Docs & development
 
-- **[green-tea.expressive-tea.io/docs](https://green-tea.expressive-tea.io/docs)** — getting started, concepts (the graph, `flow`), and guides: routing, DI, validation, uploads, streaming, HTML, security, errors, introspection, OpenAPI, plugins, mesh, runtimes, testing. Its source lives in [green-tea-docs](https://github.com/Expressive-Tea/green-tea-docs); a change to public API here needs a matching change there, because nothing fails when the two disagree.
+- **[green-tea.expressive-tea.io/docs](https://green-tea.expressive-tea.io/docs)** — getting started, concepts (the graph, `flow`), and guides: routing, DI, validation, uploads, streaming, HTML, security, errors, introspection, OpenAPI, plugins, mesh, runtimes, testing. Its source lives in [green-tea-docs](https://github.com/Expressive-Tea/green-tea-docs).
 - **[matcha](https://github.com/Expressive-Tea/matcha)** — the CLI. `matcha new` scaffolds a project (Node, Deno, or Bun), `matcha create` generates and auto-wires controllers/steps/providers/modules, `matcha run` detects your runtime and watches. A standalone Rust binary — no JS runtime needed to install it.
+
+> **Changing public API? The docs are a separate repository now, and nothing tells you when you break them.**
+> [green-tea-docs](https://github.com/Expressive-Tea/green-tea-docs) imports nothing from here, so no build fails and no test turns red when a guide describes an API that no longer exists. **A pull request that changes public API updates the page documenting it, in the same pull request.** This is a rule rather than a check because no check exists yet — issue #18 is what a stale page looks like from a user's side, and that happened while both still lived in this repository.
 
 ```bash
 npm install
