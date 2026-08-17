@@ -5,6 +5,7 @@ import { isStreamResult, type PipelineResult } from '../pipeline';
 import { buildSecurityHeaders, resolveCors, corsPreflightHeaders } from '../security';
 import { resolveRoute, allowedMethods, normalizeRequestPath, parseQuery } from './router';
 import { pickEncoder } from './stream';
+import { acquireBody, type BodyReader } from './body';
 import type { RouteDef, HttpOptions } from './types';
 import type { StreamEncoder } from '../encoders';
 import type { Bus } from '../bus';
@@ -16,12 +17,24 @@ import type { Bus } from '../bus';
 // have without a compatibility flag.
 declare const crypto: { randomUUID(): string };
 
-/** A runtime-neutral inbound request: body already parsed by the caller's ingress (Node stream, fetch Request, …). */
+/**
+ * A runtime-neutral inbound request.
+ *
+ * The body arrives as a {@link BodyReader} rather than a value, and that is the whole reason this
+ * core resolves each request exactly once. When the adapter had to hand over an already-parsed
+ * body, it first had to route the request itself — a body is only read for a request that reaches
+ * a handler — so both the adapter and `dispatch` resolved the same route from the same inputs, and
+ * a four-route app walked its table two and a half times per request. Handing over the *ability*
+ * to read instead of the result moves that decision here, where the route is known anyway.
+ */
 export interface NeutralRequest {
   method: string;
   url: string; // path + query, e.g. "/users/9?x=1"
   headers: Record<string, string | string[] | undefined>;
-  body: unknown; // already-parsed body
+  /** Called only once a route matches, so an unmatched request still never reads a body. */
+  readBody: BodyReader;
+  /** The runtime's own request object, passed back to {@link readBody} untouched and never inspected here. */
+  source: unknown;
   secure: boolean;
   ip: string;
   requestId: string;
@@ -36,10 +49,10 @@ const first = (value: string | string[] | undefined): string | undefined => (Arr
 /**
  * Derives a request's identity from its headers, for the adapters to stamp on a `NeutralRequest`.
  *
- * **Called by the adapters, not by {@link handle}**, and the placement is the point. Both adapters
- * read and size-check the body before they reach `handle()` (`server.ts`, `web.ts`), so a `413` is
- * answered without `handle()` ever seeing the request. Generating identity in here would leave
- * precisely the failures an operator most wants to correlate with nothing to correlate them by.
+ * **Called by the adapters, not by {@link handle}**, and the placement is the point. An adapter's
+ * `BodyReader` renders its own `413` (`server.ts`, `web.ts`) without `handle()` ever producing it,
+ * so identity has to exist before the read starts. Generating it in here would leave precisely the
+ * failures an operator most wants to correlate with nothing to correlate them by.
  *
  * An `x-request-id` from a gateway is adopted rather than replaced — a service behind a proxy must
  * not open a second identity for a request that already has one. `traceparent` is carried through
@@ -71,7 +84,14 @@ export function correlateRequest(headers: Record<string, string | string[] | und
 /** The neutral shape of a response: a fully buffered body, or a stream to pipe frame-by-frame. */
 export type NeutralOutcome =
   | { kind: 'buffered'; status: number; headers: Record<string, string>; body: string | Buffer }
-  | { kind: 'stream'; headers: Record<string, string>; stream: AsyncIterable<unknown>; encoder: StreamEncoder };
+  | {
+      kind: 'stream';
+      headers: Record<string, string>;
+      stream: AsyncIterable<unknown>;
+      encoder: StreamEncoder;
+      /** The matched route's pattern, for naming the stream lifecycle events. */
+      route: string;
+    };
 
 /** {@link handle}'s result for a normal (non-preflight) request. */
 export interface HandleResult {
@@ -106,7 +126,7 @@ function errorOutcome(
   opts: HttpOptions | undefined,
   headers: Record<string, string> = {},
 ): HandleResult {
-  const rendered = renderError(error, { method: req.method, url: req.url, headers: req.headers }, opts?.onError);
+  const rendered = renderError(error, req, opts?.onError);
   return {
     injected,
     outcome: {
@@ -279,6 +299,16 @@ async function dispatch(
       traceId: req.traceId,
     });
 
+  // `req` is passed straight through as the error context: a `NeutralRequest` already has the
+  // `method`/`url`/`headers` an `ErrorRequest` is, so copying those three fields into a fresh
+  // object per request bought nothing.
+  const acquired = await acquireBody(req.readBody, req.source, matched, opts, req);
+
+  // The adapter rendered this one itself (a 413 it had to answer while reading), or `acquireBody`
+  // did (a malformed or unsupported body). Either way it is already the standard envelope, and the
+  // caller merges `injected` into it exactly as it does for every other outcome.
+  if ('fail' in acquired) return { injected, outcome: { kind: 'buffered', ...acquired.fail } };
+
   let result: PipelineResult;
 
   try {
@@ -288,19 +318,28 @@ async function dispatch(
       headers: req.headers,
       params: matched.params,
       query: parseQuery(req.url),
-      body: req.body,
+      body: acquired.body,
       protocol: req.secure ? 'https' : 'http',
       ip: req.ip,
       requestId: req.requestId,
       traceId: req.traceId,
     });
   } catch (error) {
-    result = renderError(error, { method: req.method, url: req.url, headers: req.headers }, opts?.onError);
+    result = renderError(error, req, opts?.onError);
   }
 
   if (isStreamResult(result)) {
     const encoder = pickEncoder(matched.def.transport, String(req.headers.accept ?? ''));
-    return { injected, outcome: { kind: 'stream', headers: encoder.headers, stream: result.stream, encoder } };
+    return {
+      injected,
+      outcome: {
+        kind: 'stream',
+        headers: encoder.headers,
+        stream: result.stream,
+        encoder,
+        route: matched.def.pattern,
+      },
+    };
   }
 
   return {

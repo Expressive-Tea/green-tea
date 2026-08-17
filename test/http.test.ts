@@ -112,6 +112,10 @@ describe('request hardening', () => {
     const res = await fetch(`${getUrl(server)}/echo`, { method: 'POST', body: 'x'.repeat(1000) });
     expect(res.status).toBe(413);
     expect(ran).toBe(false);
+    // Load-bearing, not cosmetic: without it the rest of the upload keeps arriving on a
+    // kept-alive socket after the response. Node-only — `Connection` is a forbidden response
+    // header on the fetch side, which is why the adapter attaches it rather than the shared core.
+    expect(res.headers.get('connection')).toBe('close');
     server.close();
   });
 

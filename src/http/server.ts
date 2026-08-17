@@ -1,28 +1,22 @@
 import type http from 'http';
 import type https from 'https';
 import { renderError, type ErrorRequest } from '../transformers';
-import { isHttpError, HttpError } from '../signals';
 import type { Bus } from '../bus';
 import { buildSecurityHeaders, resolveCors } from '../security';
-import { parseMultipart, extractBoundary, collapseDuplicates } from '../multipart';
-import { normalizeRequestPath, resolveRoute } from './router';
-import { readBody, deriveSecure, deriveIp } from './request';
+import { readBody as readBodyBytes, deriveSecure, deriveIp } from './request';
 import { pipeStream } from './stream';
 import { attachWs } from './ws';
 import { mergeInjectedHeaders } from './headers';
 import { handle, correlateRequest } from './core';
-import type { RouteDef, WsRouteDef, MatchedRoute, MeshControl, HttpOptions } from './types';
+import type { BodyFailure, BodyReader } from './body';
+import type { RouteDef, WsRouteDef, MeshControl, HttpOptions } from './types';
 
 interface HandlerConfig {
   routes: RouteDef[];
   bus?: Bus;
   opts?: HttpOptions;
-  maxBody: number;
   trustProxy: boolean;
 }
-
-/** A ready-to-send error response produced while acquiring the request body. */
-type BodyFailure = { fail: { status: number; headers: Record<string, string>; body: string } };
 
 /** Builds the {@link ErrorRequest} handed to a user error renderer. */
 function errorRequest(req: http.IncomingMessage): ErrorRequest {
@@ -44,9 +38,8 @@ export function createHttpServer(
   meshControl?: MeshControl,
   opts?: HttpOptions,
 ): http.Server {
-  const maxBody = opts?.limits?.maxBodyBytes ?? 1_000_000;
   const trustProxy = opts?.trustProxy ?? false;
-  const handler = createRequestHandler({ routes, bus, opts, maxBody, trustProxy });
+  const handler = createRequestHandler({ routes, bus, opts, trustProxy });
 
   // Node http/https are loaded lazily so importing createApp stays edge/workerd-safe
   // (workerd's nodejs_compat provides no node:http/node:https). This path only runs under listen().
@@ -70,18 +63,18 @@ export function createHttpServer(
 
 /**
  * Builds the request listener: a thin Node adapter around the runtime-neutral {@link handle} core.
- * Reads the body (Node-specific), delegates security/CORS/routing/error-rendering to `handle()`,
- * then writes the result to `res` (buffered or streamed). The security-header monkeypatch is
- * installed here — and stays the single source of truth for merging headers into every response —
- * so `handle()`'s own `injected` is intentionally unused by this adapter.
+ * Describes the request, supplies the {@link BodyReader} the core calls once a route matches, then
+ * writes the result to `res` (buffered or streamed). Routing, body parsing, limits and error
+ * rendering all live in the core. The security-header monkeypatch is installed here — and stays the
+ * single source of truth for merging headers into every response — so `handle()`'s own `injected`
+ * is intentionally unused by this adapter.
  */
 function createRequestHandler(cfg: HandlerConfig) {
-  const { routes, bus, opts, maxBody, trustProxy } = cfg;
+  const { routes, bus, opts, trustProxy } = cfg;
+  // Built once per server, not once per request — see `BodyReader`.
+  const readBody: BodyReader = (source, limit) => readRequestBytes(source, limit, opts);
 
   return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
-    const url = req.url ?? '/';
-    const path = url.split('?')[0];
-    const method = req.method ?? 'GET';
     // Install the security-header patch BEFORE any routing/response so every path
     // (200, 404, error, stream) writes headers through the same patched writeHead.
     const secure = deriveSecure(req, trustProxy);
@@ -94,37 +87,13 @@ function createRequestHandler(cfg: HandlerConfig) {
     // by reference at writeHead time, so keys added here still land on every response.
     if (opts?.cors) Object.assign(injected, resolveCors(opts.cors, req));
 
-    // Mirror handle()'s own preflight/route-match decision here, so we only read the body
-    // (below) for a request that actually reaches a route handler — matching prior behaviour.
-    const isPreflight = Boolean(opts?.cors && method === 'OPTIONS' && req.headers['access-control-request-method']);
-    let matched: ReturnType<typeof resolveRoute>;
-
-    try {
-      matched = isPreflight ? undefined : resolveRoute(routes, method, normalizeRequestPath(path));
-    } catch {
-      matched = undefined; // handle() owns the standard 400 envelope and injected headers
-    }
-
-    let body: unknown;
-
-    if (matched) {
-      const acquired = await acquireBody(req, matched, opts, maxBody);
-
-      if ('fail' in acquired) {
-        res.writeHead(acquired.fail.status, acquired.fail.headers);
-        res.end(acquired.fail.body);
-        return;
-      }
-
-      body = acquired.body;
-    }
-
     const result = await handle(routes, opts, {
       ...correlation,
-      method,
-      url,
+      method: req.method ?? 'GET',
+      url: req.url ?? '/',
       headers: req.headers,
-      body,
+      readBody,
+      source: req,
       secure,
       ip: deriveIp(req, trustProxy),
     });
@@ -136,7 +105,7 @@ function createRequestHandler(cfg: HandlerConfig) {
     }
 
     if (result.outcome.kind === 'stream') {
-      await pipeStream(res, result.outcome.stream, result.outcome.encoder, bus, matched?.def.pattern, opts?.streams);
+      await pipeStream(res, result.outcome.stream, result.outcome.encoder, bus, result.outcome.route, opts?.streams);
       return;
     }
 
@@ -145,34 +114,27 @@ function createRequestHandler(cfg: HandlerConfig) {
   };
 }
 
-/** Reads and parses the request body, returning `{ body }` or a ready-to-send `{ fail }` error response. */
-async function acquireBody(
-  req: http.IncomingMessage,
-  matched: MatchedRoute,
+/**
+ * The Node half of body acquisition: bytes off the socket, and the over-limit answer.
+ *
+ * `readBody` enforces the limit against the running total as chunks arrive, so an oversized upload
+ * is rejected without being buffered. `connection: close` on that response is load-bearing — it
+ * stops the remainder of the upload from continuing to arrive on a kept-alive socket.
+ */
+function readRequestBytes(
+  source: unknown,
+  limit: number,
   opts: HttpOptions | undefined,
-  maxBody: number,
-): Promise<{ body: unknown } | BodyFailure> {
-  let buf: Buffer | undefined;
-  const bodyLimit = matched.def.maxBodyBytes ?? maxBody; // per-route override falls back to the server default
+): Promise<{ bytes: Buffer | undefined } | BodyFailure> {
+  const req = source as http.IncomingMessage;
 
-  try {
-    buf = await readBody(req, bodyLimit);
-  } catch (error) {
-    const rendered = renderError(error, errorRequest(req), opts?.onError);
-    return { fail: { ...rendered, headers: { ...rendered.headers, connection: 'close' } } };
-  }
-
-  const contentType = String(req.headers['content-type'] ?? '');
-  const duplicates = matched.def.bodyDuplicates ?? opts?.bodyDuplicates ?? 'last';
-  const maxParts = matched.def.maxParts ?? opts?.limits?.maxParts ?? 1000;
-  const parsed = await parseRequestBody(buf, contentType, duplicates, maxParts);
-
-  if ('error' in parsed) {
-    const rendered = renderError(new HttpError(parsed.status ?? 400, parsed.error), errorRequest(req), opts?.onError);
-    return { fail: rendered };
-  }
-
-  return { body: parsed.body };
+  return readBodyBytes(req, limit).then(
+    (bytes) => ({ bytes }),
+    (error: unknown) => {
+      const rendered = renderError(error, errorRequest(req), opts?.onError);
+      return { fail: { ...rendered, headers: { ...rendered.headers, connection: 'close' } } };
+    },
+  );
 }
 
 /**
@@ -188,46 +150,4 @@ function patchResponseHeaders(res: http.ServerResponse, injected: Record<string,
     const merged = mergeInjectedHeaders(handlerHeaders, injected);
     return typeof arg2 === 'string' ? origWriteHead(status, arg2, merged) : origWriteHead(status, merged);
   };
-}
-
-/** Parse outcome: the decoded body, or an error message plus the status to send (400 unless set). */
-type ParseResult = { body: unknown } | { error: string; status?: number };
-
-/**
- * Parses a raw request body by content type (JSON, urlencoded, multipart, or plain text).
- * @returns `{ body }` on success, or `{ error, status? }` on malformed input / missing multipart support.
- */
-export async function parseRequestBody(
-  buf: Buffer | undefined,
-  contentType: string,
-  duplicates: 'array' | 'last',
-  maxParts: number,
-): Promise<ParseResult> {
-  if (buf !== undefined && contentType.includes('application/json')) {
-    try {
-      return { body: JSON.parse(buf.toString('utf8')) };
-    } catch {
-      return { error: 'Invalid JSON body' };
-    }
-  }
-
-  if (buf !== undefined && contentType.includes('application/x-www-form-urlencoded')) {
-    return { body: collapseDuplicates(new URLSearchParams(buf.toString('utf8')), duplicates) };
-  }
-
-  if (buf !== undefined && contentType.includes('multipart/form-data')) {
-    const boundary = extractBoundary(contentType);
-    if (!boundary) return { error: 'Invalid multipart body' };
-
-    try {
-      return { body: await parseMultipart(buf, boundary, { maxParts, duplicates }) };
-    } catch (error) {
-      // HttpError = the busboy peer dep is missing (501); anything else = malformed input (400).
-      if (isHttpError(error)) return { error: error.message, status: error.status };
-      return { error: 'Invalid multipart body' };
-    }
-  }
-
-  const text = buf?.toString('utf8');
-  return { body: text === '' ? undefined : text };
 }
