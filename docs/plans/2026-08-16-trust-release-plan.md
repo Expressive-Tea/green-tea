@@ -241,6 +241,14 @@ Delete the three `ci.yml` steps, the two `package.json` scripts, and `website/`.
 
 The split trades CI coupling for drift risk: docs and code can now disagree without anything failing. #18 exists precisely because docs fell behind an API change. Decide what catches that — a link check against the published package, a docs job triggered from core releases, or an explicit accepted risk written down. Do not leave it unstated.
 
+**Resolved 2026-08-17: accepted risk, stated where the rule is read rather than where it is published.** The first pass put it in both READMEs and stopped there, which satisfies the letter of "do not leave it unstated" and little else — the core README's copy sits in *Docs & development*, a section a user reads and a contributor changing an API does not.
+
+What governs behaviour is `AGENTS.md:83` and the pre-PR checklist in `CONTRIBUTING.md`, both of which already carried *"New public API needs a note in `README.md`"* — written before the split and never updated for it, so the two documents that a contributor (or an assistant) actually reads mid-change said nothing about the new repository. Both now name it and say why the rule exists, since a rule without its reason is the first one dropped under time pressure.
+
+Neither automated option was built. The **link check against the published package** remains the one worth building: it targets #18's actual failure mode — a page naming a decorator, a `createApp` option or a method that no longer exists — and it is cheap, because it only has to extract identifiers from the pages' code blocks and compare them against the package's exports. It catches lies, not staleness. A **docs job triggered from core releases** is the weaker of the two: it fires after the API has already shipped.
+
+One page is covered by more than a rule: `test/circuit-breaker-recipe.test.ts` executes the recipe published in `guides/circuit-breaker.md`. That is one page of twenty-five, and is not a substitute for the check above.
+
 ---
 
 ## Phase 4.5: Move the JSR gate off the tag — **run this before Task 2.5's code**

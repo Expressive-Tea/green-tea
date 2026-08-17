@@ -80,4 +80,4 @@ GitHub does not run workflows on fork pull requests until a maintainer approves 
 - Comments carry reasoning the code cannot show. When editing a block, keep them; if one explains an ordering or a version floor, it is load-bearing.
 - A new option or method on a public interface has to change `src/app/types.ts` too. An implementation that grows a parameter alone is unreachable for anyone consuming the package.
 - Behaviour that differs between runtimes must be explicit. An "unavailable here" is fine; silently accepting an option that does nothing is a bug.
-- New public API needs a note in `README.md`.
+- New public API needs a note in `README.md` **and a matching change in the documentation repository**, [green-tea-docs](https://github.com/Expressive-Tea/green-tea-docs). Since the split, nothing here imports those pages and nothing fails when they disagree with this code — the CI job that used to build them is gone. That makes this the only thing standing between a rename and a guide that quietly documents a version nobody can install.
