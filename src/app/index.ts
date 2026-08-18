@@ -1095,13 +1095,9 @@ function runTeardown(teardown: TeardownRegistry, logger: Logger, budgetMs: numbe
   return new Promise<void>((resolve) => {
     let settled = false;
 
-    const finish = (): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve();
-    };
-
+    // Armed before `finish` exists, for the reason spelled out in `closeApp` below: setTimeout
+    // cannot fire synchronously, so the forward reference to `finish` rests on a guarantee, while
+    // the reverse ordering would rest on `teardown.run().then()` deferring.
     const timer = setTimeout(
       () => {
         if (settled) return;
@@ -1114,6 +1110,14 @@ function runTeardown(teardown: TeardownRegistry, logger: Logger, budgetMs: numbe
     );
 
     timer.unref?.();
+
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+
     void teardown.run(logger).then(finish, finish);
   });
 }
