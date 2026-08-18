@@ -9,6 +9,7 @@ import { isHttpError } from '../signals';
 import {
   encode,
   decode,
+  untransportable,
   MESH_PROTOCOL_VERSION,
   type Manifest,
   type RequestEnvelope,
@@ -155,6 +156,19 @@ async function handleRpc(
 
   try {
     const result = await resolveRpc(frame, deps, exportedScopes, exportedRoutes);
+    // Checked here, on the side that still holds the real value. Past `encode` the evidence is
+    // gone: JSON turns a pool into `{}`, which arrives looking alive and fails at the call site.
+    const offender = untransportable(result);
+
+    if (offender) {
+      const error: any = new Error(
+        `mesh cannot transport '${name}': ${offender.path} is ${offender.what}. ` +
+          'The wire is JSON, so a mesh export carries data, never behaviour — export what the ' +
+          'handle produces rather than the handle.',
+      );
+      error.status = 500;
+      throw error;
+    }
 
     socket.send(encode({ type: 'rpc-res', id, ok: true, result }));
   } catch (err) {

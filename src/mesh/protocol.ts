@@ -115,6 +115,92 @@ const SHAPE: Record<Frame['type'], ShapeCheck> = {
   },
 };
 
+/** How much of a value the transport check walks before it stops looking. */
+const TRANSPORT_SCAN_BUDGET = 10_000;
+
+/** Names what a value is, for an error a reader can act on: `Pool`, `Map`, `Date`, `function`. */
+function describe(value: unknown): string {
+  if (typeof value === 'function') return 'a function';
+  const name = (value as object).constructor?.name;
+
+  return name ? `a ${name} instance` : 'an object with no prototype';
+}
+
+/**
+ * Find the first part of `value` that cannot survive the wire, or `undefined` if all of it can.
+ *
+ * The wire is JSON, so the mesh transports **data, never behaviour**. Before this check, exporting a
+ * value with methods — a connection pool, a client, a `Map` — serialized to `{}` and arrived looking
+ * alive: truthy, an object, and missing every method. The failure then surfaced as
+ * `db.query is not a function` at the call site, arbitrarily far from the export that caused it.
+ *
+ * The rule is an allowlist rather than a denylist, on purpose. `Date` is refused too: it would
+ * arrive as a string, which is not the type the caller declared and is the same silent difference
+ * in a smaller costume.
+ *
+ * Bounded by a node budget so a large legitimate payload is never turned into an error by the cost
+ * of checking it — past the budget the value is assumed fine, since the shapes this catches are
+ * structural and show up immediately.
+ */
+export function untransportable(value: unknown, path = 'result'): Offender | undefined {
+  return walk(value, path, { left: TRANSPORT_SCAN_BUDGET });
+}
+
+/** What could not cross, and where it sat in the value. */
+type Offender = { path: string; what: string };
+
+/** Remaining nodes the scan may visit, shared across the whole walk. */
+type Budget = { left: number };
+
+/** Values JSON cannot represent at all, whatever they are nested in. */
+function isBehaviour(kind: string): boolean {
+  return kind === 'function' || kind === 'symbol' || kind === 'bigint';
+}
+
+/**
+ * Whether a container survives the round trip as itself: a plain object or a null-prototype bag.
+ * Anything else is a class instance whose identity JSON discards — `Pool`, `Map`, `Set`, `Date`.
+ */
+function isPlainContainer(node: object): boolean {
+  const proto = Object.getPrototypeOf(node);
+
+  return proto === Object.prototype || proto === null;
+}
+
+/** Walk labelled children in order, returning the first offender. */
+function walkEntries(entries: Array<[string, unknown]>, budget: Budget): Offender | undefined {
+  for (const [at, item] of entries) {
+    const found = walk(item, at, budget);
+
+    if (found) return found;
+  }
+
+  return undefined;
+}
+
+/** One node of the scan: reject behaviour and class instances, otherwise descend. */
+function walk(node: unknown, at: string, budget: Budget): Offender | undefined {
+  if (budget.left-- <= 0 || node === null) return undefined;
+  const kind = typeof node;
+
+  if (isBehaviour(kind)) return { path: at, what: describe(node) };
+  if (kind !== 'object') return undefined;
+
+  if (Array.isArray(node)) {
+    return walkEntries(
+      node.map((item, index) => [`${at}[${index}]`, item] as [string, unknown]),
+      budget,
+    );
+  }
+
+  if (!isPlainContainer(node as object)) return { path: at, what: describe(node) };
+
+  return walkEntries(
+    Object.entries(node as Record<string, unknown>).map(([key, item]) => [`${at}.${key}`, item] as [string, unknown]),
+    budget,
+  );
+}
+
 /** Serialize a frame to a JSON wire string. */
 export function encode(frame: Frame): string {
   return JSON.stringify(frame);

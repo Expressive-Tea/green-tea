@@ -43,6 +43,22 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Fixed
 
+- **A mesh export that carried behaviour arrived as `{}`, with HTTP 200 and no warning.** The wire is
+  JSON, so a value with methods — a connection pool, a client, a `Map` — lost everything but its
+  shape in transit. What reached the caller was an object: truthy, passing any `if (db)` check, and
+  missing every method, so the failure surfaced as `db.query is not a function` at a call site
+  arbitrarily far from the export that caused it.
+
+  A teapot now refuses to send one, on the side that still holds the real value, with a message
+  naming the token and what sat where: `mesh cannot transport 'db': result.db is a Pool instance`.
+  The check is an allowlist — primitives, plain objects, arrays — so `Date` is refused too, since it
+  would arrive as a string rather than the type the caller declared, which is the same silent
+  difference in a smaller costume. It is bounded by a scan budget, so a large legitimate payload is
+  never turned into an error by the cost of checking it.
+
+  **This is a constraint the documentation never stated:** a mesh export carries *data*, never
+  behaviour. Export what a handle produces, not the handle.
+
 - **A mesh teacup now reconnects to a teapot that came back.** A dropped link used to stay dead for
   the life of the process: every RPC answered 503 until the teacup was restarted, so deploying a
   teapot forced a restart of every teacup that depended on it, and boot order became load-bearing.
