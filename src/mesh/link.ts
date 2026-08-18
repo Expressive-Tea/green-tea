@@ -30,6 +30,26 @@ export interface ReconnectOptions {
  */
 export type ManifestPolicy = 'refuse';
 
+/**
+ * A connection failure the peer decided, rather than one the network caused.
+ *
+ * The distinction is what boot retry needs: a refused secret or a version mismatch will fail
+ * identically forever, so retrying one spends a deploy's patience to reach the same error. It is
+ * derived from whether the socket ever *opened* — a peer that accepted the connection and then hung
+ * up before the manifest rejected us on purpose; one that never accepted it may simply not be up.
+ */
+export function isPermanentRefusal(error: unknown): boolean {
+  return (error as { meshRefused?: boolean } | undefined)?.meshRefused === true;
+}
+
+/** Tag an error as a decision by the peer, so the caller does not retry it. */
+function refused(message: string): Error {
+  const error = new Error(message) as Error & { meshRefused: boolean };
+  error.meshRefused = true;
+
+  return error;
+}
+
 /** An in-flight RPC awaiting its `rpc-res`, keyed by id in the pending map. */
 type PendingEntry = {
   /** The token or route asked for. Kept so an error can be reported by name — the frame only carries the id. */
@@ -185,7 +205,7 @@ function settleManifest(frame: Extract<Frame, { type: 'manifest' }>, hs: Handsha
   if (frame.v !== MESH_PROTOCOL_VERSION) {
     hs.socket.close();
     hs.reject(
-      new Error(
+      refused(
         `mesh protocol version mismatch at ${hs.url}: teapot speaks v${frame.v}, this teacup speaks v${MESH_PROTOCOL_VERSION}`,
       ),
     );
@@ -242,6 +262,7 @@ function openSession(args: SessionArgs): Promise<Session> {
   const { socket, opened } = connectSocket(args.url, args.Ctor ?? undefined);
   let heartbeat: Session['heartbeat'] | undefined;
   let handshook = false;
+  let accepted = false;
 
   return new Promise<Session>((resolve, reject) => {
     const connectTimer = setTimeout(() => {
@@ -268,7 +289,10 @@ function openSession(args: SessionArgs): Promise<Session> {
     };
 
     opened.then(
-      () => socket.send(encode({ type: 'hello', v: MESH_PROTOCOL_VERSION, secret: args.secret })),
+      () => {
+        accepted = true;
+        socket.send(encode({ type: 'hello', v: MESH_PROTOCOL_VERSION, secret: args.secret }));
+      },
       (error) => reject(error),
     );
 
@@ -279,7 +303,15 @@ function openSession(args: SessionArgs): Promise<Session> {
       () => {
         clearTimeout(connectTimer);
         heartbeat?.stop();
-        if (!handshook) reject(new Error(`mesh handshake failed: ${args.url}`));
+
+        if (!handshook) {
+          // Opened and then hung up before answering: the teapot refused this peer — a bad secret,
+          // or a version it would not speak. Never opened: it may just not be listening yet.
+          const message = `mesh handshake failed: ${args.url}`;
+
+          reject(accepted ? refused(message) : new Error(message));
+        }
+
         args.onEnd();
       },
       { once: true },

@@ -29,7 +29,7 @@ import {
 import { buildHtmlTransformer, buildStaticResolver, type ViewsContext } from '../views';
 import { getArgs, getHandlerNeeds, resolveArgs } from '../params';
 import { buildOpenApi, type OpenApiInfo } from '../openapi';
-import { connectLink, type Link } from '../mesh/link';
+import { connectLink, isPermanentRefusal, type Link } from '../mesh/link';
 import { Rooms } from '../rooms';
 import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
 import { buildRemote } from '../mesh/teacup';
@@ -616,6 +616,62 @@ function assertNeedsSatisfiable(routePlans: RoutePlan[], providerNodes: GraphNod
 }
 
 /**
+ * Keep trying to reach a teapot until `bootTimeoutMs` passes, then give up and fail the boot.
+ *
+ * The grace exists because "the container is thirty seconds behind" and "the teapot does not
+ * exist" look identical for the first thirty seconds, and only one of them should stop a deploy.
+ * When the deadline passes it still throws: a provider the graph depends on is not optional, and
+ * booting without it would only move the failure to the first request, where it becomes a caller's
+ * 503 instead of the deploy's error.
+ *
+ * Each failed attempt is both logged and emitted as `mesh:boot:retry` — logged so an operator
+ * watching a deploy sees why it is taking so long, emitted so the wait is visible to whatever
+ * collects lifecycle events rather than only to whoever is reading a terminal.
+ */
+async function connectUntilDeadline(
+  mesh: MeshConfig,
+  bus: Bus,
+  logger: Logger,
+  attempt: () => Promise<Link>,
+): Promise<Link> {
+  const budgetMs = mesh.bootTimeoutMs ?? mesh.timeoutMs ?? 30_000;
+  const deadline = Date.now() + budgetMs;
+  let delay = 500;
+  let attempts = 0;
+
+  for (;;) {
+    try {
+      return await attempt();
+    } catch (error) {
+      attempts += 1;
+      const remaining = deadline - Date.now();
+
+      // A refusal is the teapot's decision, not the network's, and it will be the same decision in
+      // thirty seconds. Retrying a wrong secret only spends the deploy's patience to reach the
+      // identical error, so it fails now.
+      if (isPermanentRefusal(error)) {
+        logger.error(`mesh: the teapot refused this peer, which retrying cannot fix — ${(error as Error).message}`);
+        throw error;
+      }
+
+      // Rethrown as-is rather than wrapped: connectLink already says whether this was a refused
+      // handshake, a version mismatch or a timeout, and each sends you somewhere different.
+      if (remaining <= 0) {
+        logger.error(`mesh: giving up after ${attempts} attempt(s) over ${budgetMs}ms — ${(error as Error).message}`);
+        throw error;
+      }
+
+      bus.emit('mesh:boot:retry', { name: `attempt ${attempts}`, error });
+      logger.warn(
+        `mesh: teapot unreachable (${(error as Error).message}) — retrying, ${remaining}ms of boot budget left`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, Math.min(delay, Math.max(0, remaining))));
+      delay = Math.min(delay * 2, 5_000);
+    }
+  }
+}
+
+/**
  * Warn when a teapot's shared secret would cross a network in cleartext.
  *
  * The `hello` frame carries the secret verbatim, so `ws://` to anywhere but this machine puts it on
@@ -666,17 +722,19 @@ async function spliceRemoteScopes(
       // Deferred so the reconnect callback can name this link's provider tokens, which are only
       // known once its manifest arrives — the callback is registered before the link can drop.
       const rebind: Array<() => void> = [];
-      const link = await connectLink({
-        url: teapot.url,
-        secret: teapot.secret,
-        timeoutMs: mesh.timeoutMs,
-        heartbeatMs: mesh.heartbeatMs,
-        reconnect: mesh.reconnect,
-        onManifestChange: mesh.onManifestChange,
-        onReconnect: () => invalidateRemoteBindings(rebind),
-        logger,
-        bus,
-      });
+      const link = await connectUntilDeadline(mesh, bus, logger, () =>
+        connectLink({
+          url: teapot.url,
+          secret: teapot.secret,
+          timeoutMs: mesh.timeoutMs,
+          heartbeatMs: mesh.heartbeatMs,
+          reconnect: mesh.reconnect,
+          onManifestChange: mesh.onManifestChange,
+          onReconnect: () => invalidateRemoteBindings(rebind),
+          logger,
+          bus,
+        }),
+      );
       meshLinks.push(link);
       const { providers, steps, routes } = buildRemote(link);
       const origin = `mesh:${teapot.url}`;
