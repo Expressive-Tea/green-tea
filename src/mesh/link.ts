@@ -32,6 +32,8 @@ export type ManifestPolicy = 'refuse';
 
 /** An in-flight RPC awaiting its `rpc-res`, keyed by id in the pending map. */
 type PendingEntry = {
+  /** The token or route asked for. Kept so an error can be reported by name — the frame only carries the id. */
+  name: string;
   resolve: (v: unknown) => void;
   reject: (e: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -94,7 +96,7 @@ function sendRpc(
       rejectCall(new HttpError(504, `mesh rpc timeout: ${name}`));
     }, timeoutMs);
 
-    pending.set(id, { resolve: resolveCall, reject: rejectCall, timer });
+    pending.set(id, { name, resolve: resolveCall, reject: rejectCall, timer });
     socket.send(encode({ type: 'rpc-req', id, kind, name, ctx }));
   });
 }
@@ -113,7 +115,10 @@ function settleRpcResponse(
   if (frame.ok) {
     entry.resolve(frame.result);
   } else {
-    bus?.emit('mesh:rpc:error', { name: frame.id, error: frame.error });
+    // `entry.name`, not `frame.id`: the id is a per-link counter, so this event used to report
+    // "0" or "1" where every other emitter reports what failed — including the teapot's own
+    // emit for the same call, which made the two sides of one failure impossible to line up.
+    bus?.emit('mesh:rpc:error', { name: entry.name, error: frame.error });
     entry.reject(new HttpError(frame.error.status ?? 500, frame.error.message));
   }
 }

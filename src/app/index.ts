@@ -616,6 +616,26 @@ function assertNeedsSatisfiable(routePlans: RoutePlan[], providerNodes: GraphNod
 }
 
 /**
+ * Warn when a teapot's shared secret would cross a network in cleartext.
+ *
+ * The `hello` frame carries the secret verbatim, so `ws://` to anywhere but this machine puts it on
+ * the wire for anyone in the path to read. Loopback is exempt because there is no path.
+ *
+ * A warning rather than a refusal: a private network behind a service mesh that already does mutual
+ * TLS is a legitimate deployment, and green-tea cannot tell it apart from an exposed one.
+ */
+function warnIfCleartext(url: string, logger: Logger): void {
+  if (!url.startsWith('ws://')) return;
+  const host = url.slice('ws://'.length).split('/')[0].split(':')[0];
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') return;
+
+  logger.warn(
+    `mesh: ${url} is not encrypted, and the shared secret is sent in the handshake — ` +
+      'use wss:// unless the link already runs inside an encrypted network.',
+  );
+}
+
+/**
  * Re-register a link's app-scope bindings after it reconnects, so their next resolve re-runs the RPC.
  *
  * Named and separate rather than inlined in the reconnect handler: this is the seam a future
@@ -642,6 +662,7 @@ async function spliceRemoteScopes(
 
   try {
     for (const teapot of mesh.teapots ?? []) {
+      warnIfCleartext(teapot.url, logger);
       // Deferred so the reconnect callback can name this link's provider tokens, which are only
       // known once its manifest arrives — the callback is registered before the link can drop.
       const rebind: Array<() => void> = [];
@@ -717,7 +738,19 @@ async function spliceRemoteScopes(
           method: route.method,
           pattern: route.pattern,
           transport: 'buffer',
-          handler: async (req) => route.handler(req as RequestEnvelope),
+          // Built explicitly rather than cast from the handler argument. The cast put the whole
+          // internal request on the wire — `ip` and `protocol` included — and sent fields the
+          // protocol never declared, so a teapot could come to rely on something we never promised.
+          handler: async (req) =>
+            route.handler({
+              method: req.method,
+              params: req.params,
+              query: req.query,
+              body: req.body,
+              headers: req.headers,
+              url: req.url,
+              correlation: { requestId: req.requestId, traceId: req.traceId },
+            }),
         });
       }
     }
@@ -867,7 +900,14 @@ function buildMeshControl(
       if (container.has(provider.name)) Object.assign(seed, await container.resolve(provider.name));
 
     const steps = orderedSteps.map((step) => ({ name: step.name, origin: step.origin, run: runners.get(step.name)! }));
-    const context = await runSteps(steps, seed, bus);
+    // The caller's identity, adopted rather than replaced — the same rule an incoming
+    // `x-request-id` gets, applied at the process boundary where it matters most. No `route`:
+    // resolving a scope is not a route, and inventing one would put a token in a route label.
+    const context = await runSteps(steps, seed, bus, {
+      requestId: env.correlation?.requestId,
+      traceId: env.correlation?.traceId,
+      method: env.method,
+    });
 
     return context[name];
   };
@@ -889,6 +929,13 @@ function buildMeshControl(
       bus,
       onError,
       transport: plan.transport,
+      correlation: {
+        requestId: env.correlation?.requestId,
+        traceId: env.correlation?.traceId,
+        route: plan.pattern,
+        method: plan.method,
+        transport: plan.transport,
+      },
       seed: { ...provided, req: env, params: env.params, query: env.query, body: env.body, headers: env.headers },
     });
 

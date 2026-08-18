@@ -1,18 +1,46 @@
 /**
  * Version of the mesh wire protocol. Peers are separate processes on separate deploy
  * cadences — possibly on different runtimes — so the frame shapes are a contract between
- * green-tea versions, not an internal detail. Bump on any breaking frame change; peers
- * refuse each other on mismatch rather than misparsing downstream.
+ * green-tea versions, not an internal detail. Peers refuse each other on mismatch rather
+ * than misparsing downstream.
+ *
+ * **This is a compatibility boundary, not a changelog.** Bump it only when a peer running the
+ * old version would *misparse a frame or misbehave silently*:
+ *
+ * - removing or renaming a field, or changing its type or meaning;
+ * - adding a **required** field;
+ * - adding a frame type that expects an answer — an old peer cannot decode it, drops it as
+ *   undecodable, and the sender waits for a reply that will never come.
+ *
+ * Adding an **optional** field is not one of those: `decode` validates only the fields a frame
+ * type requires and passes extras through untouched, so an old peer ignores what it does not
+ * know and keeps answering. That is degraded, not broken, and does not earn a bump.
+ *
+ * Bumping per change would make the number mean "work happened" rather than "we are
+ * incompatible", which is the one thing it is here to say.
  */
 export const MESH_PROTOCOL_VERSION = 1;
 
-/** Serialized request context sent across the mesh for a scope or route RPC. */
+/**
+ * Serialized request context sent across the mesh for a scope or route RPC.
+ *
+ * `correlation` and `url` are optional by protocol, not by intent: a teapot running an older
+ * green-tea simply ignores them, which costs the correlation of that hop and nothing else.
+ */
 export interface RequestEnvelope {
   method: string;
   params: Record<string, string>;
   query: Record<string, string>;
   body: unknown;
   headers: Record<string, string | string[] | undefined>;
+  /** The requested URL, so a teapot's handler sees the same path its caller did. */
+  url?: string;
+  /**
+   * The caller's request identity, so a request that crosses the mesh keeps one id end to end.
+   * Without it every hop opens a new investigation, in the one place a distributed trace is
+   * the whole point.
+   */
+  correlation?: { requestId?: string; traceId?: string };
 }
 
 /** Manifest entry for an exported scope token and its lifetime. */

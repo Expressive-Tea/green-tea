@@ -8,6 +8,23 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ## [Unreleased]
 
+### Changed
+
+- **A request that crosses the mesh keeps its identity.** The RPC envelope now carries the caller's
+  `requestId` and `traceId`, and a teapot adopts them rather than opening a new investigation — the
+  same rule an incoming `x-request-id` already got, applied at the process boundary where a trace
+  matters most. It also carries `url`, so a proxied handler sees the path its caller asked for.
+
+  Both fields are **optional on the wire and the protocol version does not move**: `decode` validates
+  only what a frame type requires and passes extras through, so a teapot on an older green-tea
+  ignores them and keeps answering. That is degraded, not broken. The rule for when the version
+  *does* move is now written next to the constant, because "bump on any breaking change" never said
+  what counts as breaking.
+
+  The remote-route envelope is also built explicitly instead of cast from the internal request
+  object, which had been putting `ip` and `protocol` on the wire — fields the protocol never
+  declared and a teapot could have come to depend on.
+
 ### Fixed
 
 - **A mesh teacup now reconnects to a teapot that came back.** A dropped link used to stay dead for
@@ -29,6 +46,22 @@ npm treats versions as semver and semver forbids leading zeros.
   value** — a successful reconnect re-registers those bindings, so the next resolve re-runs the RPC.
 
   Mesh remains **alpha** and behind `experimental: true`.
+
+- **`mesh:rpc:error` reported the wire id where every other emitter reports a name.** A failing
+  remote call emitted `name: "0"` — the per-link request counter — so the teacup's event could not be
+  lined up with the teapot's event for the same failure. It now names the token or route.
+
+- **A teapot now bounds its own handshake and caps the size of a control frame.** The teacup has
+  always timed out its side; the teapot had no equivalent, so an unauthenticated peer could hold a
+  socket open forever by simply never sending `hello`. And `decode` runs `JSON.parse` on
+  peer-controlled input *before* authentication, with no ceiling below whatever the WebSocket layer
+  allowed — 100 MiB under the `ws` package's defaults. Frames above 4,000,000 characters are now
+  refused with close code 1009, sized above the 1 MB default body limit a legitimate RPC can carry.
+
+- **A `ws://` teapot on a non-loopback host now warns at boot.** The shared secret travels verbatim
+  in the `hello` frame, so an unencrypted link puts it in front of anyone on the path. A warning
+  rather than a refusal, since a private network doing its own mutual TLS is a real deployment and
+  green-tea cannot tell the two apart.
 
 ## [26.8.0-beta.1] - 2026-08-17
 
