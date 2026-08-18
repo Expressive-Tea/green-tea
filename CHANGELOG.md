@@ -8,6 +8,28 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A mesh teacup now reconnects to a teapot that came back.** A dropped link used to stay dead for
+  the life of the process: every RPC answered 503 until the teacup was restarted, so deploying a
+  teapot forced a restart of every teacup that depended on it, and boot order became load-bearing.
+  Links now reconnect with exponential backoff and jitter (500ms doubling to 30s), tunable through
+  `mesh: { reconnect: { initialDelayMs, maxDelayMs } }` and disabled with `reconnect: false`.
+  `close()` is terminal — a link the application hung up on never reconnects, so `app.close()` cannot
+  leave a process that refuses to exit.
+
+  A returning teapot whose manifest no longer exports something the graph was validated against at
+  boot is **refused** rather than adopted, named by `mesh: { onManifestChange: 'refuse' }`, which is
+  the default and currently the only policy. The link keeps retrying, since a partial deploy may
+  still restore it, and logs the refusal once per distinct manifest rather than once per attempt.
+  Serving against a manifest that no longer backs the graph would surface as a 500 that looks like
+  application code. Extra exports in a returning manifest are ignored: the graph is fixed at boot.
+
+  This also closes the documented gap where **an app-scope export outlived its teapot with a stale
+  value** — a successful reconnect re-registers those bindings, so the next resolve re-runs the RPC.
+
+  Mesh remains **alpha** and behind `experimental: true`.
+
 ## [26.8.0-beta.1] - 2026-08-17
 
 ### Added

@@ -103,6 +103,25 @@ export interface MeshConfig {
    * `timeoutMs` first. Lower it to notice a dead teapot sooner, at the cost of more chatter.
    */
   heartbeatMs?: number;
+  /**
+   * Reconnect to a teapot after its link drops (default: on). A dropped link used to stay dead for
+   * the life of the process, which meant deploying a teapot forced a restart of every teacup.
+   *
+   * `false` restores that fail-once behaviour. An object tunes the backoff, which doubles from
+   * `initialDelayMs` (500ms) up to `maxDelayMs` (30s) with jitter, so teacups that went down
+   * together do not come back in lockstep.
+   */
+  reconnect?: boolean | { initialDelayMs?: number; maxDelayMs?: number };
+  /**
+   * What to do when a returning teapot's manifest no longer exports something the graph was
+   * validated against at boot (default: `'refuse'`).
+   *
+   * `'refuse'` hangs up on that session and keeps retrying — a partial deploy may still restore it.
+   * Serving against a manifest that no longer backs the graph would surface as a 500 that looks
+   * like application code. A future `'reconcile'` will rebuild the graph instead; it is named here
+   * rather than left implicit so that arriving is additive rather than a change of default.
+   */
+  onManifestChange?: 'refuse';
 }
 
 /**
