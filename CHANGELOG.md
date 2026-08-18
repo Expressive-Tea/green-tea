@@ -8,102 +8,13 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ## [Unreleased]
 
-### Changed
-
-- **A request that crosses the mesh keeps its identity.** The RPC envelope now carries the caller's
-  `requestId` and `traceId`, and a teapot adopts them rather than opening a new investigation — the
-  same rule an incoming `x-request-id` already got, applied at the process boundary where a trace
-  matters most. It also carries `url`, so a proxied handler sees the path its caller asked for.
-
-  Both fields are **optional on the wire and the protocol version does not move**: `decode` validates
-  only what a frame type requires and passes extras through, so a teapot on an older green-tea
-  ignores them and keeps answering. That is degraded, not broken. The rule for when the version
-  *does* move is now written next to the constant, because "bump on any breaking change" never said
-  what counts as breaking.
-
-  The remote-route envelope is also built explicitly instead of cast from the internal request
-  object, which had been putting `ip` and `protocol` on the wire — fields the protocol never
-  declared and a teapot could have come to depend on.
-
-- **Boot waits for a teapot that is merely slow, and still fails for one that is absent.**
-  `createApp({ mesh: { bootTimeoutMs } })` gives a teacup a grace period — default `timeoutMs`, so
-  30s — in which a teapot that has not finished starting is retried with backoff. When it passes,
-  the boot still fails, because a provider the graph depends on is not optional: booting without it
-  would only move the failure to the first request, where it becomes a caller's 503 instead of the
-  deploy's error. `bootTimeoutMs: 0` restores a single attempt.
-
-  **A refusal is not retried.** A wrong secret or a protocol-version mismatch is the teapot's
-  decision and will be the same decision in thirty seconds, so it fails immediately rather than
-  spending the whole budget to reach an identical error. The two are told apart by whether the
-  socket ever opened — a peer that accepted the connection and then hung up rejected us on purpose;
-  one that never accepted it may simply not be listening yet.
-
-  Every retry is logged *and* emitted as the new `mesh:boot:retry` lifecycle event, so a slow boot
-  is visible to whatever collects events and not only to whoever is watching a terminal.
-
-### Fixed
-
-- **A mesh export that carried behaviour arrived as `{}`, with HTTP 200 and no warning.** The wire is
-  JSON, so a value with methods — a connection pool, a client, a `Map` — lost everything but its
-  shape in transit. What reached the caller was an object: truthy, passing any `if (db)` check, and
-  missing every method, so the failure surfaced as `db.query is not a function` at a call site
-  arbitrarily far from the export that caused it.
-
-  A teapot now refuses to send one, on the side that still holds the real value, with a message
-  naming the token and what sat where: `mesh cannot transport 'db': result.db is a Pool instance`.
-  The check is an allowlist — primitives, plain objects, arrays — so `Date` is refused too, since it
-  would arrive as a string rather than the type the caller declared, which is the same silent
-  difference in a smaller costume. It is bounded by a scan budget, so a large legitimate payload is
-  never turned into an error by the cost of checking it.
-
-  **This is a constraint the documentation never stated:** a mesh export carries *data*, never
-  behaviour. Export what a handle produces, not the handle.
-
-- **A mesh teacup now reconnects to a teapot that came back.** A dropped link used to stay dead for
-  the life of the process: every RPC answered 503 until the teacup was restarted, so deploying a
-  teapot forced a restart of every teacup that depended on it, and boot order became load-bearing.
-  Links now reconnect with exponential backoff and jitter (500ms doubling to 30s), tunable through
-  `mesh: { reconnect: { initialDelayMs, maxDelayMs } }` and disabled with `reconnect: false`.
-  `close()` is terminal — a link the application hung up on never reconnects, so `app.close()` cannot
-  leave a process that refuses to exit.
-
-  A returning teapot whose manifest no longer exports something the graph was validated against at
-  boot is **refused** rather than adopted, named by `mesh: { onManifestChange: 'refuse' }`, which is
-  the default and currently the only policy. The link keeps retrying, since a partial deploy may
-  still restore it, and logs the refusal once per distinct manifest rather than once per attempt.
-  Serving against a manifest that no longer backs the graph would surface as a 500 that looks like
-  application code. Extra exports in a returning manifest are ignored: the graph is fixed at boot.
-
-  This also closes the documented gap where **an app-scope export outlived its teapot with a stale
-  value** — a successful reconnect re-registers those bindings, so the next resolve re-runs the RPC.
-
-  Mesh remains **alpha** and behind `experimental: true`.
-
-- **`mesh:rpc:error` reported the wire id where every other emitter reports a name.** A failing
-  remote call emitted `name: "0"` — the per-link request counter — so the teacup's event could not be
-  lined up with the teapot's event for the same failure. It now names the token or route.
-
-- **A teapot now bounds its own handshake and caps the size of a control frame.** The teacup has
-  always timed out its side; the teapot had no equivalent, so an unauthenticated peer could hold a
-  socket open forever by simply never sending `hello`. And `decode` runs `JSON.parse` on
-  peer-controlled input *before* authentication, with no ceiling below whatever the WebSocket layer
-  allowed — 100 MiB under the `ws` package's defaults. Frames above 4,000,000 characters are now
-  refused with close code 1009, sized above the 1 MB default body limit a legitimate RPC can carry.
-
-- **A `ws://` teapot on a non-loopback host now warns at boot.** The shared secret travels verbatim
-  in the `hello` frame, so an unencrypted link puts it in front of anyone on the path. A warning
-  rather than a refusal, since a private network doing its own mutual TLS is a real deployment and
-  green-tea cannot tell the two apart.
-
-## [26.8.0-beta.1] - 2026-08-17
-
 ### Added
 
 - **Observability: a correlated lifecycle event stream and an injectable logger.** Every request is
   given an id — an incoming `x-request-id` is adopted rather than replaced — and every event of that
-  request carries it, alongside the matched route *pattern* (never the concrete URL, which would give
+  request carries it, alongside the matched route _pattern_ (never the concrete URL, which would give
   a metrics backend one label per distinct path). Each step reports its own duration. `createApp({
-  logger })` accepts any object with `debug`/`info`/`warn`/`error`; the default writes structured JSON,
+logger })` accepts any object with `debug`/`info`/`warn`/`error`; the default writes structured JSON,
   or a readable line on a TTY, decided once at boot. Nothing in core writes to `console`, enforced by a
   lint rule rather than by intention. `createApp({ logRequests: true })` logs one line per request, off
   by default. New exports: `Logger`, `LogLevel`, `LogFields`, `createDefaultLogger`,
@@ -144,6 +55,37 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Changed
 
+- **A request that crosses the mesh keeps its identity.** The RPC envelope now carries the caller's
+  `requestId` and `traceId`, and a teapot adopts them rather than opening a new investigation — the
+  same rule an incoming `x-request-id` already got, applied at the process boundary where a trace
+  matters most. It also carries `url`, so a proxied handler sees the path its caller asked for.
+
+  Both fields are **optional on the wire and the protocol version does not move**: `decode` validates
+  only what a frame type requires and passes extras through, so a teapot on an older green-tea
+  ignores them and keeps answering. That is degraded, not broken. The rule for when the version
+  _does_ move is now written next to the constant, because "bump on any breaking change" never said
+  what counts as breaking.
+
+  The remote-route envelope is also built explicitly instead of cast from the internal request
+  object, which had been putting `ip` and `protocol` on the wire — fields the protocol never
+  declared and a teapot could have come to depend on.
+
+- **Boot waits for a teapot that is merely slow, and still fails for one that is absent.**
+  `createApp({ mesh: { bootTimeoutMs } })` gives a teacup a grace period — default `timeoutMs`, so
+  30s — in which a teapot that has not finished starting is retried with backoff. When it passes,
+  the boot still fails, because a provider the graph depends on is not optional: booting without it
+  would only move the failure to the first request, where it becomes a caller's 503 instead of the
+  deploy's error. `bootTimeoutMs: 0` restores a single attempt.
+
+  **A refusal is not retried.** A wrong secret or a protocol-version mismatch is the teapot's
+  decision and will be the same decision in thirty seconds, so it fails immediately rather than
+  spending the whole budget to reach an identical error. The two are told apart by whether the
+  socket ever opened — a peer that accepted the connection and then hung up rejected us on purpose;
+  one that never accepted it may simply not be listening yet.
+
+  Every retry is logged _and_ emitted as the new `mesh:boot:retry` lifecycle event, so a slow boot
+  is visible to whatever collects events and not only to whoever is watching a terminal.
+
 - **`.` and `..` in a request path are now resolved rather than 404'd.** `GET /public/../admin` reaches
   a route declared as `/admin`, and `%2e` counts as a dot, so the encoded spelling cannot reach a route
   the plain one resolves away from. This is a **behaviour change on Node only**, and it exists to end a
@@ -154,6 +96,58 @@ npm treats versions as semver and semver forbids leading zeros.
   path, note that it sees `/public/...` where the application now routes `/admin`.
 
 ### Fixed
+
+- **A mesh export that carried behaviour arrived as `{}`, with HTTP 200 and no warning.** The wire is
+  JSON, so a value with methods — a connection pool, a client, a `Map` — lost everything but its
+  shape in transit. What reached the caller was an object: truthy, passing any `if (db)` check, and
+  missing every method, so the failure surfaced as `db.query is not a function` at a call site
+  arbitrarily far from the export that caused it.
+
+  A teapot now refuses to send one, on the side that still holds the real value, with a message
+  naming the token and what sat where: `mesh cannot transport 'db': result.db is a Pool instance`.
+  The check is an allowlist — primitives, plain objects, arrays — so `Date` is refused too, since it
+  would arrive as a string rather than the type the caller declared, which is the same silent
+  difference in a smaller costume. It is bounded by a scan budget, so a large legitimate payload is
+  never turned into an error by the cost of checking it.
+
+  **This is a constraint the documentation never stated:** a mesh export carries _data_, never
+  behaviour. Export what a handle produces, not the handle.
+
+- **A mesh teacup now reconnects to a teapot that came back.** A dropped link used to stay dead for
+  the life of the process: every RPC answered 503 until the teacup was restarted, so deploying a
+  teapot forced a restart of every teacup that depended on it, and boot order became load-bearing.
+  Links now reconnect with exponential backoff and jitter (500ms doubling to 30s), tunable through
+  `mesh: { reconnect: { initialDelayMs, maxDelayMs } }` and disabled with `reconnect: false`.
+  `close()` is terminal — a link the application hung up on never reconnects, so `app.close()` cannot
+  leave a process that refuses to exit.
+
+  A returning teapot whose manifest no longer exports something the graph was validated against at
+  boot is **refused** rather than adopted, named by `mesh: { onManifestChange: 'refuse' }`, which is
+  the default and currently the only policy. The link keeps retrying, since a partial deploy may
+  still restore it, and logs the refusal once per distinct manifest rather than once per attempt.
+  Serving against a manifest that no longer backs the graph would surface as a 500 that looks like
+  application code. Extra exports in a returning manifest are ignored: the graph is fixed at boot.
+
+  This also closes the documented gap where **an app-scope export outlived its teapot with a stale
+  value** — a successful reconnect re-registers those bindings, so the next resolve re-runs the RPC.
+
+  Mesh remains **alpha** and behind `experimental: true`.
+
+- **`mesh:rpc:error` reported the wire id where every other emitter reports a name.** A failing
+  remote call emitted `name: "0"` — the per-link request counter — so the teacup's event could not be
+  lined up with the teapot's event for the same failure. It now names the token or route.
+
+- **A teapot now bounds its own handshake and caps the size of a control frame.** The teacup has
+  always timed out its side; the teapot had no equivalent, so an unauthenticated peer could hold a
+  socket open forever by simply never sending `hello`. And `decode` runs `JSON.parse` on
+  peer-controlled input _before_ authentication, with no ceiling below whatever the WebSocket layer
+  allowed — 100 MiB under the `ws` package's defaults. Frames above 4,000,000 characters are now
+  refused with close code 1009, sized above the 1 MB default body limit a legitimate RPC can carry.
+
+- **A `ws://` teapot on a non-loopback host now warns at boot.** The shared secret travels verbatim
+  in the `hello` frame, so an unencrypted link puts it in front of anyone on the path. A warning
+  rather than a refusal, since a private network doing its own mutual TLS is a real deployment and
+  green-tea cannot tell the two apart.
 
 - **Buffered response bodies are narrowed to what the host runtime's `Response` accepts.** A Node
   `Buffer` is a `Uint8Array` at runtime but its declared backing store admits `SharedArrayBuffer`, which
@@ -167,6 +161,7 @@ npm treats versions as semver and semver forbids leading zeros.
 ## [26.8.0-beta.0] - 2026-08-02
 
 ### Added
+
 - **Safe constrained route parameters:** patterns such as `:id(\d+)` match a complete decoded
   segment. The parser accepts a deliberately small, bounded regex subset and rejects unsafe or
   malformed expressions at boot. Specificity is now static ▸ constrained param ▸ plain param ▸
@@ -186,14 +181,14 @@ npm treats versions as semver and semver forbids leading zeros.
 - **Bun adapter** (`@green-tea/core/bun`): `serveBun(app)` runs HTTP + SSE + WebSocket on Bun, reusing the neutral `app.upgrade` / `WsSocket` capability. WebSocket, rooms, and channels behave identically to Node and Deno.
 - **Cloudflare Workers / edge adapter** (`@green-tea/core/edge`): `edgeHandler(app)` runs HTTP + SSE + WebSocket on workerd, reusing the neutral `app.upgrade` / `WsSocket` capability. Requires the `nodejs_compat` compatibility flag. Green Tea now runs on Node, Deno, Bun, and the edge — with identical WebSocket, rooms, and channel behaviour on all four.
 - **`app.upgrade(request, socket)`**: neutral WebSocket entry point for non-Node runtimes, built on a shared `WsSocket` capability. WebSocket logic is now runtime-agnostic (`src/http/ws-core.ts`).
-- **Mesh (alpha) runs on Node, Deno and Bun** — teapot *and* teacup, in any combination
+- **Mesh (alpha) runs on Node, Deno and Bun** — teapot _and_ teacup, in any combination
   (a Deno teapot can serve a Node teacup). It no longer needs `app.listen()`: the graph boots on
   first use, so `serveDeno`/`serveBun` work through `app.fetch`/`app.upgrade`. Edge is **not**
   supported — the teapot's secret comparison needs `node:crypto`'s `timingSafeEqual`, which
   `nodejs_compat` does not provide.
 - **`MESH_PROTOCOL_VERSION`**: the mesh wire is versioned. Peers exchange it in the `hello`/`manifest`
   frames and refuse a mismatch, naming both versions, instead of misreading each other's frames.
-  The teapot checks the version *before* the secret — a skewed peer is not an auth failure.
+  The teapot checks the version _before_ the secret — a skewed peer is not an auth failure.
 - **`HttpError` accepts `headers`**, so a custom error can carry its own response headers
   (`retry-after`, `etag`, …) without a special case in the error renderer.
 - **`app.ready(): Promise<void>`** — resolves the dependency graph and returns. On a mesh app it
@@ -209,6 +204,7 @@ npm treats versions as semver and semver forbids leading zeros.
   pings — the platform `WebSocket` on Deno/Bun does not expose `ws.ping()`.
 
 ### Fixed
+
 - The Deno WebSocket adapter snapshots request and connection metadata before accepting an upgrade;
   Deno 2.9 invalidates that metadata once upgraded, which previously broke WebSocket and mesh boots.
 - Repeated slashes and malformed path encoding now return `400` consistently across Node and Fetch
@@ -244,6 +240,7 @@ npm treats versions as semver and semver forbids leading zeros.
   `request:step:leave`.
 
 ### Changed
+
 - Root, runtime-only, and website dependency audits are clean after supported package updates and
   narrow pins for vulnerable transitives. CI audits root + website trees and builds the docs; the
   GitHub OIDC release workflow audits immediately before its publish gate.
@@ -268,6 +265,7 @@ First public beta, published under the npm `beta` dist-tag. The API may still
 change before the stable release.
 
 ### Added
+
 - **Transport security** — native TLS termination (https/wss), CORS with a
   guarded preflight and credentials-safe origins, secure-by-default response
   headers (nosniff, X-Frame-Options, Referrer-Policy, HSTS-when-secure), and
@@ -287,7 +285,7 @@ change before the stable release.
   `405 Method Not Allowed` with an `Allow` header when a path exists under a
   different method.
 - **Argument decorators** — `@needs/@ctx/@param/@query/@body/@headers/@inbound/
-  @abort`, plus `@header('name')` as a singular alias of `@headers`.
+@abort`, plus `@header('name')` as a singular alias of `@headers`.
 - **Streams** — SSE / ndjson / WebSocket duplex over a multicast
   `AsyncIterable` channel, with backpressure and cleanup; `rooms` broadcast hubs.
 - **Graph introspection** — `app.explain(route)`, `app.graph()`,

@@ -66,6 +66,25 @@ The exception is a `hotfix/*`, which lands on `main` without passing through `de
 
 A conflict against unreleased `develop` work can never be delegated to an outside contributor — they cannot see the code they are conflicting with. Those are always the maintainer's to resolve.
 
+## Releasing
+
+**Close the `CHANGELOG` section as the step immediately before the tag, never earlier.** A version
+heading with a date is a claim that the release exists. Until the tag is pushed and the registries
+have it, that claim is false — and a `[26.8.0-beta.1] - 2026-08-17` sitting above work that shipped
+nowhere is worse than no heading at all, because the next reader believes it.
+
+This is not hypothetical: the beta.1 section was written the day the version was *decided*, the
+release slipped, and a day of further work landed underneath it as `[Unreleased]`. The file then said
+two contradictory things — that beta.1 was released, and that everything in it was not.
+
+So the order is: everything merged and promoted → **close the section with the release date** → tag →
+registries. Until that step, work accumulates under `[Unreleased]`, however certain the next version
+number feels.
+
+Bumping `package.json` and `deno.json` ahead of the tag is fine and necessary — those say what the
+*next* publish will be called, and the docs repo's `verify:release` compares the tag against them.
+A version number is a plan; a changelog heading is a receipt.
+
 ## CI
 
 The audit gate is scoped, not severity-filtered: `npm audit --omit=dev` blocks, everything else is `continue-on-error`. A critical in the test runner reaches nobody; a high in `reflect-metadata` reaches everyone. It runs *after* the code gates, because an advisory published by a third party must never decide whether a contributor sees their own lint and typecheck output.
