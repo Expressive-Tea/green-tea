@@ -19,6 +19,28 @@ import {
 /** WebSocket path where a teapot exposes its mesh control channel. */
 export const MESH_CONTROL_PATH = '/__mesh__/control';
 
+/**
+ * How long an unauthenticated peer may hold the control channel open before it is hung up on.
+ *
+ * The teacup has always bounded its side of the handshake; the teapot had no equivalent, so a peer
+ * could connect and simply never send `hello`, holding a socket indefinitely without proving
+ * anything. Generous on purpose — this is a deadline against silence, not a latency budget.
+ */
+const HANDSHAKE_TIMEOUT_MS = 10_000;
+
+/**
+ * Largest control frame the teapot will parse, in characters.
+ *
+ * `decode` runs `JSON.parse` on peer-controlled input, and until the handshake succeeds that peer
+ * is *unauthenticated* — so without a cap, anyone who can reach the port can make the process parse
+ * as much as its WebSocket layer will accept (100 MiB under the `ws` package's defaults, and no
+ * documented ceiling on the platform sockets Deno and Bun provide).
+ *
+ * Sized above the 1 MB default body limit an RPC can legitimately carry, with room for the JSON
+ * overhead of the envelope around it.
+ */
+const MAX_FRAME_CHARS = 4_000_000;
+
 /** Assemble a {@link Manifest} from exported provider/step tokens and buffered routes. */
 export function buildManifest(args: {
   providers: string[]; // exported provider tokens (app-scope)
@@ -151,19 +173,34 @@ async function serveFrames(
   exportedRoutes: Set<string>,
 ): Promise<void> {
   let authed = false;
+  // Armed before the loop, and cleared by the handshake. An unauthenticated peer that simply
+  // says nothing is indistinguishable from a slow one until this fires.
+  const handshakeTimer = setTimeout(() => {
+    if (!authed) socket.close(1008, 'mesh handshake timeout');
+  }, HANDSHAKE_TIMEOUT_MS);
+  handshakeTimer.unref?.();
 
   try {
     for await (const data of socket.inbound) {
+      const raw = String(data);
+
+      // Checked before `decode`, because decoding is the expensive part being defended.
+      if (raw.length > MAX_FRAME_CHARS) {
+        socket.close(1009, 'mesh frame too large');
+        break;
+      }
+
       let frame: Frame;
 
       try {
-        frame = decode(String(data));
+        frame = decode(raw);
       } catch {
         continue; // undecodable frames are ignored, as before
       }
 
       if (!authed) {
         authed = handleHandshake(socket, frame, deps);
+        if (authed) clearTimeout(handshakeTimer);
         continue;
       }
 
@@ -183,6 +220,7 @@ async function serveFrames(
   } catch {
     /* socket failed; the disconnect emit below is the same signal a clean close gives */
   } finally {
+    clearTimeout(handshakeTimer);
     deps.bus?.emit('mesh:disconnect', { name: 'teapot' });
   }
 }

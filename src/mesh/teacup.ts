@@ -14,14 +14,26 @@ export interface RemoteRoute {
   handler: (req: RequestEnvelope) => Promise<ResponseShape>;
 }
 
-/** Extract a {@link RequestEnvelope} from a local request context for transmission over the mesh. */
+/**
+ * Extract a {@link RequestEnvelope} from a local request context for transmission over the mesh.
+ *
+ * `url` and `correlation` are read off `ctx.req`, the handler argument the pipeline seeds the
+ * context with — so a request that crosses to a teapot arrives carrying the id it already had,
+ * and its events on the far side join the same trace instead of starting a new one.
+ */
 export function envelopeFrom(ctx: any): RequestEnvelope {
+  const req = ctx?.req;
+  const correlation = { requestId: req?.requestId, traceId: req?.traceId };
+
   return {
-    method: ctx?.req?.method ?? ctx?.method ?? 'GET',
+    method: req?.method ?? ctx?.method ?? 'GET',
     params: ctx?.params ?? {},
     query: ctx?.query ?? {},
     body: ctx?.body,
     headers: ctx?.headers ?? {},
+    url: req?.url,
+    // omitted rather than sent empty: an envelope with no identity should look like one
+    ...(correlation.requestId || correlation.traceId ? { correlation } : {}),
   };
 }
 
