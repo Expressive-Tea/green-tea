@@ -12,6 +12,10 @@ export type LifecycleEvent =
   | 'mesh:connect'
   | 'mesh:disconnect'
   | 'mesh:rpc:error'
+  // A boot-time connect attempt that failed and will be retried until `bootTimeoutMs` passes.
+  // Separate from `mesh:disconnect`, which is a link that was up and went away — this one never
+  // came up, and a deploy watching for trouble wants to tell those apart.
+  | 'mesh:boot:retry'
   | 'plugin:mounted'
   | 'request:start'
   | 'request:end'

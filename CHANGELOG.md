@@ -25,6 +25,22 @@ npm treats versions as semver and semver forbids leading zeros.
   object, which had been putting `ip` and `protocol` on the wire — fields the protocol never
   declared and a teapot could have come to depend on.
 
+- **Boot waits for a teapot that is merely slow, and still fails for one that is absent.**
+  `createApp({ mesh: { bootTimeoutMs } })` gives a teacup a grace period — default `timeoutMs`, so
+  30s — in which a teapot that has not finished starting is retried with backoff. When it passes,
+  the boot still fails, because a provider the graph depends on is not optional: booting without it
+  would only move the failure to the first request, where it becomes a caller's 503 instead of the
+  deploy's error. `bootTimeoutMs: 0` restores a single attempt.
+
+  **A refusal is not retried.** A wrong secret or a protocol-version mismatch is the teapot's
+  decision and will be the same decision in thirty seconds, so it fails immediately rather than
+  spending the whole budget to reach an identical error. The two are told apart by whether the
+  socket ever opened — a peer that accepted the connection and then hung up rejected us on purpose;
+  one that never accepted it may simply not be listening yet.
+
+  Every retry is logged *and* emitted as the new `mesh:boot:retry` lifecycle event, so a slow boot
+  is visible to whatever collects events and not only to whoever is watching a terminal.
+
 ### Fixed
 
 - **A mesh teacup now reconnects to a teapot that came back.** A dropped link used to stay dead for

@@ -122,6 +122,19 @@ export interface MeshConfig {
    * rather than left implicit so that arriving is additive rather than a change of default.
    */
   onManifestChange?: 'refuse';
+  /**
+   * How long boot keeps trying to reach a teapot before giving up on it (default: `timeoutMs`,
+   * so 30s). Attempts use the same backoff as reconnection.
+   *
+   * A teapot that is merely slow to start — a container scheduled a moment later, a network that
+   * has not settled — should not fail a deploy, and this is the grace for that. A teapot that is
+   * genuinely absent still fails the boot when the deadline passes, because a provider the graph
+   * depends on is not optional: booting without it would only move the failure to the first
+   * request, where it is somebody else's 503 instead of your deploy's error.
+   *
+   * `0` restores the old behaviour of a single attempt.
+   */
+  bootTimeoutMs?: number;
 }
 
 /**
