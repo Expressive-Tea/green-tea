@@ -217,7 +217,7 @@ export function createApp(opts: {
   // can only be built here, after finalize(), and never at construction time.
   const prepareGraph = async (): Promise<void> => {
     if (opts.mesh && !booted) {
-      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry, logger);
+      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry, logger, container);
       remoteRoutes = spliced.remoteRoutes;
       meshLinks.push(...spliced.meshLinks);
       finalize();
@@ -615,12 +615,26 @@ function assertNeedsSatisfiable(routePlans: RoutePlan[], providerNodes: GraphNod
   }
 }
 
+/**
+ * Re-register a link's app-scope bindings after it reconnects, so their next resolve re-runs the RPC.
+ *
+ * Named and separate rather than inlined in the reconnect handler: this is the seam a future
+ * `onManifestChange: 'reconcile'` reuses, and burying it would mean writing it twice.
+ *
+ * Lazy on purpose — the RPC runs on the next resolve, not here. Re-resolving eagerly would put a
+ * network call on the reconnect path, where a failure has nowhere to go but a swallowed rejection.
+ */
+function invalidateRemoteBindings(rebind: Array<() => void>): void {
+  for (const bind of rebind) bind();
+}
+
 /** Connects the configured teapots, splices their remote providers/steps into the registry, and returns their routes. */
 async function spliceRemoteScopes(
   mesh: MeshConfig,
   bus: Bus,
   registry: Registry,
   logger: Logger,
+  container: Container,
 ): Promise<{ remoteRoutes: RouteDef[]; meshLinks: Link[] }> {
   const remoteRoutes: RouteDef[] = [];
   const meshLinks: Link[] = [];
@@ -628,11 +642,18 @@ async function spliceRemoteScopes(
 
   try {
     for (const teapot of mesh.teapots ?? []) {
+      // Deferred so the reconnect callback can name this link's provider tokens, which are only
+      // known once its manifest arrives — the callback is registered before the link can drop.
+      const rebind: Array<() => void> = [];
       const link = await connectLink({
         url: teapot.url,
         secret: teapot.secret,
         timeoutMs: mesh.timeoutMs,
         heartbeatMs: mesh.heartbeatMs,
+        reconnect: mesh.reconnect,
+        onManifestChange: mesh.onManifestChange,
+        onReconnect: () => invalidateRemoteBindings(rebind),
+        logger,
         bus,
       });
       meshLinks.push(link);
@@ -643,6 +664,10 @@ async function spliceRemoteScopes(
         registry.providerNodes.push({ name: provider.name, needs: [], provides: [provider.name], origin });
         registry.providerMeta.set(provider.name, { optional: false });
         registry.setRunner(provider.name, provider.run);
+        // A remote app-scope value is resolved once at boot and frozen into the container, so it
+        // would keep answering from a cache the teapot no longer stands behind. Re-registering
+        // gives the binding a factory that re-runs the RPC, and `register` drops the memo with it.
+        rebind.push(() => container.register(provider.name, 'app', () => provider.run({})));
       }
 
       for (const step of steps) {
