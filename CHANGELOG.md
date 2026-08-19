@@ -8,6 +8,8 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ## [Unreleased]
 
+## [26.8.0-beta.1] - 2026-08-19
+
 ### Added
 
 - **Observability: a correlated lifecycle event stream and an injectable logger.** Every request is
@@ -307,6 +309,7 @@ change before the stable release.
 - **Benchmarks** — reproducible `npm run bench` harness vs Express 5, Fastify 5,
   NestJS, and raw `http`; results in [BENCHMARKS.md](./BENCHMARKS.md).
 
-[Unreleased]: https://github.com/Expressive-Tea/green-tea/compare/v26.8.0-beta.0...main
+[Unreleased]: https://github.com/Expressive-Tea/green-tea/compare/v26.8.0-beta.1...main
+[26.8.0-beta.1]: https://github.com/Expressive-Tea/green-tea/compare/v26.8.0-beta.0...v26.8.0-beta.1
 [26.8.0-beta.0]: https://github.com/Expressive-Tea/green-tea/compare/v26.7.0-beta.0...v26.8.0-beta.0
 [26.7.0-beta.0]: https://github.com/Expressive-Tea/green-tea/releases/tag/v26.7.0-beta.0
