@@ -42,18 +42,40 @@ jobs:
       # types, module analysis — and learning about them after npm has published leaves the tag
       # half-shipped. Seconds, against a failure mode with no clean recovery.
       - run: deno publish --dry-run
+      # A publish sets exactly one dist-tag, and it is the only npm write this workflow can make:
+      # Trusted Publishing's OIDC exchange lives inside `npm publish` and nowhere else, so the token
+      # it produces is rejected by `npm dist-tag` (E401, learned on v26.8.0-beta.1). So the one tag
+      # the publish gets has to be the one that matters most.
+      #
+      # While no stable release exists, `latest` and the channel tag mean the same thing — there is
+      # nothing else to install — and `latest` takes it, because that is what a bare
+      # `npm install @green-tea/core` resolves to. Leaving it behind on an older beta would hand the
+      # default install an older build than the one just released. The channel tag is then moved by
+      # hand; the step prints the command. Once a stable version exists it owns `latest` for good,
+      # a later beta must not drag it backwards, and the channel tag becomes the automatic one again.
       - name: Publish to npmjs
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          TAG=$(node -e "const v=require('./package.json').version;const m=v.match(/-([a-z]+)/);console.log(m?m[1]:'latest')")
+          CHANNEL=$(node -e "const m=process.argv[1].match(/-([a-z]+)/);console.log(m?m[1]:'latest')" "$VERSION")
+          # Read the list into a variable so a failed lookup fails the step, rather than passing for
+          # "no stable exists" and pointing `latest` at a prerelease that should not have it.
+          VERSIONS=$(npm view "$PKG" versions --json)
+          if [ "$CHANNEL" != latest ] \
+             && ! node -e "process.exit([].concat(JSON.parse(process.argv[1])).some(v=>!v.includes('-'))?0:1)" "$VERSIONS"; then
+            TAG=latest
+          else
+            TAG=$CHANNEL
+          fi
           echo "$VERSION under dist-tag: $TAG"
-          # Skip rather than fail when the version is already up. A step after this one can fail —
-          # the dist-tag move below does — and a re-run of the job has to be able to finish the
-          # remaining work instead of dying on a duplicate npm rejects anyway.
+          # Skip rather than fail when the version is already up, so a re-run after a later failure
+          # can finish the remaining work instead of dying on a duplicate npm rejects anyway.
           if npm view "$PKG@$VERSION" version >/dev/null 2>&1; then
             echo "npm already has $VERSION"
           else
             npm publish --access public --tag "$TAG"
+          fi
+          if [ "$TAG" != "$CHANNEL" ]; then
+            echo "::notice::Move the channel tag by hand: npm dist-tag add $PKG@$VERSION $CHANNEL"
           fi
       # JSR last, deliberately. npm allows an unpublish within 72 hours; JSR versions are immutable
       # and can never be replaced or removed. Ordered so a failure here costs a re-run, while a
@@ -65,43 +87,10 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           PKG=${PKG#@}
-          # 404 until the version exists — and it stays 404 for a package with no versions yet, which
-          # is the state this repository is actually in, so the guard must not read that as an error.
+          # 404 until the version exists, and also for a package with no versions at all — which is
+          # what this one was until v26.8.0-beta.1 — so the guard must not read a 404 as an error.
           if curl -fsS -o /dev/null "https://api.jsr.io/scopes/${PKG%%/*}/packages/${PKG#*/}/versions/$VERSION"; then
             echo "JSR already has $VERSION"
           else
             deno publish
           fi
-      # `latest` is what a bare `npm install @green-tea/core` resolves to, and while there is no
-      # stable release the docs promise it is the newest beta. `npm publish --tag beta` sets exactly
-      # one tag, so `latest` has to be moved separately — and `npm dist-tag` cannot use Trusted
-      # Publishing, whose OIDC exchange lives only inside `npm publish`. So we run that same exchange
-      # by hand (id-token → short-lived npm token) rather than keep a long-lived token in a secret for
-      # one command. Last on purpose: both registries already have the version, and a dist-tag is the
-      # only thing here that can be redone. If this step fails, the release is out but `latest` is
-      # stale — recover with `npm dist-tag add @green-tea/core@<version> latest`.
-      - name: Point `latest` at this release while no stable exists
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          case "$VERSION" in
-            *-*) ;;
-            *) echo "$VERSION is stable — npm publish already put it on latest"; exit 0 ;;
-          esac
-          # A stable release owns `latest` for good; a beta published afterwards must never drag it
-          # backwards, so the newest-beta rule applies only until the first stable exists.
-          # Read the list first so a failed lookup fails the step, rather than reading as "no stable
-          # exists" and moving `latest` backwards on the strength of a network error.
-          VERSIONS=$(npm view "$PKG" versions --json)
-          if node -e "process.exit([].concat(JSON.parse(process.argv[1])).some(v=>!v.includes('-'))?0:1)" "$VERSIONS"; then
-            echo "a stable version exists — leaving latest where it is"; exit 0
-          fi
-          URL=$(node -p "const u=new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);u.searchParams.set('audience','npm:registry.npmjs.org');u.href")
-          ID_TOKEN=$(curl -fsS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$URL" \
-            | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).value")
-          echo "::add-mask::$ID_TOKEN"
-          NODE_AUTH_TOKEN=$(curl -fsS -X POST -H "Authorization: Bearer $ID_TOKEN" \
-            "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/$(node -p "encodeURIComponent(process.env.PKG)")" \
-            | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).token")
-          echo "::add-mask::$NODE_AUTH_TOKEN"
-          export NODE_AUTH_TOKEN
-          npm dist-tag add "$PKG@$VERSION" latest

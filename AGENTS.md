@@ -85,6 +85,20 @@ Bumping `package.json` and `deno.json` ahead of the tag is fine and necessary â€
 *next* publish will be called, and the docs repo's `verify:release` compares the tag against them.
 A version number is a plan; a changelog heading is a receipt.
 
+**After a beta release, move the channel tag by hand.** A publish sets exactly one dist-tag, and it
+is the only npm write the release workflow can make â€” Trusted Publishing's OIDC exchange lives inside
+`npm publish`, so the token it hands back is rejected by `npm dist-tag` (`E401`, learned the hard way
+on `v26.8.0-beta.1`). While there is no stable release the publish spends that one tag on `latest`,
+since that is what a bare `npm install @green-tea/core` resolves to, and the workflow prints the
+command for the rest:
+
+```bash
+npm dist-tag add @green-tea/core@<version> beta
+```
+
+Once a stable version exists this stops being a chore: `latest` belongs to the stable release, the
+publish gives a beta its channel tag directly, and there is nothing left to move.
+
 ## CI
 
 The audit gate is scoped, not severity-filtered: `npm audit --omit=dev` blocks, everything else is `continue-on-error`. A critical in the test runner reaches nobody; a high in `reflect-metadata` reaches everyone. It runs *after* the code gates, because an advisory published by a third party must never decide whether a contributor sees their own lint and typecheck output.
