@@ -16,7 +16,7 @@ jobs:
       PKG: '@green-tea/core'
     permissions:
       id-token: write # OIDC for Trusted Publishing (also enables provenance)
-      contents: read
+      contents: write # create the GitHub release for this tag
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -94,3 +94,26 @@ jobs:
           else
             deno publish
           fi
+
+      # The release page is where people who do not read a changelog find out what changed, and a
+      # repository with tags and no releases reads as abandoned. Notes come from CHANGELOG.md rather
+      # than from the commit range: the section was written for humans and already exists by the time
+      # a tag is cut, and generated notes would restate merge subjects nobody chose.
+      #
+      # Idempotent like the publishes above, so a re-run after a later failure does not stop here.
+      # `--verify-tag` refuses to invent a tag: the release attaches to the one that triggered this
+      # run and can never move it. A prerelease is marked as such, which is what keeps GitHub's
+      # "Latest" badge off a beta.
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG=${GITHUB_REF_NAME}
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $TAG already exists"; exit 0
+          fi
+          node scripts/changelog-section.mjs "$VERSION" "$TAG" > /tmp/notes.md
+          case "$VERSION" in *-*) PRE=--prerelease ;; *) PRE= ;; esac
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" \
+            --notes-file /tmp/notes.md --verify-tag $PRE
