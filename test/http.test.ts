@@ -1,6 +1,7 @@
 import { describe, expect, it, test, vi } from 'vitest';
 import * as net from 'node:net';
 import { once } from 'node:events';
+import { Bus } from '../src/bus';
 import { matchRoute, parseQuery, createHttpServer } from '../src/http';
 
 const handler = async () => ({ status: 200, headers: {}, body: 'ok' });
@@ -192,6 +193,136 @@ describe('request hardening', () => {
       third.destroy();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+  });
+
+  it('rejects requests above maxConcurrentRequests and releases the slot afterwards', async () => {
+    let release!: () => void;
+    let started!: () => void;
+
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const firstStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+
+    const bus = new Bus();
+    const ended: Array<{ method?: string; status?: number; requestId?: string }> = [];
+    bus.on('request:end', (event) => {
+      ended.push(event);
+    });
+
+    const server = createHttpServer(
+      [
+        {
+          method: 'GET',
+          pattern: '/slow',
+          transport: 'buffer',
+          handler: async () => {
+            started();
+            await blocked;
+            return { status: 200, headers: {}, body: 'ok' };
+          },
+        },
+      ],
+      [],
+      bus,
+      undefined,
+      {
+        limits: { maxConcurrentRequests: 1 },
+        cors: { origins: 'https://example.com' },
+      },
+    );
+
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+
+    const first = fetch(`${getUrl(server)}/slow`);
+    await firstStarted;
+
+    const rejected = await fetch(`${getUrl(server)}/slow`, {
+      headers: { origin: 'https://example.com' },
+    });
+
+    expect(rejected.status).toBe(503);
+    expect(rejected.headers.get('content-type')).toBe('application/json');
+    expect(rejected.headers.get('retry-after')).toBe('1');
+    expect(rejected.headers.get('connection')).toBe('close');
+    expect(rejected.headers.get('access-control-allow-origin')).toBe('https://example.com');
+    expect(rejected.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(rejected.headers.get('x-frame-options')).toBe('SAMEORIGIN');
+    await expect(rejected.json()).resolves.toEqual({ error: 'Service Unavailable' });
+
+    expect(ended).toHaveLength(1);
+    expect(ended[0]).toMatchObject({
+      method: 'GET',
+      status: 503,
+    });
+    expect(ended[0].requestId).toBeTruthy();
+
+    release();
+
+    const firstResponse = await first;
+    expect(firstResponse.status).toBe(200);
+
+    const afterRelease = await fetch(`${getUrl(server)}/slow`);
+    expect(afterRelease.status).toBe(200);
+
+    server.close();
+  });
+
+  it('releases a request slot when the client disconnects before the handler settles', async () => {
+    let started!: () => void;
+    const handlerStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+
+    const server = createHttpServer(
+      [
+        {
+          method: 'GET',
+          pattern: '/hang',
+          transport: 'buffer',
+          handler: async () => {
+            started();
+            await new Promise(() => {});
+            return { status: 200, headers: {}, body: 'never' };
+          },
+        },
+        {
+          method: 'GET',
+          pattern: '/ok',
+          transport: 'buffer',
+          handler: async () => ({ status: 200, headers: {}, body: 'ok' }),
+        },
+      ],
+      [],
+      undefined,
+      undefined,
+      { limits: { maxConcurrentRequests: 1 } },
+    );
+
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('server did not bind to a TCP port');
+
+    const responseClosed = new Promise<void>((resolve) => {
+      server.once('request', (_req, res) => {
+        res.once('close', resolve);
+      });
+    });
+
+    const client = net.createConnection({ host: '127.0.0.1', port: address.port });
+    await once(client, 'connect');
+    client.write('GET /hang HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n');
+
+    await handlerStarted;
+    client.destroy();
+    await responseClosed;
+
+    const afterDisconnect = await fetch(`${getUrl(server)}/ok`);
+    expect(afterDisconnect.status).toBe(200);
+
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
   it('requestTimeout does NOT kill an in-flight SSE stream (streaming regression)', async () => {
