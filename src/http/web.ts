@@ -1,5 +1,6 @@
 import type { StreamEncoder } from '../encoders';
-import { handle, computeInjected, correlateRequest, type HandleResult } from './core';
+import { createRequestGate } from './request-gate';
+import { handle, computeInjected, correlateRequest, type HandleResult, type Preflight } from './core';
 import { mergeInjectedHeaders } from './headers';
 import type { BodyFailure, BodyReader, MaybePromise } from './body';
 import { HttpError } from '../signals';
@@ -127,8 +128,16 @@ function outcomeToResponse(result: HandleResult): Response {
 export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
   // Built once per server, not once per request — see `BodyReader`.
   const readBody: BodyReader = (source, limit) => readFetchBytes(source, limit, opts);
+  const gate = createRequestGate(opts?.limits?.maxConcurrentRequests);
 
   return async (request: Request): Promise<Response> => {
+    if (!gate.acquire()) {
+      return new Response('Service Unavailable', {
+        status: 503,
+        headers: { 'retry-after': '1' },
+      });
+    }
+
     const url = new URL(request.url);
     const path = url.pathname + url.search;
     const headers = headersToRecord(request.headers);
@@ -139,29 +148,39 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
     // this adapter builds itself — carries the same security/CORS headers every other one does.
     const injected = computeInjected(opts, { secure, headers });
 
-    const result = await handle(routes, opts, {
-      ...correlation,
-      method: request.method,
-      url: path,
-      headers,
-      readBody,
-      source: request,
-      secure,
-      // Mirrors Node's `deriveIp` (src/http/request.ts): only trust `x-forwarded-for` when the proxy is
-      // trusted, and take its first hop — an untrusted XFF is client-spoofable, and there's no socket
-      // peer address to fall back to on the fetch path, so the untrusted case is simply ''.
-      ip: opts?.trustProxy
-        ? String(headers['x-forwarded-for'] ?? '')
-            .split(',')[0]
-            .trim()
-        : '',
-    });
+    let result: HandleResult | Preflight;
+
+    try {
+      result = await handle(routes, opts, {
+        ...correlation,
+        method: request.method,
+        url: path,
+        headers,
+        readBody,
+        source: request,
+        secure,
+        // Mirrors Node's `deriveIp` (src/http/request.ts): only trust `x-forwarded-for` when the proxy is
+        // trusted, and take its first hop — an untrusted XFF is client-spoofable, and there's no socket
+        // peer address to fall back to on the fetch path, so the untrusted case is simply ''.
+        ip: opts?.trustProxy
+          ? String(headers['x-forwarded-for'] ?? '')
+              .split(',')[0]
+              .trim()
+          : '',
+      });
+    } finally {
+      // Release when routing/handling finishes, not when a returned stream finishes.
+      // Long-lived streams therefore do not permanently consume the request budget.
+      gate.release();
+    }
 
     // Mirrors the Node adapter, where `result.preflight` is written through the writeHead patch and
-    // so picks up the same authoritative security headers `injected` carries (Node's writeHead patch
-    // merges every response — including the 204 preflight — with `injected`; this adapter must too).
+    // so picks up the same authoritative security headers `injected` carries.
     if ('preflight' in result) {
-      return new Response(null, { status: 204, headers: mergeInjectedHeaders(result.preflight, injected) });
+      return new Response(null, {
+        status: 204,
+        headers: mergeInjectedHeaders(result.preflight, injected),
+      });
     }
 
     return outcomeToResponse(result);

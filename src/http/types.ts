@@ -10,6 +10,7 @@ import type { Bus } from '../bus';
 export interface RequestLimits {
   maxBodyBytes?: number; // default 1_000_000
   maxConnections?: number; // default 1000; <= 0 means unlimited (Node only)
+  maxConcurrentRequests?: number;
   requestTimeoutMs?: number; // default 30_000
   headersTimeoutMs?: number; // default 10_000
   keepAliveTimeoutMs?: number; // default 5_000
