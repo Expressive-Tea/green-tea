@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { asReadableStream, toBodyInit } from '../src/http/web';
+import { asReadableStream, buildFetch, toBodyInit } from '../src/http/web';
 import { sseEncoder } from '../src/encoders';
 
 async function* nums() { yield { n: 1 }; yield { n: 2 }; }
@@ -45,5 +45,89 @@ describe('asReadableStream', () => {
     await reader.cancel();
     await new Promise((r) => setTimeout(r, 10));
     expect(returned).toBe(true);
+  });
+});
+
+describe('buildFetch request gate', () => {
+  it('rejects requests above maxConcurrentRequests and releases the slot afterwards', async () => {
+    let release!: () => void;
+    let started!: () => void;
+
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const firstStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+
+    const fetchHandler = buildFetch(
+      [
+        {
+          method: 'GET',
+          pattern: '/slow',
+          transport: 'buffer',
+          handler: async () => {
+            started();
+            await blocked;
+            return { status: 200, headers: {}, body: 'ok' };
+          },
+        },
+      ],
+      { limits: { maxConcurrentRequests: 1 } },
+    );
+
+    const first = fetchHandler(new Request('http://localhost/slow'));
+    await firstStarted;
+
+    const rejected = await fetchHandler(new Request('http://localhost/slow'));
+
+    expect(rejected.status).toBe(503);
+    expect(rejected.headers.get('retry-after')).toBe('1');
+
+    release();
+
+    expect((await first).status).toBe(200);
+
+    const afterRelease = await fetchHandler(new Request('http://localhost/slow'));
+    expect(afterRelease.status).toBe(200);
+  });
+  it('releases the slot when a streaming handler returns', async () => {
+    async function* stream() {
+      yield { n: 1 };
+      await new Promise(() => {});
+    }
+
+    const fetchHandler = buildFetch(
+      [
+        {
+          method: 'GET',
+          pattern: '/stream',
+          transport: 'sse',
+          handler: async () => ({ stream: stream() }),
+        },
+      ],
+      { limits: { maxConcurrentRequests: 1 } },
+    );
+
+    const first = await fetchHandler(
+      new Request('http://localhost/stream', {
+        headers: { accept: 'text/event-stream' },
+      }),
+    );
+
+    expect(first.status).toBe(200);
+
+    // The first response stream is still open, but its request slot should
+    // already be released once handle() has returned.
+    const second = await fetchHandler(
+      new Request('http://localhost/stream', {
+        headers: { accept: 'text/event-stream' },
+      }),
+    );
+
+    expect(second.status).toBe(200);
+
+    await first.body?.cancel();
+    await second.body?.cancel();
   });
 });

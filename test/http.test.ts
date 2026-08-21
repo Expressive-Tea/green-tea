@@ -143,6 +143,54 @@ describe('request hardening', () => {
     server.close();
   });
 
+  it('rejects requests above maxConcurrentRequests and releases the slot afterwards', async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const server = createHttpServer(
+      [
+        {
+          method: 'GET',
+          pattern: '/slow',
+          transport: 'buffer',
+          handler: async () => {
+            await blocked;
+            return { status: 200, headers: {}, body: 'ok' };
+          },
+        },
+      ],
+      [],
+      undefined,
+      undefined,
+      { limits: { maxConcurrentRequests: 1 } },
+    );
+
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+
+    const first = fetch(`${getUrl(server)}/slow`);
+
+    // Give the first request time to acquire the only slot.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const rejected = await fetch(`${getUrl(server)}/slow`);
+
+    expect(rejected.status).toBe(503);
+    expect(rejected.headers.get('retry-after')).toBe('1');
+    expect(rejected.headers.get('connection')).toBe('close');
+
+    release();
+
+    const firstResponse = await first;
+    expect(firstResponse.status).toBe(200);
+
+    const afterRelease = await fetch(`${getUrl(server)}/slow`);
+    expect(afterRelease.status).toBe(200);
+
+    server.close();
+  });
+
   it('requestTimeout does NOT kill an in-flight SSE stream (streaming regression)', async () => {
     async function* feed() { for (let n = 1; n <= 3; n++) { yield { n }; await new Promise((r) => setTimeout(r, 80)); } }
     const server = createHttpServer(

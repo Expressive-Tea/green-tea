@@ -1,5 +1,6 @@
 import type http from 'http';
 import type https from 'https';
+import { createRequestGate } from './request-gate';
 import { renderError, type ErrorRequest } from '../transformers';
 import type { Bus } from '../bus';
 import { buildSecurityHeaders, resolveCors } from '../security';
@@ -7,7 +8,7 @@ import { readBody as readBodyBytes, deriveSecure, deriveIp } from './request';
 import { pipeStream } from './stream';
 import { attachWs } from './ws';
 import { mergeInjectedHeaders } from './headers';
-import { handle, correlateRequest } from './core';
+import { handle, correlateRequest, type HandleResult, type Preflight } from './core';
 import type { BodyFailure, BodyReader } from './body';
 import type { RouteDef, WsRouteDef, MeshControl, HttpOptions } from './types';
 
@@ -73,8 +74,18 @@ function createRequestHandler(cfg: HandlerConfig) {
   const { routes, bus, opts, trustProxy } = cfg;
   // Built once per server, not once per request — see `BodyReader`.
   const readBody: BodyReader = (source, limit) => readRequestBytes(source, limit, opts);
+  const gate = createRequestGate(opts?.limits?.maxConcurrentRequests);
 
   return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
+    if (!gate.acquire()) {
+      res.writeHead(503, {
+        'retry-after': '1',
+        connection: 'close',
+      });
+      res.end('Service Unavailable');
+      return;
+    }
+
     // Install the security-header patch BEFORE any routing/response so every path
     // (200, 404, error, stream) writes headers through the same patched writeHead.
     const secure = deriveSecure(req, trustProxy);
@@ -87,16 +98,22 @@ function createRequestHandler(cfg: HandlerConfig) {
     // by reference at writeHead time, so keys added here still land on every response.
     if (opts?.cors) Object.assign(injected, resolveCors(opts.cors, req));
 
-    const result = await handle(routes, opts, {
-      ...correlation,
-      method: req.method ?? 'GET',
-      url: req.url ?? '/',
-      headers: req.headers,
-      readBody,
-      source: req,
-      secure,
-      ip: deriveIp(req, trustProxy),
-    });
+    let result: HandleResult | Preflight;
+
+    try {
+      result = await handle(routes, opts, {
+        ...correlation,
+        method: req.method ?? 'GET',
+        url: req.url ?? '/',
+        headers: req.headers,
+        readBody,
+        source: req,
+        secure,
+        ip: deriveIp(req, trustProxy),
+      });
+    } finally {
+      gate.release();
+    }
 
     if ('preflight' in result) {
       res.writeHead(204, result.preflight);
