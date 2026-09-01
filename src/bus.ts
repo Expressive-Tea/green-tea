@@ -59,6 +59,27 @@ export type LifecycleEvent =
  *
  * Everything past `name` is optional and stays that way. Boot and mesh events have no request to
  * name, and requiring a shape they cannot fill would only mean inventing values for it.
+ *
+ * ### One failed request produces three events
+ *
+ * A single request that throws emits `request:start`, then `request:failed`, then `request:end`.
+ * All three carry the same `requestId`, and the first implementation anyone writes counts the
+ * failure twice — once from `request:failed` and once from the `request:end` that follows it,
+ * under whatever status it invents for the one that had none. `route:unmatched` overlaps the same
+ * way: it fires *in addition to* the `request:end` that follows, so a 404 is two events and one
+ * outcome.
+ *
+ * The division of labour, which is the thing to build against:
+ *
+ * - **`request:end`** — terminal, universal, and the only one carrying the status the client
+ *   received. This is the request counter and the latency histogram.
+ * - **`request:failed`** — *handler code threw*, which no status can express on its own: a
+ *   rendered `422` is also a throw. This is a separate error counter, not a second request
+ *   counter.
+ * - **`route:unmatched`** — *no route ran*, covering 404 and 405 alike. Also additional.
+ *
+ * `logRequests` gets this right and is worth reading as a reference (`src/logger.ts`): it takes
+ * the outcome from `request:end` and only the message from `request:failed`.
  */
 export interface EventPayload {
   name: string;
@@ -73,6 +94,11 @@ export interface EventPayload {
   route?: string;
   method?: string;
   transport?: string;
+  /**
+   * The status the client received. Present on `request:end` always, and on `request:failed`
+   * except when a custom `onError` renderer threw while producing it — the one case where the
+   * framework does not know what was sent, and will not guess.
+   */
   status?: number;
 }
 

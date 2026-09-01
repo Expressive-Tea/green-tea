@@ -137,16 +137,29 @@ export async function runPipeline(args: {
     const transformed = transformer(result);
     return { status: transformed.status ?? 200, headers: transformed.headers ?? {}, body: transformed.body };
   } catch (error) {
-    // Both fire for a failing step, deliberately: `request:step:error` above marks the span,
-    // this marks the trace. A tracing exporter needs each, and only emitting the outer one is
-    // what produces a trace that says a request failed without saying where.
-    if (bus.hasListeners('request:failed'))
-      bus.emit('request:failed', { name: correlation.route ?? 'pipeline', error, ...correlation });
     const req = (context.req ?? {}) as { method?: string; url?: string; headers?: Record<string, unknown> };
-    return renderError(
-      error,
-      { method: req.method ?? '', url: req.url ?? '', headers: (context.headers ?? req.headers ?? {}) as never },
-      onError,
-    );
+    let status: number | undefined;
+
+    try {
+      const rendered = renderError(
+        error,
+        { method: req.method ?? '', url: req.url ?? '', headers: (context.headers ?? req.headers ?? {}) as never },
+        onError,
+      );
+      status = rendered.status;
+      return rendered;
+    } finally {
+      // Both fire for a failing step, deliberately: `request:step:error` above marks the span,
+      // this marks the trace. A tracing exporter needs each, and only emitting the outer one is
+      // what produces a trace that says a request failed without saying where.
+      //
+      // Emitted from `finally`, after the render rather than before it, for two reasons. The status
+      // is only decided by the render — `onError` may turn any throw into any status, so deriving
+      // it from the error would be a guess that a custom renderer makes wrong. And a renderer that
+      // *throws* must not swallow the event: `finally` still fires, with `status` left undefined,
+      // which is the one case where this event has none.
+      if (bus.hasListeners('request:failed'))
+        bus.emit('request:failed', { name: correlation.route ?? 'pipeline', error, status, ...correlation });
+    }
   }
 }
