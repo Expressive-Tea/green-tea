@@ -352,4 +352,36 @@ describe('request hardening', () => {
     expect(await res.json()).toEqual({ a: '1', b: 'two' });
     server.close();
   });
+
+  it('a cors.origins predicate that throws answers the request instead of taking the process down', async () => {
+    const warn = vi.fn();
+    const server = createHttpServer(
+      [{ method: 'GET', pattern: '/ping', transport: 'buffer', handler }],
+      [],
+      undefined,
+      undefined,
+      {
+        cors: {
+          origins: () => {
+            throw new Error('lookup failed');
+          },
+        },
+        logger: { debug: vi.fn(), info: vi.fn(), warn, error: vi.fn() } as any,
+      },
+    );
+    await new Promise<void>((r) => server.listen(0, r));
+
+    // Only a request carrying an Origin reaches the predicate — which is why a suite that forgets
+    // the header watches this crash in production instead.
+    const res = await fetch(`${getUrl(server)}/ping`, { headers: { origin: 'https://a.com' } });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
+    expect(warn).toHaveBeenCalled();
+
+    // The security headers still land: one broken predicate must not strip the rest.
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    server.close();
+  });
+
 });

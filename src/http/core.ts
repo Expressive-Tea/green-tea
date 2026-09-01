@@ -132,7 +132,7 @@ export function computeInjected(
   req: { secure: boolean; headers: Record<string, string | string[] | undefined> },
 ): Record<string, string> {
   const injected: Record<string, string> = { ...buildSecurityHeaders(opts?.security ?? true, req.secure) };
-  if (opts?.cors) Object.assign(injected, resolveCors(opts.cors, req));
+  if (opts?.cors) Object.assign(injected, resolveCors(opts.cors, req, opts.logger));
   return injected;
 }
 
@@ -287,7 +287,7 @@ async function dispatch(
   }
 
   if (opts?.cors && req.method === 'OPTIONS' && req.headers['access-control-request-method']) {
-    return { preflight: corsPreflightHeaders(opts.cors, req) };
+    return { preflight: corsPreflightHeaders(opts.cors, req, opts.logger) };
   }
 
   const matched = resolveRoute(routes, req.method, path);

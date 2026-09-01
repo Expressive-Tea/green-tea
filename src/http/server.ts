@@ -101,7 +101,7 @@ function createRequestHandler(cfg: HandlerConfig) {
 
     // CORS is added to `injected` AFTER the patch is installed — the patch reads it lazily
     // by reference at writeHead time, so keys added here still land on every response.
-    if (opts?.cors) Object.assign(injected, resolveCors(opts.cors, req));
+    if (opts?.cors) Object.assign(injected, resolveCors(opts.cors, req, opts?.logger));
 
     let result: HandleResult | Preflight;
     let acquired = false;

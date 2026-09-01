@@ -52,8 +52,10 @@ describe('asReadableStream', () => {
 });
 
 describe('buildFetch request gate', () => {
-  it('does not permanently exhaust the gate when CORS setup throws', async () => {
-    let attempts = 0;
+  it('rides out a transient CORS predicate failure without leaking a gate slot', async () => {
+    // A flag rather than an attempt counter: `computeInjected` runs both in this adapter and again
+    // inside `handle()`, so the predicate is consulted more than once per request.
+    let lookupDown = true;
 
     const fetchHandler = buildFetch(
       [
@@ -68,8 +70,7 @@ describe('buildFetch request gate', () => {
         limits: { maxConcurrentRequests: 2 },
         cors: {
           origins: () => {
-            attempts++;
-            if (attempts <= 2) throw new Error('transient CORS failure');
+            if (lookupDown) throw new Error('transient CORS failure');
             return true;
           },
         },
@@ -81,11 +82,20 @@ describe('buildFetch request gate', () => {
         headers: { origin: 'https://example.com' },
       });
 
-    await expect(fetchHandler(request())).rejects.toThrow('transient CORS failure');
-    await expect(fetchHandler(request())).rejects.toThrow('transient CORS failure');
+    // While the lookup is down the origin is denied — the request is answered, just without the
+    // header that would let the browser read it. A failed lookup has not said yes.
+    for (let i = 0; i < 2; i++) {
+      const denied = await fetchHandler(request());
+      expect(denied.status).toBe(200);
+      expect(denied.headers.get('access-control-allow-origin')).toBeNull();
+    }
 
+    // Once the lookup recovers the origin is allowed again, which also proves the two failures
+    // returned their slots: a budget of 2 that leaked would have shed this one.
+    lookupDown = false;
     const recovered = await fetchHandler(request());
     expect(recovered.status).toBe(200);
+    expect(recovered.headers.get('access-control-allow-origin')).toBe('https://example.com');
   });
 
   it('rejects requests above maxConcurrentRequests and releases the slot afterwards', async () => {
