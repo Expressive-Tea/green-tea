@@ -2,7 +2,7 @@ import type http from 'http';
 import { Bus, type Events } from '../bus';
 import { createDefaultLogger, logRequests, type Logger } from '../logger';
 import { Container } from '../container';
-import { topoSort, subgraphFor, GraphNode, nearest } from '../graph';
+import { topoSort, topoLevels, subgraphFor, GraphNode, nearest } from '../graph';
 import { toMermaid, toDOT, graphHtml, type GraphView } from '../graph-viz';
 import { runPipeline, runSteps, PipelineStep } from '../pipeline';
 import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from '../http';
@@ -937,8 +937,41 @@ function applyOverrides(overrides: Record<string, unknown> | undefined, registry
   }
 }
 
+/** What a provider's boot produced: nothing to say, or the error it failed with. */
+interface BootOutcome {
+  node: GraphNode;
+  error?: Error;
+}
+
+/** Boots one provider and registers its value. Never rejects — the caller decides what a failure means. */
+async function bootProvider(
+  node: GraphNode,
+  deps: { runners: Map<string, Runner>; container: Container; bus: Bus },
+): Promise<BootOutcome> {
+  const { runners, container, bus } = deps;
+  bus.emit('boot:provider:start', { name: node.name, scope: node.origin });
+
+  try {
+    const value = await runners.get(node.name)!(await snapshot(container, node.needs));
+    container.register(node.name, 'app', () => value);
+    await container.resolve(node.name); // warm the cache
+    bus.emit('boot:provider:ok', { name: node.name });
+    return { node };
+  } catch (error) {
+    bus.emit('boot:provider:fail', { name: node.name, error });
+    return { node, error: error as Error };
+  }
+}
+
 /**
- * Runs app-scoped providers in topo order, caching each result; required failures abort, optional ones warn.
+ * Runs app-scoped providers level by level — concurrently within a level, sequentially between
+ * them; required failures abort, optional ones warn.
+ *
+ * The topo sort already proved nothing in a level can order anything else in it, so serializing a
+ * level only ever bought latency: an app paid the sum of its providers' boot times instead of its
+ * longest chain. Concurrency is the second thing the graph earns its users, after pruning, and the
+ * one a middleware chain structurally cannot offer.
+ *
  * @returns The names of optional providers that failed and are running degraded (unregistered).
  */
 async function bootProviders(
@@ -953,40 +986,39 @@ async function bootProviders(
     logger: Logger;
   },
 ): Promise<string[]> {
-  const { runners, container, providerMeta, providerInstances, teardown, bus, logger } = deps;
+  const { providerMeta, providerInstances, teardown, logger } = deps;
   const degraded: string[] = [];
 
-  for (const node of orderedProviders) {
-    bus.emit('boot:provider:start', { name: node.name, scope: node.origin });
+  for (const level of topoLevels(orderedProviders)) {
+    // Outcomes rather than rejections: a sibling that throws must not strand the ones that
+    // succeeded, or a provider that opened a pool would never get its dispose() registered.
+    const outcomes = await Promise.all(level.map((node) => bootProvider(node, deps)));
 
-    try {
-      const value = await runners.get(node.name)!(await snapshot(container, node.needs));
-      container.register(node.name, 'app', () => value);
-      await container.resolve(node.name); // warm the cache
-      // Registered here, as it boots, rather than where it was collected. `orderedProviders` is
-      // topologically sorted, so registration order *is* boot order — and the registry running in
-      // reverse then gives dependants teardown before their dependencies for free, with no second
-      // sort to keep in step with this one.
-      //
-      // Inside the try on purpose: a provider that threw never provided anything, and calling
-      // dispose() on a half-constructed one is how a teardown finds a null connection.
+    // Teardown in level order, not completion order. `orderedProviders` is topologically sorted and
+    // the registry runs in reverse, which is what gives dependants teardown before their
+    // dependencies for free — a guarantee that would have become luck if this followed whichever
+    // provider happened to settle first. Registered before the failure pass so a level that aborts
+    // the boot still leaves its successful siblings closeable.
+    //
+    // Skipped for a failure on purpose: a provider that threw never provided anything, and calling
+    // dispose() on a half-constructed one is how a teardown finds a null connection.
+    for (const { node, error } of outcomes) {
+      if (error) continue;
       const instance = providerInstances.get(node.name);
       if (instance?.dispose) teardown.add(() => instance.dispose!());
-      bus.emit('boot:provider:ok', { name: node.name });
-    } catch (error) {
-      bus.emit('boot:provider:fail', { name: node.name, error });
+    }
+
+    for (const { node, error } of outcomes) {
+      if (!error) continue;
 
       if (!providerMeta.get(node.name)?.optional) {
-        throw new Error(`provider '${node.name}' failed: ${(error as Error).message}`);
+        throw new Error(`provider '${node.name}' failed: ${error.message}`);
       }
 
       // optional: warn, leave it unregistered; routes needing it fail at request time
       // ponytail: full partial-degradation is out of scope (spec §10); warn is enough here
       degraded.push(node.name);
-      logger.warn(`optional provider '${node.name}' failed: ${(error as Error).message}`, {
-        provider: node.name,
-        error,
-      });
+      logger.warn(`optional provider '${node.name}' failed: ${error.message}`, { provider: node.name, error });
     }
   }
 
