@@ -1,4 +1,28 @@
-/** Names of every lifecycle event the framework emits over the {@link Bus}. */
+/**
+ * Names of every lifecycle event the framework emits over the {@link Bus}.
+ *
+ * ### The request pair is a guarantee
+ *
+ * **Every `request:end` is preceded by a `request:start` carrying the same `requestId`.** A
+ * consumer may open per-request state on the first and close it on the second without checking
+ * whether the request got as far as a route — a shed `503` emits the pair as surely as a `200`
+ * does.
+ *
+ * This is a promise to emitters as much as to subscribers: a terminal path that emits one must
+ * emit the other, in that order. It held by accident until `maxConcurrentRequests` added the first
+ * terminal path that does not reach the router, and `test/lifecycle-pairing.test.ts` enumerates
+ * every response shape so that the next one cannot break it quietly. The alternative — documenting
+ * `request:end` as standalone — was rejected because it makes the obvious consumer wrong: an
+ * in-flight gauge counting `start` up and `end` down would drift negative under shedding, which is
+ * exactly when an operator is reading it.
+ *
+ * ### `request:end` is terminal and universal; the others are additional
+ *
+ * `request:end` fires for every dispatched request — handled, thrown and unmatched alike — and is
+ * the only one of these carrying the real status. **Count it, and nothing else.**
+ * `request:failed` and `route:unmatched` describe the *same* request and fire in addition to it, so
+ * a consumer that counts them as separate outcomes counts one request twice. See `EventPayload`.
+ */
 export type LifecycleEvent =
   | 'boot:provider:start'
   | 'boot:provider:ok'
@@ -17,8 +41,12 @@ export type LifecycleEvent =
   // came up, and a deploy watching for trouble wants to tell those apart.
   | 'mesh:boot:retry'
   | 'plugin:mounted'
+  // Paired: see the guarantee above. `request:start` has no status and no duration — it says a
+  // request arrived, not that it routed.
   | 'request:start'
   | 'request:end'
+  // "handler code threw", and *additional* to the `request:end` that follows it — a rendered 422 is
+  // also a throw, which is a thing a status alone cannot express.
   | 'request:failed'
   | 'route:matched'
   // Covers a 404 *and* a 405 — the report's `route.not_found` names one outcome and would

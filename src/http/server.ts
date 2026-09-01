@@ -7,7 +7,15 @@ import { readBody as readBodyBytes, deriveSecure, deriveIp } from './request';
 import { pipeStream } from './stream';
 import { attachWs } from './ws';
 import { mergeInjectedHeaders } from './headers';
-import { handle, correlateRequest, computeInjected, type HandleResult, type Preflight } from './core';
+import {
+  handle,
+  correlateRequest,
+  computeInjected,
+  emitShedPair,
+  watchingRequests,
+  type HandleResult,
+  type Preflight,
+} from './core';
 import type { BodyFailure, BodyReader } from './body';
 import type { RouteDef, WsRouteDef, MeshControl, HttpOptions } from './types';
 import { nodeRequire } from '../node-require';
@@ -102,23 +110,22 @@ function createRequestHandler(cfg: HandlerConfig) {
 
     let result: HandleResult | Preflight;
     let acquired = false;
-    const watchingEnd = bus?.hasListeners('request:end') ?? false;
-    const startedAt = watchingEnd ? performance.now() : 0;
+    const watching = watchingRequests(bus);
+    const startedAt = watching ? performance.now() : 0;
 
     try {
       if (!gate.acquire()) {
-        if (watchingEnd) {
-          const method = req.method ?? 'GET';
-          const url = req.url ?? '/';
-          bus!.emit('request:end', {
-            name: `${method} ${url}`,
-            method,
-            status: 503,
-            durationMs: performance.now() - startedAt,
-            requestId: correlation.requestId,
-            traceId: correlation.traceId,
-          });
-        }
+        if (watching)
+          emitShedPair(
+            bus,
+            {
+              method: req.method ?? 'GET',
+              url: req.url ?? '/',
+              requestId: correlation.requestId,
+              traceId: correlation.traceId,
+            },
+            startedAt,
+          );
 
         res.writeHead(503, {
           'content-type': 'application/json',

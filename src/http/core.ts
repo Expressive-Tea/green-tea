@@ -234,6 +234,48 @@ export function handle(
   return observedDispatch(routes, opts, req, bus, injected);
 }
 
+/**
+ * Whether anything is listening for the request pair — the one check both adapters need before
+ * paying for a `performance.now()` on a request they are about to refuse.
+ */
+export function watchingRequests(bus: Bus | undefined): bus is Bus {
+  return bus !== undefined && (bus.hasListeners('request:start') || bus.hasListeners('request:end'));
+}
+
+/**
+ * Emits the lifecycle pair for a request shed before routing.
+ *
+ * A shed request never reaches {@link handle}, so `observedDispatch` — the emitter every other
+ * terminal path goes through — never sees it, and an adapter that emitted only `request:end` would
+ * be the first thing in the tree to break the pairing {@link LifecycleEvent} guarantees. Both
+ * events are emitted here, in order, so a consumer that opens per-`requestId` state on
+ * `request:start` and closes it on `request:end` does not start leaking half-open entries the first
+ * time a server sheds — under load, which is when it can least afford them.
+ *
+ * Each event keeps its own listener guard: the pairing is a promise to a subscriber of *both*, and
+ * costs nothing for a subscriber of one.
+ */
+export function emitShedPair(
+  bus: Bus,
+  req: { method: string; url: string; requestId?: string; traceId?: string },
+  startedAt: number,
+): void {
+  const name = `${req.method} ${req.url}`;
+
+  if (bus.hasListeners('request:start'))
+    bus.emit('request:start', { name, method: req.method, requestId: req.requestId, traceId: req.traceId });
+
+  if (bus.hasListeners('request:end'))
+    bus.emit('request:end', {
+      name,
+      method: req.method,
+      status: 503,
+      durationMs: performance.now() - startedAt,
+      requestId: req.requestId,
+      traceId: req.traceId,
+    });
+}
+
 async function observedDispatch(
   routes: RouteDef[],
   opts: HttpOptions | undefined,
