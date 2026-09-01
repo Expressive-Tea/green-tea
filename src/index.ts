@@ -60,7 +60,7 @@ export {
 
 // Bus & flow
 export { Bus } from './bus';
-export type { LifecycleEvent, EventPayload, Correlation } from './bus';
+export type { LifecycleEvent, EventPayload, Correlation, Events } from './bus';
 export { flow, Flow } from './flow';
 export type { StepFn, CompiledFlow } from './flow';
 

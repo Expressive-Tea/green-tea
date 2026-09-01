@@ -14,7 +14,18 @@ export interface ScopeNode {
 export interface ScopeApi {
   add(node: ScopeNode): void;
 }
-/** The capabilities handed to a plugin: event subscription, node registration, and teardown. */
+/**
+ * The capabilities handed to a plugin: event subscription, node registration, and teardown.
+ *
+ * This is the home for observation, and the reason is the pairing: `bus.on` arrives next to
+ * `onShutdown`, so whatever a plugin subscribes to it can also release. A graph node can reach the
+ * same read-only slice through `@needs('events')`, but it gets the subscribe half without the
+ * unsubscribe half — and a `@Step` reaching it would register a listener per request.
+ *
+ * The `Bus` itself is deliberately not here and is not a graph token either: handing over `emit`
+ * would turn a one-way observation channel into something any node can forge events on.
+ * `@needs('bus')` fails at boot and says so.
+ */
 export interface PluginApi {
   bus: { on: Bus['on'] };
   scope: ScopeApi;

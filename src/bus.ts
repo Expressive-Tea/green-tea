@@ -132,6 +132,22 @@ export interface EventPayload {
  */
 export type Correlation = Pick<EventPayload, 'requestId' | 'traceId' | 'route' | 'method' | 'transport'>;
 
+/**
+ * The read-only half of the {@link Bus}, as `@needs('events')` hands it over.
+ *
+ * `on` and deliberately not `emit`: a channel anything can write to is not an observation channel,
+ * and the framework's own events would stop being trustworthy the moment a node could forge one.
+ * Plugins get exactly this same narrowing.
+ *
+ * `on` returns its own unsubscribe. Use it — a `@Provider` that subscribes should release in
+ * `dispose()`, and a `@Step` should not subscribe at all, since it runs once per request and would
+ * add a listener each time. A plugin, which gets `on` and `onShutdown` together, is the home this
+ * token exists to point at rather than replace.
+ */
+export interface Events {
+  on: Bus['on'];
+}
+
 /** In-process pub/sub for framework lifecycle events; observer failures are swallowed so they never break the pipeline. */
 export class Bus {
   private readonly listeners = new Map<LifecycleEvent, Set<(p: EventPayload) => void>>();

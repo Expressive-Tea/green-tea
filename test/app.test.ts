@@ -603,7 +603,11 @@ describe('rooms auto-provide', () => {
     expect(await fetch(`http://127.0.0.1:${port}/api/r/x`).then((r) => r.json())).toEqual({ ok: true });
     s.close();
   });
-  it('a user-declared rooms provider wins (no duplicate-name throw)', () => {
+  // This used to be allowed, and the user's provider silently replaced the framework's. The same
+  // held for `logger`, where every `@needs('logger')` in the app then got something that was not
+  // the logger core writes to — a divergence discovered from a log line that never appeared.
+  // Framework token names are reserved now, and taking one is a boot error.
+  it('refuses a user-declared rooms provider instead of silently replacing the built-in', () => {
     @Provider({ provides: 'rooms' })
     class MyRooms {
       provide() {
@@ -618,7 +622,7 @@ describe('rooms auto-provide', () => {
     }
     @Module({ mountpoint: '/api', providers: [MyRooms], controllers: [Ctl] })
     class M {}
-    expect(() => createApp({ modules: [M] })).not.toThrow();
+    expect(() => createApp({ modules: [M] })).toThrow(/'rooms' is reserved by the framework/);
   });
 });
 
