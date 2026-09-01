@@ -180,7 +180,7 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
         });
       }
 
-      acquired = true;
+      acquired = gate.limited;
 
       result = await handle(
         routes,

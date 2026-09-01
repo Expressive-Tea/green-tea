@@ -136,12 +136,18 @@ function createRequestHandler(cfg: HandlerConfig) {
         return;
       }
 
-      acquired = true;
-      res.once('close', () => {
-        if (!acquired) return;
-        acquired = false;
-        gate.release();
-      });
+      // Both the flag and the listener are skipped when no budget is configured, which is most
+      // applications: `maxConcurrentRequests` is opt-in and unlimited by default. A closure and an
+      // EventEmitter registration per request, on the hot path, for a feature that is off is a cost
+      // with nothing on the other side of it.
+      if (gate.limited) {
+        acquired = true;
+        res.once('close', () => {
+          if (!acquired) return;
+          acquired = false;
+          gate.release();
+        });
+      }
 
       result = await handle(
         routes,
