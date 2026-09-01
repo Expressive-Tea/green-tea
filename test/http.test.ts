@@ -352,4 +352,71 @@ describe('request hardening', () => {
     expect(await res.json()).toEqual({ a: '1', b: 'two' });
     server.close();
   });
+
+  it('a cors.origins predicate that throws answers the request instead of taking the process down', async () => {
+    const warn = vi.fn();
+    const server = createHttpServer(
+      [{ method: 'GET', pattern: '/ping', transport: 'buffer', handler }],
+      [],
+      undefined,
+      undefined,
+      {
+        cors: {
+          origins: () => {
+            throw new Error('lookup failed');
+          },
+        },
+        logger: { debug: vi.fn(), info: vi.fn(), warn, error: vi.fn() } as any,
+      },
+    );
+    await new Promise<void>((r) => server.listen(0, r));
+
+    // Only a request carrying an Origin reaches the predicate — which is why a suite that forgets
+    // the header watches this crash in production instead.
+    const res = await fetch(`${getUrl(server)}/ping`, { headers: { origin: 'https://a.com' } });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
+    expect(warn).toHaveBeenCalled();
+
+    // The security headers still land: one broken predicate must not strip the rest.
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    server.close();
+  });
+
+
+  // `origins` is a predicate because the shapes it exists for are lookups — an allowlist in Redis, a
+  // tenant query. Running one twice for a GET and three times for a preflight charges the caller's
+  // latency budget and their backend for an answer whose inputs did not change in between.
+  it('consults a cors.origins predicate once per request, not once per header computation', async () => {
+    let calls = 0;
+    const server = createHttpServer(
+      [{ method: 'GET', pattern: '/ping', transport: 'buffer', handler }],
+      [], undefined, undefined,
+      { cors: { origins: () => { calls++; return true; } } },
+    );
+    await new Promise<void>((r) => server.listen(0, r));
+    const origin = { origin: 'https://a.com' };
+
+    const plain = await fetch(`${getUrl(server)}/ping`, { headers: origin });
+    expect(plain.headers.get('access-control-allow-origin')).toBe('https://a.com');
+    expect(calls).toBe(1);
+
+    calls = 0;
+    const preflight = await fetch(`${getUrl(server)}/ping`, {
+      method: 'OPTIONS', headers: { ...origin, 'access-control-request-method': 'GET' },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get('access-control-allow-methods')).toContain('GET');
+    expect(preflight.headers.get('access-control-allow-origin')).toBe('https://a.com');
+    expect(calls).toBe(1);
+
+    // No Origin header never reaches the predicate at all — that part was already right.
+    calls = 0;
+    await fetch(`${getUrl(server)}/ping`);
+    expect(calls).toBe(0);
+
+    server.close();
+  });
+
 });

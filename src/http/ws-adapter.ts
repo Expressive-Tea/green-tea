@@ -1,6 +1,7 @@
 import { channel } from '../channel';
 import type { App } from '../app/types';
 import type { WsRequest, WsSocket } from './ws-core';
+import { nodeRequire } from '../node-require';
 
 /**
  * Shared plumbing for the runtime adapters (Bun/Deno/edge) that bridge a host WebSocket
@@ -123,8 +124,7 @@ export function loadWebSocketCtor(): SocketCtor {
 
   if (platform) return platform;
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require('ws') as SocketCtor;
+  return nodeRequire<SocketCtor>('ws');
 }
 
 /**

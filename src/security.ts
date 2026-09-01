@@ -1,5 +1,7 @@
 // src/security.ts — pure header computation, no server deps
 
+import type { Logger } from './logger';
+
 /** TLS material for an HTTPS server. */
 export interface TlsOptions {
   key: Buffer | string;
@@ -75,22 +77,36 @@ export function buildSecurityHeaders(opts: boolean | SecurityOptions, secure: bo
   return headers;
 }
 
-function originAllowed(spec: CorsOptions['origins'], origin: string): boolean {
+function originAllowed(spec: CorsOptions['origins'], origin: string, logger?: Logger): boolean {
   if (spec === '*') return true;
-  if (typeof spec === 'function') return spec(origin);
   if (Array.isArray(spec)) return spec.includes(origin);
-  return spec === origin;
+  if (typeof spec !== 'function') return spec === origin;
+
+  // The predicate is user code on the request path — a Redis allowlist, a tenant lookup — and it runs
+  // before the region where errors convert to a response, so a throw here would leave the request
+  // listener as an unhandled rejection and take the process down. Deny instead: a lookup that failed
+  // has not said yes, and a broken allowlist must never widen into an open one.
+  try {
+    return spec(origin);
+  } catch (error) {
+    logger?.warn(`cors: the origins predicate threw for ${origin} — treating the origin as not allowed`, {
+      origin,
+      err: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
 }
 
 /** Compute CORS response headers for a request. Returns `{}` when the origin is not allowed. */
 export function resolveCors(
   opts: CorsOptions,
   req: { headers: Record<string, string | string[] | undefined> },
+  logger?: Logger,
 ): Headers {
   const headers: Headers = {};
   const rawOrigin = req.headers['origin'];
   const origin = Array.isArray(rawOrigin) ? rawOrigin[0] : rawOrigin;
-  if (!origin || !isValidOrigin(origin) || !originAllowed(opts.origins, origin)) return headers;
+  if (!origin || !isValidOrigin(origin) || !originAllowed(opts.origins, origin, logger)) return headers;
 
   // credentials => never '*'; echo concrete origin. Also echo when allowlist is dynamic.
   if (opts.credentials) {
@@ -112,8 +128,13 @@ export function resolveCors(
 export function corsPreflightHeaders(
   opts: CorsOptions,
   req: { headers: Record<string, string | string[] | undefined> },
+  resolved?: Headers,
 ): Headers {
-  const headers = resolveCors(opts, req);
+  // The caller has almost always resolved CORS already, one layer up, to seed the headers every
+  // response carries. Re-deriving here would consult `origins` a second time for the same request —
+  // and `origins` may be a predicate doing a network lookup. Copied rather than used in place: the
+  // preflight-only keys below belong to this 204, not to the shared object.
+  const headers: Headers = { ...resolved };
   if (!headers['access-control-allow-origin']) return headers; // origin not allowed → bare 204
   headers['access-control-allow-methods'] = (opts.methods ?? ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']).join(
     ', ',

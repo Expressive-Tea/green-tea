@@ -13,6 +13,7 @@ import { isAsyncIterable } from '../channel';
 import { JsonTransformer, type ErrorRenderer } from '../transformers';
 import { mountPlugin, Plugin, ScopeApi, ScopeNode } from '../plugin';
 import { TeardownRegistry } from '../lifecycle';
+import { installSignalHandlers } from '../http/signals-shutdown';
 import type { Hooks } from './types';
 import {
   Ctor,
@@ -40,7 +41,7 @@ import type { App, InspectLine, Explain, RoutePlan, MeshConfig } from './types';
 import { inspectRoute, buildGraphView, explainRoute } from './introspect';
 import { compilePattern } from '../http/router';
 
-export type { App, InspectLine, ExplainNode, Explain, MeshConfig } from './types';
+export type { App, InspectLine, ExplainNode, Explain, MeshConfig, Hooks } from './types';
 
 type Runner = (ctx: any) => any;
 
@@ -139,6 +140,25 @@ export function createApp(opts: {
    * Must not exceed `shutdownTimeoutMs`; `createApp` throws rather than clamping silently.
    */
   teardownTimeoutMs?: number;
+  /**
+   * Register `SIGINT`/`SIGTERM` to run `close()` and exit the process (default: `false`).
+   *
+   * Off by default because a library that installs process-wide handlers behind your back is worse
+   * than one that installs none — when the process exits is the application's call, not ours. Turn
+   * it on and the framework absorbs the last runtime difference an app otherwise has: `process.on`
+   * on Node and Bun, `Deno.addSignalListener` on Deno, and the matching `exit` for each.
+   *
+   * Leaving it off is a supported choice, not a gap — write the handler yourself if you want the
+   * control. What is *not* optional either way is that something calls `close()`: the teardown
+   * registry only runs from there, so a container `SIGKILL`ed after its grace period skips every
+   * `dispose()` the registry so carefully ordered, and reports nothing.
+   *
+   * Registered by `listen()`, `serveDeno()` and `serveBun()`, and taken back off by `close()` —
+   * so a *second* signal arriving mid-shutdown falls through to the platform default and ends the
+   * process at once. Ctrl-C twice is the way out of a teardown that is stuck; once is the way to
+   * let it finish.
+   */
+  handleSignals?: boolean;
   /**
    * Where every framework diagnostic is written (default: structured JSON, human-readable on a TTY).
    *
@@ -319,15 +339,52 @@ export function createApp(opts: {
     });
     server.on('close', () => closeLinks(meshLinks));
     await new Promise<void>((resolve) => server!.listen(port, resolve));
+    // After the socket is up, so a boot that throws never leaves a handler behind pointing at an
+    // app that never served.
+    handleSignals(close);
     return server;
   };
 
-  const close = (options: { timeoutMs?: number } = {}): Promise<void> =>
-    closeApp(server, meshLinks, streams, options, opts.shutdownTimeoutMs, logger, teardown, opts.teardownTimeoutMs);
+  // Torn down by whichever close runs first, signal-driven or hand-called. On Deno that is
+  // load-bearing rather than tidy: a live `Deno.addSignalListener` keeps the process up, so an app
+  // that closed itself and expected to exit would simply hang.
+  let removeSignalHandlers: (() => void) | undefined;
+
+  const clearSignalHandlers = (): void => {
+    removeSignalHandlers?.();
+    removeSignalHandlers = undefined;
+  };
+
+  const close = (options: { timeoutMs?: number } = {}): Promise<void> => {
+    clearSignalHandlers();
+    return closeApp(
+      server,
+      meshLinks,
+      streams,
+      options,
+      opts.shutdownTimeoutMs,
+      logger,
+      teardown,
+      opts.teardownTimeoutMs,
+    );
+  };
+
+  const handleSignals = <T extends (options?: { timeoutMs?: number }) => Promise<void>>(closer: T): T => {
+    if (!opts.handleSignals) return closer;
+
+    const wrapped = ((options?: { timeoutMs?: number }) => {
+      clearSignalHandlers();
+      return closer(options);
+    }) as T;
+
+    removeSignalHandlers = installSignalHandlers(() => wrapped(), logger);
+    return wrapped;
+  };
 
   return {
     listen,
     close,
+    handleSignals,
     ready,
     fetch: fetchFn,
     upgrade: upgradeFn,

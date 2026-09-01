@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { buildSecurityHeaders, resolveCors, mergeVary, isValidOrigin } from '../src/security';
 
 describe('buildSecurityHeaders', () => {
@@ -50,6 +50,33 @@ describe('resolveCors', () => {
   it('rejects malformed Origin (control char) even if predicate allows', () => {
     const r = resolveCors({ origins: () => true }, req('https://a.com\r\nX: y') as any);
     expect(r['access-control-allow-origin']).toBeUndefined();
+  });
+
+  // An `origins` predicate is the whole reason the option takes a function: an allowlist in Redis, a
+  // tenant lookup, a regex over a parsed URL. Every one of those has a failure mode, and it runs on
+  // the request path — so a throw must not leave the boundary.
+  describe('a predicate that throws', () => {
+    const boom = () => {
+      throw new Error('lookup failed');
+    };
+
+    it('denies the origin rather than escaping the request path', () => {
+      expect(() => resolveCors({ origins: boom }, req('https://a.com') as any)).not.toThrow();
+      expect(resolveCors({ origins: boom }, req('https://a.com') as any)).toEqual({});
+    });
+
+    it('fails closed even when credentials are on — a broken allowlist is not an open one', () => {
+      const r = resolveCors({ origins: boom, credentials: true }, req('https://a.com') as any);
+      expect(r['access-control-allow-origin']).toBeUndefined();
+      expect(r['access-control-allow-credentials']).toBeUndefined();
+    });
+
+    it('reports the failure through the logger instead of swallowing it', () => {
+      const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      resolveCors({ origins: boom }, req('https://a.com') as any, logger as any);
+      expect(logger.warn).toHaveBeenCalledOnce();
+      expect(logger.warn.mock.calls[0][0]).toMatch(/cors/i);
+    });
   });
 });
 

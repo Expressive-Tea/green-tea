@@ -1,6 +1,7 @@
 // src/multipart.ts — multipart/form-data parsing on top of the optional `busboy` peer dependency.
 import { Readable } from 'stream';
 import { HttpError } from './signals';
+import { nodeRequire } from './node-require';
 
 /** A single uploaded file part decoded from a multipart body. */
 export interface UploadedFile {
@@ -67,8 +68,7 @@ function loadBusboy(): ((cfg: unknown) => NodeJS.WritableStream & NodeJS.EventEm
   try {
     // `busboy` is an OPTIONAL peer dependency: only multipart uploads need it, so it is
     // lazy-required and its absence surfaces as a clear 501 rather than a load-time crash.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('busboy');
+    return nodeRequire('busboy');
   } catch {
     return null;
   }

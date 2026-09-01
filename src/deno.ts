@@ -76,7 +76,10 @@ export function serveDeno(app: App, options?: DenoServeOptions): DenoServer {
   // Object.assign rather than a fresh object: Deno.serve returns more than the ambient above
   // declares (addr, ref, unref, …), and rebuilding would silently drop whatever we did not name.
   return Object.assign(server, {
-    close: (closeOptions: { timeoutMs?: number } = {}): Promise<void> =>
+    // Through `app.handleSignals` so that `createApp({ handleSignals: true })` reaches this
+    // runtime's own signal API — and so the close it returns takes the handlers back off, which
+    // Deno requires to exit at all.
+    close: app.handleSignals((closeOptions: { timeoutMs?: number } = {}): Promise<void> =>
       closeWithDeadline(
         // Drain, then hand over to the app so registered teardown runs — D7 of the teardown design.
         // `app.close()` returns at its no-server guard on Deno, but still drains the teardown
@@ -101,5 +104,6 @@ export function serveDeno(app: App, options?: DenoServeOptions): DenoServer {
             { timeoutMs: ms, runtime: 'deno' },
           ),
       ),
+    ),
   });
 }
