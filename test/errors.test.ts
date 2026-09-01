@@ -80,3 +80,76 @@ describe('HttpError body', () => {
     server.close();
   });
 });
+
+// `onError` is user code, on the request path, running *after something already went wrong*. An
+// unguarded throw here was the worst-timed crash in the framework: the error occurs, the code
+// written to report it fails, and the process ends instead of degrading. It was also easy to
+// reach — the renderer produces the 404 too, so an app with a custom renderer and no matching
+// route was one request away from exiting.
+describe('an onError that throws', () => {
+  const exploding: ErrorRenderer = () => {
+    throw new Error('renderer exploded');
+  };
+
+  @Route('/x')
+  class Boom {
+    @Get('/boom') boom() {
+      throw new HttpError(503, 'Service Unavailable');
+    }
+  }
+
+  @Module({ mountpoint: '/', controllers: [Boom] })
+  class BoomModule {}
+
+  it('falls back to the built-in rendering rather than losing the response', async () => {
+    const app = createApp({ modules: [BoomModule], onError: exploding });
+    const res = await app.fetch(new Request('http://x/x/boom'));
+
+    // The original error still gets its answer: the fallback is the rendering `onError` overrides.
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'Service Unavailable' });
+  });
+
+  // The path that needed no thrown handler at all.
+  it('survives a 404, which the renderer also produces', async () => {
+    const app = createApp({ modules: [BoomModule], onError: exploding });
+    const res = await app.fetch(new Request('http://x/nothing-here'));
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'Not Found' });
+  });
+
+  it('reports the renderer as the thing that failed, not the request', async () => {
+    const logged: Array<{ msg: string; fields?: Record<string, unknown> }> = [];
+    const logger = {
+      debug() {},
+      info() {},
+      warn() {},
+      error(msg: string, fields?: Record<string, unknown>) {
+        logged.push({ msg, fields });
+      },
+    };
+    const app = createApp({ modules: [BoomModule], onError: exploding, logger });
+
+    await app.fetch(new Request('http://x/x/boom'));
+
+    expect(logged).toHaveLength(1);
+    expect(logged[0].msg).toMatch(/onError/);
+    // Both errors named, because a reader chasing the wrong one loses an afternoon.
+    expect(logged[0].fields?.err).toBe('renderer exploded');
+    expect(logged[0].fields?.rendering).toBe('Service Unavailable');
+  });
+
+  it('answers over a real Node server instead of exiting the process', async () => {
+    const app = createApp({ modules: [BoomModule], onError: exploding });
+    const server = await app.listen(0);
+    const port = (server.address() as { port: number }).port;
+
+    const res = await fetch(`http://127.0.0.1:${port}/x/boom`);
+    expect(res.status).toBe(503);
+    // Still serving — the point of the whole test.
+    expect((await fetch(`http://127.0.0.1:${port}/nope`)).status).toBe(404);
+
+    await app.close();
+  });
+});

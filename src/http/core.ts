@@ -144,7 +144,7 @@ function errorOutcome(
   opts: HttpOptions | undefined,
   headers: Record<string, string> = {},
 ): HandleResult {
-  const rendered = renderError(error, req, opts?.onError);
+  const rendered = renderError(error, req, opts?.onError, opts?.logger);
   return {
     injected,
     outcome: {
@@ -392,7 +392,7 @@ async function dispatch(
       traceId: req.traceId,
     });
   } catch (error) {
-    result = renderError(error, req, opts?.onError);
+    result = renderError(error, req, opts?.onError, opts?.logger);
   }
 
   if (isStreamResult(result)) {

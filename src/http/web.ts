@@ -77,7 +77,7 @@ function readFetchBytes(
         url: url.pathname + url.search,
         headers: headersToRecord(request.headers),
       };
-      return { fail: renderError(new HttpError(413, 'Payload Too Large'), errReq, opts?.onError) };
+      return { fail: renderError(new HttpError(413, 'Payload Too Large'), errReq, opts?.onError, opts?.logger) };
     }
 
     return { bytes: arrayBuffer.byteLength === 0 ? undefined : Buffer.from(arrayBuffer) };

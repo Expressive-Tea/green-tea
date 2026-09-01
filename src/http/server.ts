@@ -198,7 +198,7 @@ function readRequestBytes(
   return readBodyBytes(req, limit).then(
     (bytes) => ({ bytes }),
     (error: unknown) => {
-      const rendered = renderError(error, errorRequest(req), opts?.onError);
+      const rendered = renderError(error, errorRequest(req), opts?.onError, opts?.logger);
       return { fail: { ...rendered, headers: { ...rendered.headers, connection: 'close' } } };
     },
   );

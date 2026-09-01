@@ -19,6 +19,24 @@ class Views {
 class M {}
 const app = createApp({ modules: [M], views: dir });
 
+// Checked alongside the `onError` guard: `viewEngine` is the other user callback on a render path,
+// and whether it had a boundary was not something to assume. It does — the pipeline's own catch
+// covers it, so a broken engine is a 500 rather than a dead process. Asserted so it stays that way.
+describe('a viewEngine that throws', () => {
+  it('renders a 500 instead of escaping the request', async () => {
+    const broken = createApp({
+      modules: [M],
+      views: dir,
+      viewEngine: () => {
+        throw new Error('engine exploded');
+      },
+    });
+    const res = await broken.fetch(new Request('http://x/user'));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Internal Server Error' });
+  });
+});
+
 describe('@Html modes', () => {
   it('string mode sends the handler return as text/html', async () => {
     const res = await app.fetch(new Request('http://x/str'));

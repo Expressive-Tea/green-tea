@@ -86,6 +86,8 @@ interface PipelineDeps {
   planSteps(plan: RoutePlan): PipelineStep[];
   bus: Bus;
   onError?: ErrorRenderer;
+  /** Where a failing `onError` is reported — the renderer's error is not the request's. */
+  logger: Logger;
 }
 
 /**
@@ -229,7 +231,7 @@ export function createApp(opts: {
 
   const providedSeed = (plan: RoutePlan) => seedProviders(container, plan);
   const planSteps = (plan: RoutePlan) => compilePlanSteps(runners, plan);
-  const pipelineDeps: PipelineDeps = { providedSeed, planSteps, bus, onError: opts.onError };
+  const pipelineDeps: PipelineDeps = { providedSeed, planSteps, bus, onError: opts.onError, logger };
   let meshControl: MeshControl | undefined;
 
   // mesh teacup: connect remote teapots and splice their scopes/routes in, then finalize.
@@ -306,7 +308,7 @@ export function createApp(opts: {
   };
   const fetchFn = buildAppFetch(
     routePlans,
-    { providedSeed, planSteps, bus, onError: opts.onError },
+    { providedSeed, planSteps, bus, onError: opts.onError, logger },
     fetchOpts,
     bootApp,
     devRoutes,
@@ -1006,7 +1008,7 @@ function buildMeshControl(
 
   if (!mesh?.secret || !hasExports) return undefined;
   const { container, orderedProviders, orderedSteps } = deps;
-  const { bus, providedSeed, planSteps, onError } = deps.deps;
+  const { bus, providedSeed, planSteps, onError, logger } = deps.deps;
   const manifest = buildManifest({ providers: exportedProviders, steps: exportedSteps, routes: exportedRoutes });
 
   const resolveScope = async (name: string, env: RequestEnvelope): Promise<unknown> => {
@@ -1045,6 +1047,7 @@ function buildMeshControl(
       transformer: plan.transformer,
       bus,
       onError,
+      logger,
       transport: plan.transport,
       correlation: {
         requestId: env.correlation?.requestId,
@@ -1070,7 +1073,7 @@ function buildMeshControl(
 
 /** Compiles every non-ws route plan into an HTTP route that seeds and runs the pipeline, plus any remote routes. */
 function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps: PipelineDeps): RouteDef[] {
-  const { providedSeed, planSteps, bus, onError } = deps;
+  const { providedSeed, planSteps, bus, onError, logger } = deps;
 
   const local = routePlans
     .filter((plan) => plan.transport !== 'ws') // buffer | sse | ndjson | negotiate
@@ -1089,6 +1092,7 @@ function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps
           transformer: plan.transformer,
           bus,
           onError,
+          logger,
           transport: plan.transport,
           // `route` is the pattern, never req.url — a metrics consumer labelling on concrete
           // paths gets one label per distinct URL, and that takes down the metrics backend.

@@ -216,8 +216,9 @@ describe('failure reporting', () => {
   });
 
   // A renderer that throws must not swallow the event — the failure still happened, and losing the
-  // only record of it because the reporting of it broke is the worst possible trade.
-  it('still reports the failure when onError itself throws, with no status to give', async () => {
+  // only record of it because the reporting of it broke is the worst possible trade. The status is
+  // the built-in renderer's, since that is what the request actually got.
+  it('still reports the failure when onError itself throws', async () => {
     const app = createApp({
       modules: [BadModule],
       onError: () => {
@@ -227,10 +228,13 @@ describe('failure reporting', () => {
     const failures: EventPayload[] = [];
     app.bus.on('request:failed', (p) => failures.push(p));
 
-    await app.fetch(new Request('http://x/bad/go')).catch(() => undefined);
+    const res = await app.fetch(new Request('http://x/bad/go'));
 
+    expect(res.status).toBe(500);
     expect(failures).toHaveLength(1);
-    expect(failures[0].status).toBeUndefined();
+    expect(failures[0].status).toBe(500);
+    // The request's error, not the renderer's — they are different errors and the event names the
+    // one the request suffered.
     expect((failures[0].error as Error).message).toBe('step exploded');
   });
 });
