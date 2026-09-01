@@ -3,6 +3,7 @@
 
 import type { TransformerFn } from './metadata';
 import type { HtmlMeta } from './metadata';
+import { nodeRequire } from './node-require';
 
 /** Escape the five HTML-significant characters so interpolated data can't inject markup. */
 export function escapeHtml(s: string): string {
@@ -58,12 +59,12 @@ export interface ViewsContext {
 
 /** Reads a view file at boot (lazy fs). Relative paths resolve against `views` (default cwd); absolute as-is.
  * node:fs/node:path are loaded lazily so importing the barrel stays edge/workerd-safe
- * (workerd's nodejs_compat provides no filesystem). This path only runs for path/template `@Html` modes. */
+ * (workerd's nodejs_compat provides no filesystem). This path only runs for path/template `@Html` modes.
+ * Unguarded on purpose: `@Html('file')` cannot degrade into anything useful, so a runtime with no
+ * filesystem should hear about it here rather than at the first request. */
 function readViewFile(views: string | undefined, path: string): string {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const nodePath = require('node:path') as typeof import('node:path');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const fs = require('node:fs') as typeof import('node:fs');
+  const nodePath = nodeRequire<typeof import('node:path')>('node:path');
+  const fs = nodeRequire<typeof import('node:fs')>('node:fs');
   const base = views ?? process.cwd();
   const full = nodePath.isAbsolute(path) ? path : nodePath.resolve(base, path);
 
@@ -94,10 +95,8 @@ export function buildStaticResolver(root: string | true): StaticResolver {
   let nodePath: typeof import('node:path');
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    fs = require('node:fs');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    nodePath = require('node:path');
+    fs = nodeRequire('node:fs');
+    nodePath = nodeRequire('node:path');
   } catch {
     throw new Error(
       '`static` needs a filesystem and is unavailable on this runtime (edge). Remove it or serve assets from a CDN.',

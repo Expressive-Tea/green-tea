@@ -11,6 +11,7 @@ import { mergeInjectedHeaders } from './headers';
 import { handle, correlateRequest, type HandleResult, type Preflight } from './core';
 import type { BodyFailure, BodyReader } from './body';
 import type { RouteDef, WsRouteDef, MeshControl, HttpOptions } from './types';
+import { nodeRequire } from '../node-require';
 
 interface HandlerConfig {
   routes: RouteDef[];
@@ -44,10 +45,8 @@ export function createHttpServer(
 
   // Node http/https are loaded lazily so importing createApp stays edge/workerd-safe
   // (workerd's nodejs_compat provides no node:http/node:https). This path only runs under listen().
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const nodeHttp = require('http') as typeof import('http');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const nodeHttps = require('https') as typeof import('https');
+  const nodeHttp = nodeRequire<typeof import('http')>('http');
+  const nodeHttps = nodeRequire<typeof import('https')>('https');
 
   // runtime-compatible; only @types differ (https.Server lacks the http-only timeout props)
   const server: http.Server = (opts?.tls

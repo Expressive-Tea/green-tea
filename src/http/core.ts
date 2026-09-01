@@ -9,6 +9,7 @@ import { acquireBody, type BodyReader } from './body';
 import type { RouteDef, HttpOptions } from './types';
 import type { StreamEncoder } from '../encoders';
 import type { Bus } from '../bus';
+import { nodeRequire } from '../node-require';
 
 /**
  * `randomUUID`, from wherever this runtime keeps it. Resolved once, at import.
@@ -23,15 +24,15 @@ import type { Bus } from '../bus';
  * CI's Node 18 job caught it; every newer Node and every other runtime hides it, which is exactly
  * why that job is pinned to the floor rather than to the current release.
  *
- * The fallback is reached only by a runtime that lacks the global, so workerd never evaluates the
- * `require` — and the ESM build has a real one, from the `createRequire` banner in `tsup.config.ts`.
+ * The fallback is reached only by a runtime that lacks the global, so workerd never evaluates it.
+ * It goes through {@link nodeRequire} rather than a bare `require`, which is what makes it work on
+ * every distribution of this package and not just the bundled ones.
  */
 const randomUUID: () => string = (() => {
   const webCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
   if (typeof webCrypto?.randomUUID === 'function') return () => webCrypto.randomUUID!();
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return (require('node:crypto') as { randomUUID: () => string }).randomUUID;
+  return nodeRequire<{ randomUUID: () => string }>('node:crypto').randomUUID;
 })();
 
 /**

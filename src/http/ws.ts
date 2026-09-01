@@ -3,14 +3,14 @@ import { channel } from '../channel';
 import type { Bus } from '../bus';
 import { runWsConnection, matchWsRoute, trackUntil, type WsSocket, type WsRequest } from './ws-core';
 import type { WsRouteDef, MeshControl } from './types';
+import { nodeRequire } from '../node-require';
 
 /** Lazily loads the optional `ws` peer dependency's `WebSocketServer`, or null when it is not installed. */
 function loadWss(): any | null {
   try {
     // `ws` is an OPTIONAL peer dependency: lazy-required so installs without WebSocket
     // support don't fail. When absent this throws and we fall back to null (501 on upgrade).
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('ws').WebSocketServer;
+    return nodeRequire<{ WebSocketServer: unknown }>('ws').WebSocketServer;
   } catch {
     return null;
   }
