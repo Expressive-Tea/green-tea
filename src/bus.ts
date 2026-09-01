@@ -30,6 +30,11 @@ export type LifecycleEvent =
   | 'request:step:enter'
   | 'request:step:leave'
   | 'request:step:error'
+  // A streaming connection — SSE, NDJSON or a WebSocket — from established to gone. Deliberately
+  // *not* the request span: a route returning an `AsyncIterable` is done in milliseconds while its
+  // connection may live for hours, so `request:end` fires at the handler's return and these three
+  // describe what outlives it. They carry the opening request's `requestId` and `traceId`, which is
+  // what lets a consumer join the two rather than watch them as unrelated streams of events.
   | 'stream:open'
   | 'stream:close'
   | 'stream:error'

@@ -2,7 +2,7 @@ import type http from 'http';
 import { once } from 'events';
 import { sseEncoder, ndjsonEncoder, StreamEncoder } from '../encoders';
 import type { Transport } from '../metadata';
-import type { Bus } from '../bus';
+import type { Bus, Correlation } from '../bus';
 
 const PING_MS = 15_000;
 
@@ -35,10 +35,16 @@ export async function pipeStream(
   bus?: Bus,
   name = '',
   streams?: Set<() => void>,
+  correlation: Correlation = {},
 ): Promise<void> {
+  // `route` duplicates `name` here rather than being passed separately: on a stream event `name`
+  // is always the route pattern, never the concrete path the request events can carry — but a
+  // consumer following the documented contract labels on `route` and would otherwise find it
+  // absent on the longest-lived thing the server does. See `EventPayload.name`.
+  const trace = { name, route: name, ...correlation };
   res.writeHead(200, encoder.headers);
   res.flushHeaders(); // establish the stream immediately so idle-until-event sources (e.g. subscriptions) don't deadlock clients awaiting headers
-  bus?.emit('stream:open', { name });
+  bus?.emit('stream:open', trace);
   const iterator = stream[Symbol.asyncIterator]();
   let ping: ReturnType<typeof setInterval> | undefined;
 
@@ -76,13 +82,13 @@ export async function pipeStream(
       }
     }
   } catch (err) {
-    bus?.emit('stream:error', { name, error: err });
+    bus?.emit('stream:error', { ...trace, error: err });
     const frame = encoder.encodeError(err);
     if (frame && !res.writableEnded) res.write(frame);
   } finally {
     if (ping) clearInterval(ping);
     streams?.delete(closer);
     if (!res.writableEnded && !res.destroyed) res.end();
-    bus?.emit('stream:close', { name });
+    bus?.emit('stream:close', trace);
   }
 }

@@ -178,7 +178,15 @@ function createRequestHandler(cfg: HandlerConfig) {
     }
 
     if (result.outcome.kind === 'stream') {
-      await pipeStream(res, result.outcome.stream, result.outcome.encoder, bus, result.outcome.route, opts?.streams);
+      await pipeStream(
+        res,
+        result.outcome.stream,
+        result.outcome.encoder,
+        bus,
+        result.outcome.route,
+        opts?.streams,
+        correlation,
+      );
       return;
     }
 

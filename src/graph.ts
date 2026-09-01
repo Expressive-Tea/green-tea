@@ -78,6 +78,35 @@ export function topoSort(nodes: GraphNode[], seedKeys: string[]): GraphNode[] {
   return ordered;
 }
 
+/**
+ * Groups an already topo-sorted list into dependency levels: nothing in a level can constrain
+ * anything else in it, and a level depends only on the levels before it — so a level can run
+ * concurrently. Needs produced by nothing in `ordered` (seeds, filtered-out kinds) constrain
+ * nothing and are ignored.
+ */
+export function topoLevels(ordered: GraphNode[]): GraphNode[][] {
+  const producedBy = new Map<string, GraphNode>();
+  for (const node of ordered) for (const key of node.provides) producedBy.set(key, node);
+  const depthOf = new Map<GraphNode, number>();
+  const levels: GraphNode[][] = [];
+
+  // One forward pass is enough: `ordered` is topologically sorted, so every producer of a node's
+  // needs already has its depth by the time the node is reached.
+  for (const node of ordered) {
+    let depth = 0;
+
+    for (const key of node.needs) {
+      const producer = producedBy.get(key);
+      if (producer && producer !== node) depth = Math.max(depth, (depthOf.get(producer) ?? 0) + 1);
+    }
+
+    depthOf.set(node, depth);
+    (levels[depth] ??= []).push(node);
+  }
+
+  return levels;
+}
+
 /** Filters `ordered` down to the transitive closure of producers reachable from `needs`. */
 export function subgraphFor(needs: string[], ordered: GraphNode[]): GraphNode[] {
   const producedBy = new Map<string, GraphNode>();

@@ -1,4 +1,5 @@
 import type { StreamEncoder } from '../encoders';
+import type { Bus, Correlation } from '../bus';
 import { createRequestGate } from './request-gate';
 import {
   handle,
@@ -15,28 +16,70 @@ import { HttpError } from '../signals';
 import { renderError, type ErrorRequest } from '../transformers';
 import type { RouteDef, HttpOptions } from './types';
 
-/** Wraps an AsyncIterable as a web ReadableStream, encoding each value. Cancels the source on stream cancel. */
-export function asReadableStream(source: AsyncIterable<unknown>, encoder: StreamEncoder): ReadableStream<Uint8Array> {
+/**
+ * Wraps an AsyncIterable as a web ReadableStream, encoding each value. Cancels the source on stream
+ * cancel, and reports the connection on the bus exactly as {@link pipeStream} does for Node — the
+ * lifecycle of a stream must not depend on which adapter is serving it.
+ */
+export function asReadableStream(
+  source: AsyncIterable<unknown>,
+  encoder: StreamEncoder,
+  bus?: Bus,
+  name = '',
+  correlation: Correlation = {},
+): ReadableStream<Uint8Array> {
   const iterator = source[Symbol.asyncIterator]();
   const te = new TextEncoder();
+  // See the same line in `pipeStream`: `name` is the pattern on a stream event, but the contract
+  // says label on `route`, so both are carried.
+  const trace = { name, route: name, ...correlation };
+  const frame = (chunk: string | Buffer): Uint8Array => (typeof chunk === 'string' ? te.encode(chunk) : chunk);
+  // `cancel` can land after the body has already ended, and an errored stream still unwinds through
+  // its own path — so the close is latched rather than emitted from each of the three exits.
+  let closed = false;
+
+  const close = (): void => {
+    if (closed) return;
+    closed = true;
+    bus?.emit('stream:close', trace);
+  };
+
   return new ReadableStream<Uint8Array>({
+    start() {
+      bus?.emit('stream:open', trace);
+    },
     async pull(controller) {
       try {
         const { value, done } = await iterator.next();
 
         if (done) {
+          close();
           controller.close();
           return;
         }
 
-        const encoded = encoder.encode(value);
-        const bytes = typeof encoded === 'string' ? te.encode(encoded) : encoded;
-        controller.enqueue(bytes);
+        controller.enqueue(frame(encoder.encode(value)));
       } catch (err) {
-        controller.error(err);
+        bus?.emit('stream:error', { ...trace, error: err });
+        const errorFrame = encoder.encodeError(err);
+        close();
+
+        // Framed and closed cleanly, which is what the Node adapter does and the better answer for
+        // the client: an SSE consumer that received an `error` event knows what happened, where a
+        // transport-level failure is indistinguishable from the connection simply dropping.
+        // `controller.error` is kept for the encoder that has no error frame to offer, because
+        // then breaking the stream is the only signal left.
+        if (errorFrame === null) {
+          controller.error(err);
+          return;
+        }
+
+        controller.enqueue(frame(errorFrame));
+        controller.close();
       }
     },
     async cancel() {
+      close();
       await iterator.return?.();
     },
   });
@@ -115,11 +158,18 @@ export function toBodyInit(body: string | Buffer): ResponseBody {
 }
 
 /** Converts a {@link HandleResult}'s outcome into a web `Response`, buffered or streamed. */
-function outcomeToResponse(result: HandleResult): Response {
+function outcomeToResponse(result: HandleResult, bus?: Bus, correlation: Correlation = {}): Response {
   const headers = mergeInjectedHeaders(result.outcome.headers, result.injected) as Record<string, string>;
 
   if (result.outcome.kind === 'stream') {
-    return new Response(asReadableStream(result.outcome.stream, result.outcome.encoder), { headers });
+    const body = asReadableStream(
+      result.outcome.stream,
+      result.outcome.encoder,
+      bus,
+      result.outcome.route,
+      correlation,
+    );
+    return new Response(body, { headers });
   }
 
   const body = [204, 205, 304].includes(result.outcome.status) ? null : toBodyInit(result.outcome.body);
@@ -222,6 +272,6 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
       });
     }
 
-    return outcomeToResponse(result);
+    return outcomeToResponse(result, opts?.bus, correlation);
   };
 }

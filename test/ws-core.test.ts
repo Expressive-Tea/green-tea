@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { runWsConnection, matchWsRoute, type WsSocket, type WsRequest } from '../src/http/ws-core';
 import { channel } from '../src/channel';
 import { HttpError } from '../src/signals';
+import { Bus } from '../src/bus';
 import type { WsRouteDef } from '../src/http/types';
 
 /** A controllable fake WsSocket that records sends and closes. */
@@ -108,5 +109,46 @@ describe('runWsConnection (neutral core)', () => {
     const routes: WsRouteDef[] = [{ pattern: '/ws/:id', open: async () => (async function* () {})() }];
     expect(matchWsRoute(routes, '/ws/42')?.params).toEqual({ id: '42' });
     expect(matchWsRoute(routes, '/nope')).toBeUndefined();
+  });
+});
+
+describe('runWsConnection correlation', () => {
+  const def: WsRouteDef = {
+    pattern: '/ws',
+    open: async () =>
+      (async function* () {
+        yield 'hi';
+      })(),
+  };
+
+  const opened = async (headers: WsRequest['headers']): Promise<Record<string, unknown>[]> => {
+    const bus = new Bus();
+    const seen: Record<string, unknown>[] = [];
+    for (const name of ['stream:open', 'stream:close'] as const)
+      bus.on(name, (e) => seen.push({ ...e }));
+    const { socket } = fakeSocket();
+    await runWsConnection(socket, { ...req, headers }, { def, params: {} }, bus);
+    return seen;
+  };
+
+  it('gives the connection one identity, not one per emitter', async () => {
+    const seen = await opened({});
+    expect(seen).toHaveLength(2);
+    expect(seen[0].requestId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(seen[1].requestId).toBe(seen[0].requestId);
+  });
+
+  it('adopts a gateway s x-request-id and carries traceparent through', async () => {
+    // An upgrade is an HTTP request with headers like any other: a service behind a proxy must not
+    // open a second identity for a connection that already has one.
+    const seen = await opened({ 'x-request-id': 'gw-1', traceparent: 'tp-1' });
+    expect(seen.map((e) => e.requestId)).toEqual(['gw-1', 'gw-1']);
+    expect(seen.map((e) => e.traceId)).toEqual(['tp-1', 'tp-1']);
+  });
+
+  it('labels the route pattern and names the transport', async () => {
+    const [open] = await opened({});
+    expect(open.route).toBe('/ws');
+    expect(open.transport).toBe('ws');
   });
 });

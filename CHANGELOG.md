@@ -71,6 +71,25 @@ npm treats versions as semver and semver forbids leading zeros.
   to release in `dispose()`, and a `@Step` should not subscribe at all, since it runs per request
   and would add a listener each time.
 
+- **`@Sse` can emit an `id:`, so an `EventSource` reconnect has something to resume from.**
+  `sse(data, { id, event, retry })` tags a stream item and the encoder writes the fields ahead of
+  `data:`; an app that never calls it produces byte-identical output. Until now the encoder wrote one
+  field, so the browser had nothing to put in `Last-Event-ID` and every automatic reconnect — the
+  reason to choose SSE over a raw WebSocket — rebuilt the route's iterable from its start and lost
+  the gap in silence. The other half already worked: the request envelope has always carried every
+  header, so a handler could already read `@header('last-event-id')`; it simply always arrived empty.
+  `event:` and `retry:` come along because the same envelope carries them, and neither was reachable
+  before.
+
+  **green-tea stores nothing** — no buffer, no retention window, no replay. It carries the marker in
+  both directions and the handler decides what the gap means, because only the source knows: a paged
+  log re-reads from an offset, a live sensor has no past worth delivering. An `id` containing a
+  newline is rejected rather than stripped, since the SSE format is line-based and an id is exactly
+  the value most likely to be built from a request — a cursor, a page token — so one newline would
+  let a caller append fields to somebody else's stream. On an `ndjson` or `negotiate`-to-ndjson route
+  the payload is unwrapped and the fields dropped. New exports: `sse`, `isSseEvent`, `SseEvent`,
+  `SseFields`.
+
 ### Changed
 
 - **A request's security and CORS headers are computed once.** They were derived twice per request
@@ -112,6 +131,23 @@ npm treats versions as semver and semver forbids leading zeros.
   for a feature that was off. Unchanged where a budget *is* configured: the listener is what
   releases a slot when a client disconnects mid-handler.
 
+- **Independent providers boot concurrently.** Boot walked the topological order one node at a time,
+  so an application paid the *sum* of its providers' latencies rather than its longest chain — three
+  providers with no edges between them and 200ms of work each took 616ms for a graph whose critical
+  path is 200ms; it now takes 210ms. The graph already proved which nodes cannot constrain each
+  other, and flattening the sort was the only thing throwing that away: the ordered list is grouped
+  back into dependency levels and each level runs together, with level *N* fully registered and
+  warmed before *N+1* starts. Nothing the graph derives changes, and this is the second thing users
+  get for declaring `needs`/`provides` rather than ordering calls by hand — pruning was the first,
+  and neither is available to a middleware chain, where nothing declares what is independent.
+
+  Two consequences worth knowing. Teardown still runs in the exact reverse of boot: registration
+  follows level order rather than completion order, which is what keeps that a guarantee instead of
+  a race. And a required provider that fails no longer prevents its independent siblings from
+  starting — they are already in flight — so whatever they opened is registered for teardown before
+  the boot is aborted. On the bus, `boot:provider:start` no longer strictly alternates with `:ok`; a
+  level emits its starts together and then its results.
+
 ### Fixed
 
 - **A `cors.origins` predicate that throws no longer takes the process down.** The predicate runs on
@@ -149,6 +185,26 @@ npm treats versions as semver and semver forbids leading zeros.
   degraded report the server ends. A renderer that throws now falls back to the built-in rendering —
   which is exactly what the option overrides — so the original error still gets its response, and
   the renderer's own failure is logged separately, naming both.
+
+- **A stream's lifecycle is reported on every runtime, and joins back to its request.** `stream:open`,
+  `stream:close` and `stream:error` were emitted only by the Node adapter. Every Fetch runtime — Deno,
+  Bun, workerd, and `app.fetch()` on Node — emitted none of them and broke the response with a
+  transport error instead of writing the encoder's error frame. Both halves were silent: a consumer
+  counting `stream:error` saw zero on three of the four runtimes while streams were failing normally,
+  and the client got a truncated body indistinguishable from a clean end of stream. The Fetch path now
+  emits all three and frames the error before closing cleanly, which is what the Node adapter always
+  did and the better answer for the client — an SSE consumer that received an `error` event knows what
+  happened, where a dropped connection tells it nothing.
+
+  All three events now also carry the opening request's `requestId` and `traceId`, plus a bounded
+  `route`. `src/http/core.ts` had documented them as carrying the id since the stream landed; they
+  never did. The split they exist for is deliberate — a route returning an `AsyncIterable` is done in
+  milliseconds while its connection may live for hours, so `request:end` fires at the handler's return
+  and hour-long connections stay out of the same latency distribution as 2ms replies — but it only
+  works if the two can be *joined*, and without the id an exporter could not say which request opened
+  the connection still holding a slot. A WebSocket upgrade correlates itself: it is an HTTP request
+  with headers like any other, so it adopts a gateway's `x-request-id` rather than opening a second
+  identity, and carries `transport: 'ws'`.
 
 ## [26.8.0-beta.1] - 2026-08-19
 

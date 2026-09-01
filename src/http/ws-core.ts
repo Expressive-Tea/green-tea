@@ -1,5 +1,6 @@
 import { isHttpError } from '../signals';
 import type { Bus } from '../bus';
+import { correlateRequest } from './core';
 import { matchPattern } from './router';
 import type { WsRouteDef } from './types';
 
@@ -109,6 +110,11 @@ export async function runWsConnection(
 ): Promise<void> {
   const { closer } = trackConnection(socket, streams);
   const name = route.def.pattern;
+  // Derived here rather than handed down: an upgrade is an HTTP request with headers like any
+  // other, so it adopts an `x-request-id` from a gateway and carries `traceparent` through by the
+  // same rule. `runWsConnection` is the only place a ws connection is correlated, which is what
+  // keeps one identity per connection instead of one per emitter.
+  const trace = { name, route: name, transport: 'ws', ...correlateRequest(request.headers) };
   let iterator: AsyncIterator<unknown> | undefined;
 
   const onAbort = () => {
@@ -117,7 +123,7 @@ export async function runWsConnection(
   };
 
   socket.abort.addEventListener('abort', onAbort, { once: true });
-  bus?.emit('stream:open', { name });
+  bus?.emit('stream:open', trace);
 
   try {
     const outbound = await route.def.open({
@@ -129,9 +135,9 @@ export async function runWsConnection(
     iterator = outbound[Symbol.asyncIterator]();
     await pumpOutbound(socket, iterator);
   } catch (err) {
-    bus?.emit('stream:error', { name, error: err });
+    bus?.emit('stream:error', { ...trace, error: err });
     closeOnError(socket, err);
   } finally {
-    bus?.emit('stream:close', { name });
+    bus?.emit('stream:close', trace);
   }
 }
