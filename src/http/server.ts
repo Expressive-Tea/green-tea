@@ -1,5 +1,6 @@
 import type http from 'http';
 import type https from 'https';
+import { createRequestGate } from './request-gate';
 import { renderError, type ErrorRequest } from '../transformers';
 import type { Bus } from '../bus';
 import { buildSecurityHeaders, resolveCors } from '../security';
@@ -7,7 +8,7 @@ import { readBody as readBodyBytes, deriveSecure, deriveIp } from './request';
 import { pipeStream } from './stream';
 import { attachWs } from './ws';
 import { mergeInjectedHeaders } from './headers';
-import { handle, correlateRequest } from './core';
+import { handle, correlateRequest, type HandleResult, type Preflight } from './core';
 import type { BodyFailure, BodyReader } from './body';
 import type { RouteDef, WsRouteDef, MeshControl, HttpOptions } from './types';
 
@@ -53,7 +54,21 @@ export function createHttpServer(
     ? nodeHttps.createServer(opts.tls as https.ServerOptions, handler)
     : nodeHttp.createServer(handler)) as unknown as http.Server;
   const maxConnections = opts?.limits?.maxConnections ?? 1000;
-  if (maxConnections > 0) server.maxConnections = maxConnections;
+
+  if (maxConnections > 0) {
+    server.maxConnections = maxConnections;
+    let lastDropWarn = 0;
+    server.on('drop', ({ remoteAddress, remotePort }) => {
+      const now = Date.now();
+      if (now - lastDropWarn < 60_000) return;
+      lastDropWarn = now;
+      opts?.logger?.warn(
+        `maxConnections (${maxConnections}) reached \u2014 dropped connection from ${remoteAddress ?? 'unknown'}:${remotePort ?? 'unknown'}`,
+        { maxConnections, remoteAddress, remotePort },
+      );
+    });
+  }
+
   server.requestTimeout = opts?.limits?.requestTimeoutMs ?? 30_000;
   server.headersTimeout = opts?.limits?.headersTimeoutMs ?? 10_000;
   server.keepAliveTimeout = opts?.limits?.keepAliveTimeoutMs ?? 5_000;
@@ -73,6 +88,7 @@ function createRequestHandler(cfg: HandlerConfig) {
   const { routes, bus, opts, trustProxy } = cfg;
   // Built once per server, not once per request — see `BodyReader`.
   const readBody: BodyReader = (source, limit) => readRequestBytes(source, limit, opts);
+  const gate = createRequestGate(opts?.limits?.maxConcurrentRequests);
 
   return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     // Install the security-header patch BEFORE any routing/response so every path
@@ -87,16 +103,58 @@ function createRequestHandler(cfg: HandlerConfig) {
     // by reference at writeHead time, so keys added here still land on every response.
     if (opts?.cors) Object.assign(injected, resolveCors(opts.cors, req));
 
-    const result = await handle(routes, opts, {
-      ...correlation,
-      method: req.method ?? 'GET',
-      url: req.url ?? '/',
-      headers: req.headers,
-      readBody,
-      source: req,
-      secure,
-      ip: deriveIp(req, trustProxy),
-    });
+    let result: HandleResult | Preflight;
+    let acquired = false;
+    const watchingEnd = bus?.hasListeners('request:end') ?? false;
+    const startedAt = watchingEnd ? performance.now() : 0;
+
+    try {
+      if (!gate.acquire()) {
+        if (watchingEnd) {
+          const method = req.method ?? 'GET';
+          const url = req.url ?? '/';
+          bus!.emit('request:end', {
+            name: `${method} ${url}`,
+            method,
+            status: 503,
+            durationMs: performance.now() - startedAt,
+            requestId: correlation.requestId,
+            traceId: correlation.traceId,
+          });
+        }
+
+        res.writeHead(503, {
+          'content-type': 'application/json',
+          'retry-after': '1',
+          connection: 'close',
+        });
+        res.end(JSON.stringify({ error: 'Service Unavailable' }));
+        return;
+      }
+
+      acquired = true;
+      res.once('close', () => {
+        if (!acquired) return;
+        acquired = false;
+        gate.release();
+      });
+
+      result = await handle(routes, opts, {
+        ...correlation,
+        method: req.method ?? 'GET',
+        url: req.url ?? '/',
+        headers: req.headers,
+        readBody,
+        source: req,
+        secure,
+        ip: deriveIp(req, trustProxy),
+      });
+    } finally {
+      if (acquired) {
+        acquired = false;
+        gate.release();
+      }
+    }
 
     if ('preflight' in result) {
       res.writeHead(204, result.preflight);

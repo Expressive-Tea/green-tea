@@ -5,11 +5,13 @@ import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
 import type { WsRequest, WsSocket } from './ws-core';
 import type { StaticResolver } from '../views';
 import type { Bus } from '../bus';
+import type { Logger } from '../logger';
 
 /** Per-request and per-server resource ceilings applied by the server. */
 export interface RequestLimits {
   maxBodyBytes?: number; // default 1_000_000
   maxConnections?: number; // default 1000; <= 0 means unlimited (Node only)
+  maxConcurrentRequests?: number; // default unlimited; <= 0 means unlimited
   requestTimeoutMs?: number; // default 30_000
   headersTimeoutMs?: number; // default 10_000
   keepAliveTimeoutMs?: number; // default 5_000
@@ -24,6 +26,8 @@ export interface HttpOptions {
    * a separate channel for it.
    */
   bus?: Bus;
+  /** Where this server writes diagnostics. Optional because `createHttpServer` takes no options at all in tests. */
+  logger?: Logger;
   limits?: RequestLimits;
   streams?: Set<() => void>;
   tls?: TlsOptions;
