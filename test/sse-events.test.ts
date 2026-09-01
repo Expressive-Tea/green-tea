@@ -135,17 +135,12 @@ describe('the Last-Event-ID round trip', () => {
     const errors: unknown[] = [];
     broken.bus.on('stream:error', (e) => errors.push(e.error));
 
-    // The Node adapter turns a mid-stream throw into a bus event and a trailing `error` frame.
-    const server = await broken.listen(0);
-    const { port } = server.address() as import('net').AddressInfo;
-    const body = await (await fetch(`http://127.0.0.1:${port}/bad`)).text();
+    const body = await (await broken.fetch(new Request('http://x/bad'))).text();
 
     // Not `toContain`: the rejection quotes the offending value, so the text appears inside the
     // error payload — escaped, on one line. The claim is that no *field* was injected.
     expect(body.split('\n')).not.toContain('data: injected');
     expect(body).toContain('event: error');
     expect(errors).toHaveLength(1);
-
-    await broken.close();
   });
 });
