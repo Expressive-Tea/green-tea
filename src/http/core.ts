@@ -192,6 +192,15 @@ async function unmatchedOutcome(
   return errorOutcome(error, req, injected, opts, allow.length ? { allow: allow.join(', ') } : {});
 }
 
+/**
+ * The `route` reported for a request no route matched.
+ *
+ * A bounded value rather than an empty field, and deliberately unlike any pattern a user can
+ * declare — a route pattern starts with `/`, so this cannot collide with one. It aggregates as a
+ * single series where the concrete path would produce one per distinct URL.
+ */
+export const UNMATCHED_ROUTE = '<unmatched>';
+
 /** What `dispatch` learned along the way that `handle` needs in order to describe the request afterwards. */
 interface Trace {
   route?: string;
@@ -343,9 +352,18 @@ async function dispatch(
   const matched = resolveRoute(routes, req.method, path);
 
   if (!matched) {
+    // `name` here is the path that arrived, and it is the one value in this payload that must never
+    // become a metric label: a matched route's path is bounded by the route table, an unmatched one
+    // is bounded by nothing at all, and a scanner walking /aaa, /aab, /aac is a memory leak with a
+    // metrics backend attached. So the event carries a bounded `route` as well, and so does the
+    // `request:end` that follows it, rather than leaving every consumer to invent the same fallback
+    // and some of them to get it wrong.
+    if (trace) trace.route = UNMATCHED_ROUTE;
+
     if (bus?.hasListeners('route:unmatched'))
       bus.emit('route:unmatched', {
         name: `${req.method} ${path}`,
+        route: UNMATCHED_ROUTE,
         method: req.method,
         requestId: req.requestId,
         traceId: req.traceId,

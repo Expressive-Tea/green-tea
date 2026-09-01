@@ -81,6 +81,7 @@ export type { StreamEncoder } from './encoders';
 
 // HTTP, security & validation
 export type { RequestLimits } from './http';
+export { UNMATCHED_ROUTE } from './http/core';
 export type { TlsOptions, CorsOptions, SecurityOptions } from './security';
 export type { UploadedFile, MultipartBody } from './multipart';
 export type { StandardSchemaV1 } from './standard-schema';

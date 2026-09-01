@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createApp, Provider, Step, Route, Get, Module, needs } from '../src/index';
 import type { EventPayload } from '../src/bus';
+import { UNMATCHED_ROUTE } from '../src/index';
 
 @Provider({ provides: 'db' })
 class Db {
@@ -178,6 +179,40 @@ describe('failure reporting', () => {
     // Carries what was actually sent, so an error counter can break down by status without
     // joining back to the `request:end` that follows it.
     expect(requestFailures[0].status).toBe(500);
+  });
+
+  // The cardinality trap: `name` carries the path that arrived, which is bounded by nothing at all.
+  // A consumer labelling on `route` gets one bounded series for every path that was never a route;
+  // one labelling on `name` gets a series per scanner probe.
+  it('labels an unmatched request with a bounded route, on both events', async () => {
+    const app = createApp({ modules: [BadModule] });
+    const unmatched: EventPayload[] = [];
+    const ends: EventPayload[] = [];
+    app.bus.on('route:unmatched', (p) => unmatched.push(p));
+    app.bus.on('request:end', (p) => ends.push(p));
+
+    for (const probe of ['/aaa', '/aab', '/aac']) await app.fetch(new Request(`http://x${probe}`));
+
+    expect(unmatched).toHaveLength(3);
+    expect(ends).toHaveLength(3);
+    // Three distinct paths, one series.
+    expect(new Set(unmatched.map((e) => e.route))).toEqual(new Set([UNMATCHED_ROUTE]));
+    expect(new Set(ends.map((e) => e.route))).toEqual(new Set([UNMATCHED_ROUTE]));
+    // `name` still carries the concrete path, which is what makes it useful in a log and unusable
+    // as a label.
+    expect(new Set(unmatched.map((e) => e.name)).size).toBe(3);
+    // It cannot collide with a pattern a user can declare.
+    expect(UNMATCHED_ROUTE.startsWith('/')).toBe(false);
+  });
+
+  it('leaves a matched route labelled with its pattern, not the marker', async () => {
+    const app = createApp({ modules: [BadModule] });
+    const ends: EventPayload[] = [];
+    app.bus.on('request:end', (p) => ends.push(p));
+
+    await app.fetch(new Request('http://x/bad/go'));
+
+    expect(ends[0].route).toBe('/bad/go');
   });
 
   // The three-event overlap, asserted rather than described: one failing request, three events,

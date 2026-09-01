@@ -50,7 +50,9 @@ export type LifecycleEvent =
   | 'request:failed'
   | 'route:matched'
   // Covers a 404 *and* a 405 — the report's `route.not_found` names one outcome and would
-  // misreport the other, and "no route ran" is the fact a consumer actually wants.
+  // misreport the other, and "no route ran" is the fact a consumer actually wants. It is also not
+  // a synonym for "the request failed": a static file served from `createApp({ static })` matched
+  // no route either, and answers 200. Read the status from the `request:end` that follows.
   | 'route:unmatched';
 
 /**
@@ -82,6 +84,16 @@ export type LifecycleEvent =
  * the outcome from `request:end` and only the message from `request:failed`.
  */
 export interface EventPayload {
+  /**
+   * What the event is about, for a human reading a log line.
+   *
+   * **Never use this as a metric label.** On the request events it is caller-controlled: for a
+   * matched request it is the route pattern, but on `request:start` and `route:unmatched` it is
+   * built from the path that arrived. A matched path is bounded by the route table; an unmatched
+   * one is bounded by nothing at all, and a scanner walking `/aaa`, `/aab`, `/aac` becomes one
+   * label per distinct URL — a memory leak with a metrics backend attached. Label on {@link route},
+   * which is bounded by construction.
+   */
   name: string;
   scope?: string;
   error?: unknown;
@@ -90,7 +102,15 @@ export interface EventPayload {
   requestId?: string;
   /** A `traceparent` header carried verbatim. Core parses nothing — that is the exporter's job. */
   traceId?: string;
-  /** The matched *pattern* (`/users/:id`), never the concrete path — see {@link Correlation}. */
+  /**
+   * The matched *pattern* (`/users/:id`), never the concrete path — see {@link Correlation}.
+   *
+   * Bounded by the route table, which is what makes it the field to label a metric on. When nothing
+   * matched it is `'<unmatched>'` rather than absent, on `route:unmatched` and on the `request:end`
+   * that follows it: a single series for every path that was never a route, instead of a fallback
+   * each consumer invents and some get wrong. It cannot collide with a real pattern, which always
+   * starts with `/`.
+   */
   route?: string;
   method?: string;
   transport?: string;
