@@ -95,6 +95,48 @@ describe('stream lifecycle events, on every adapter', () => {
     });
   }
 
+  for (const adapter of ADAPTERS) {
+    it(`${adapter.name}: correlates every stream event with the request that opened it`, async () => {
+      // The split is deliberate — `request:end` fires when the handler returns, not when the
+      // stream it produced finishes, so an hour-long SSE connection and a 2ms reply never share a
+      // latency distribution. That only works if the two can be joined, and this is the join key.
+      const bus = new Bus();
+      const ids = new Set<string | undefined>();
+      const traces = new Set<string | undefined>();
+      const routes = new Set<string | undefined>();
+
+      for (const name of ['stream:open', 'stream:close'] as const)
+        bus.on(name, (e) => {
+          ids.add(e.requestId);
+          traces.add(e.traceId);
+          routes.add(e.route);
+        });
+
+      await adapter.serve(clean, bus);
+
+      expect([...ids]).toHaveLength(1);
+      expect([...ids][0]).toMatch(/^[0-9a-f-]{36}$/); // one id, and it is the request's
+      // Bounded by the route table, which is what makes it the field to label a metric on.
+      expect([...routes]).toEqual(['/feed']);
+      expect([...traces]).toEqual([undefined]); // absent, not invented, when no traceparent arrived
+    });
+  }
+
+  it('fetch: adopts the gateway s x-request-id rather than opening a second identity', async () => {
+    const bus = new Bus();
+    const ids: Array<string | undefined> = [];
+    bus.on('stream:open', (e) => ids.push(e.requestId));
+    bus.on('stream:close', (e) => ids.push(e.requestId));
+
+    await (
+      await buildFetch(clean, { bus })(
+        new Request('http://x/feed', { headers: { 'x-request-id': 'from-the-gateway', traceparent: 'tp-1' } }),
+      )
+    ).text();
+
+    expect(ids).toEqual(['from-the-gateway', 'from-the-gateway']);
+  });
+
   it('fetch: closes once when the client cancels mid-stream', async () => {
     // The exit `pipeStream` gets from `res.on('close')` and the ReadableStream gets from `cancel`.
     // Latched, because a cancel can also land after the body has already ended.
