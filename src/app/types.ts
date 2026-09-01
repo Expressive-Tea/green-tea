@@ -39,6 +39,15 @@ export interface App {
   listen(port: number): Promise<http.Server>;
   close(options?: { timeoutMs?: number }): Promise<void>;
   /**
+   * Wires `SIGINT`/`SIGTERM` to `closer` and returns a close that also unregisters them — or
+   * returns `closer` untouched when `createApp({ handleSignals })` was not set.
+   *
+   * `listen()`, `serveDeno()` and `serveBun()` each call this with the closer that actually drains
+   * their server, which is why the option is declared once on `createApp` and works on all three.
+   * Call it yourself only if you serve the app some other way.
+   */
+  handleSignals<T extends (options?: { timeoutMs?: number }) => Promise<void>>(closer: T): T;
+  /**
    * Resolves the dependency graph, then returns. For a mesh app that means connecting to its
    * teapots and splicing their scopes in — a mesh graph is not knowable without asking. For every
    * other app it is a no-op, so code holding an `App` can `await app.ready()` before

@@ -29,7 +29,10 @@ it('snapshots connection metadata before Deno invalidates the upgraded request',
   });
 
   const upgrade = vi.fn().mockResolvedValue(undefined);
-  serveDeno({ upgrade } as unknown as App);
+  // `handleSignals` is a pass-through here: this test is about upgrade metadata, and the identity
+  // it returns is exactly what `createApp` returns when `handleSignals` is left off.
+  const handleSignals = <T,>(closer: T): T => closer;
+  serveDeno({ upgrade, handleSignals } as unknown as App);
   const info = {
     get remoteAddr() {
       if (upgraded) throw new TypeError('Request closed');
