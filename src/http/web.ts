@@ -1,6 +1,14 @@
 import type { StreamEncoder } from '../encoders';
 import { createRequestGate } from './request-gate';
-import { handle, computeInjected, correlateRequest, type HandleResult, type Preflight } from './core';
+import {
+  handle,
+  computeInjected,
+  correlateRequest,
+  emitShedPair,
+  watchingRequests,
+  type HandleResult,
+  type Preflight,
+} from './core';
 import { mergeInjectedHeaders } from './headers';
 import type { BodyFailure, BodyReader, MaybePromise } from './body';
 import { HttpError } from '../signals';
@@ -69,7 +77,7 @@ function readFetchBytes(
         url: url.pathname + url.search,
         headers: headersToRecord(request.headers),
       };
-      return { fail: renderError(new HttpError(413, 'Payload Too Large'), errReq, opts?.onError) };
+      return { fail: renderError(new HttpError(413, 'Payload Too Large'), errReq, opts?.onError, opts?.logger) };
     }
 
     return { bytes: arrayBuffer.byteLength === 0 ? undefined : Buffer.from(arrayBuffer) };
@@ -143,21 +151,22 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
 
     let result: HandleResult | Preflight;
     let acquired = false;
-    const watchingEnd = opts?.bus?.hasListeners('request:end') ?? false;
-    const startedAt = watchingEnd ? performance.now() : 0;
+    const watching = watchingRequests(opts?.bus);
+    const startedAt = watching ? performance.now() : 0;
 
     try {
       if (!gate.acquire()) {
-        if (watchingEnd) {
-          opts!.bus!.emit('request:end', {
-            name: `${request.method} ${path}`,
-            method: request.method,
-            status: 503,
-            durationMs: performance.now() - startedAt,
-            requestId: correlation.requestId,
-            traceId: correlation.traceId,
-          });
-        }
+        if (watching)
+          emitShedPair(
+            opts!.bus!,
+            {
+              method: request.method,
+              url: path,
+              requestId: correlation.requestId,
+              traceId: correlation.traceId,
+            },
+            startedAt,
+          );
 
         return new Response(JSON.stringify({ error: 'Service Unavailable' }), {
           status: 503,
@@ -171,7 +180,7 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
         });
       }
 
-      acquired = true;
+      acquired = gate.limited;
 
       result = await handle(
         routes,

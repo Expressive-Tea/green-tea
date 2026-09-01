@@ -1,6 +1,7 @@
 import { isHttpError, ValidationError } from './signals';
 import type { TransformerFn } from './metadata';
 import { flattenPath } from './standard-schema';
+import type { Logger } from './logger';
 
 /** A ready-to-send HTTP response. */
 export interface ErrorResponse {
@@ -60,6 +61,32 @@ export function errorToResponse(error: unknown): ErrorResponse {
 }
 
 /** Render an error through the optional user {@link ErrorRenderer}, falling back to {@link errorToResponse}. */
-export function renderError(error: unknown, req: ErrorRequest, onError?: ErrorRenderer): ErrorResponse {
-  return onError?.(error, req) ?? errorToResponse(error);
+export function renderError(
+  error: unknown,
+  req: ErrorRequest,
+  onError?: ErrorRenderer,
+  logger?: Logger,
+): ErrorResponse {
+  if (!onError) return errorToResponse(error);
+
+  // `onError` is user code, it runs on the request path, and it runs *after something already went
+  // wrong* — which makes an unguarded throw here the worst-timed crash in the framework: the error
+  // occurs, the code written to report it fails, and the process ends instead of degrading.
+  //
+  // It is also easy to reach. This renders the 404 too, not just a thrown handler, so an app with a
+  // custom renderer and no matching route is one request away from exiting.
+  //
+  // A renderer that throws falls back to the built-in rendering, which is exactly what the option
+  // overrides and therefore the honest thing to fall back to: the original error still gets its
+  // response. The renderer's own failure is reported separately, because it is a different error
+  // from the request's and a reader chasing the wrong one loses an afternoon.
+  try {
+    return onError(error, req) ?? errorToResponse(error);
+  } catch (rendererError) {
+    logger?.error('createApp({ onError }) threw while rendering — falling back to the built-in renderer', {
+      err: rendererError instanceof Error ? rendererError.message : String(rendererError),
+      rendering: error instanceof Error ? error.message : String(error),
+    });
+    return errorToResponse(error);
+  }
 }

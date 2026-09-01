@@ -144,7 +144,7 @@ function errorOutcome(
   opts: HttpOptions | undefined,
   headers: Record<string, string> = {},
 ): HandleResult {
-  const rendered = renderError(error, req, opts?.onError);
+  const rendered = renderError(error, req, opts?.onError, opts?.logger);
   return {
     injected,
     outcome: {
@@ -192,6 +192,15 @@ async function unmatchedOutcome(
   return errorOutcome(error, req, injected, opts, allow.length ? { allow: allow.join(', ') } : {});
 }
 
+/**
+ * The `route` reported for a request no route matched.
+ *
+ * A bounded value rather than an empty field, and deliberately unlike any pattern a user can
+ * declare — a route pattern starts with `/`, so this cannot collide with one. It aggregates as a
+ * single series where the concrete path would produce one per distinct URL.
+ */
+export const UNMATCHED_ROUTE = '<unmatched>';
+
 /** What `dispatch` learned along the way that `handle` needs in order to describe the request afterwards. */
 interface Trace {
   route?: string;
@@ -232,6 +241,48 @@ export function handle(
   }
 
   return observedDispatch(routes, opts, req, bus, injected);
+}
+
+/**
+ * Whether anything is listening for the request pair — the one check both adapters need before
+ * paying for a `performance.now()` on a request they are about to refuse.
+ */
+export function watchingRequests(bus: Bus | undefined): bus is Bus {
+  return bus !== undefined && (bus.hasListeners('request:start') || bus.hasListeners('request:end'));
+}
+
+/**
+ * Emits the lifecycle pair for a request shed before routing.
+ *
+ * A shed request never reaches {@link handle}, so `observedDispatch` — the emitter every other
+ * terminal path goes through — never sees it, and an adapter that emitted only `request:end` would
+ * be the first thing in the tree to break the pairing {@link LifecycleEvent} guarantees. Both
+ * events are emitted here, in order, so a consumer that opens per-`requestId` state on
+ * `request:start` and closes it on `request:end` does not start leaking half-open entries the first
+ * time a server sheds — under load, which is when it can least afford them.
+ *
+ * Each event keeps its own listener guard: the pairing is a promise to a subscriber of *both*, and
+ * costs nothing for a subscriber of one.
+ */
+export function emitShedPair(
+  bus: Bus,
+  req: { method: string; url: string; requestId?: string; traceId?: string },
+  startedAt: number,
+): void {
+  const name = `${req.method} ${req.url}`;
+
+  if (bus.hasListeners('request:start'))
+    bus.emit('request:start', { name, method: req.method, requestId: req.requestId, traceId: req.traceId });
+
+  if (bus.hasListeners('request:end'))
+    bus.emit('request:end', {
+      name,
+      method: req.method,
+      status: 503,
+      durationMs: performance.now() - startedAt,
+      requestId: req.requestId,
+      traceId: req.traceId,
+    });
 }
 
 async function observedDispatch(
@@ -301,9 +352,18 @@ async function dispatch(
   const matched = resolveRoute(routes, req.method, path);
 
   if (!matched) {
+    // `name` here is the path that arrived, and it is the one value in this payload that must never
+    // become a metric label: a matched route's path is bounded by the route table, an unmatched one
+    // is bounded by nothing at all, and a scanner walking /aaa, /aab, /aac is a memory leak with a
+    // metrics backend attached. So the event carries a bounded `route` as well, and so does the
+    // `request:end` that follows it, rather than leaving every consumer to invent the same fallback
+    // and some of them to get it wrong.
+    if (trace) trace.route = UNMATCHED_ROUTE;
+
     if (bus?.hasListeners('route:unmatched'))
       bus.emit('route:unmatched', {
         name: `${req.method} ${path}`,
+        route: UNMATCHED_ROUTE,
         method: req.method,
         requestId: req.requestId,
         traceId: req.traceId,
@@ -350,7 +410,7 @@ async function dispatch(
       traceId: req.traceId,
     });
   } catch (error) {
-    result = renderError(error, req, opts?.onError);
+    result = renderError(error, req, opts?.onError, opts?.logger);
   }
 
   if (isStreamResult(result)) {

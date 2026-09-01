@@ -1,4 +1,28 @@
-/** Names of every lifecycle event the framework emits over the {@link Bus}. */
+/**
+ * Names of every lifecycle event the framework emits over the {@link Bus}.
+ *
+ * ### The request pair is a guarantee
+ *
+ * **Every `request:end` is preceded by a `request:start` carrying the same `requestId`.** A
+ * consumer may open per-request state on the first and close it on the second without checking
+ * whether the request got as far as a route — a shed `503` emits the pair as surely as a `200`
+ * does.
+ *
+ * This is a promise to emitters as much as to subscribers: a terminal path that emits one must
+ * emit the other, in that order. It held by accident until `maxConcurrentRequests` added the first
+ * terminal path that does not reach the router, and `test/lifecycle-pairing.test.ts` enumerates
+ * every response shape so that the next one cannot break it quietly. The alternative — documenting
+ * `request:end` as standalone — was rejected because it makes the obvious consumer wrong: an
+ * in-flight gauge counting `start` up and `end` down would drift negative under shedding, which is
+ * exactly when an operator is reading it.
+ *
+ * ### `request:end` is terminal and universal; the others are additional
+ *
+ * `request:end` fires for every dispatched request — handled, thrown and unmatched alike — and is
+ * the only one of these carrying the real status. **Count it, and nothing else.**
+ * `request:failed` and `route:unmatched` describe the *same* request and fire in addition to it, so
+ * a consumer that counts them as separate outcomes counts one request twice. See `EventPayload`.
+ */
 export type LifecycleEvent =
   | 'boot:provider:start'
   | 'boot:provider:ok'
@@ -17,12 +41,18 @@ export type LifecycleEvent =
   // came up, and a deploy watching for trouble wants to tell those apart.
   | 'mesh:boot:retry'
   | 'plugin:mounted'
+  // Paired: see the guarantee above. `request:start` has no status and no duration — it says a
+  // request arrived, not that it routed.
   | 'request:start'
   | 'request:end'
+  // "handler code threw", and *additional* to the `request:end` that follows it — a rendered 422 is
+  // also a throw, which is a thing a status alone cannot express.
   | 'request:failed'
   | 'route:matched'
   // Covers a 404 *and* a 405 — the report's `route.not_found` names one outcome and would
-  // misreport the other, and "no route ran" is the fact a consumer actually wants.
+  // misreport the other, and "no route ran" is the fact a consumer actually wants. It is also not
+  // a synonym for "the request failed": a static file served from `createApp({ static })` matched
+  // no route either, and answers 200. Read the status from the `request:end` that follows.
   | 'route:unmatched';
 
 /**
@@ -31,8 +61,39 @@ export type LifecycleEvent =
  *
  * Everything past `name` is optional and stays that way. Boot and mesh events have no request to
  * name, and requiring a shape they cannot fill would only mean inventing values for it.
+ *
+ * ### One failed request produces three events
+ *
+ * A single request that throws emits `request:start`, then `request:failed`, then `request:end`.
+ * All three carry the same `requestId`, and the first implementation anyone writes counts the
+ * failure twice — once from `request:failed` and once from the `request:end` that follows it,
+ * under whatever status it invents for the one that had none. `route:unmatched` overlaps the same
+ * way: it fires *in addition to* the `request:end` that follows, so a 404 is two events and one
+ * outcome.
+ *
+ * The division of labour, which is the thing to build against:
+ *
+ * - **`request:end`** — terminal, universal, and the only one carrying the status the client
+ *   received. This is the request counter and the latency histogram.
+ * - **`request:failed`** — *handler code threw*, which no status can express on its own: a
+ *   rendered `422` is also a throw. This is a separate error counter, not a second request
+ *   counter.
+ * - **`route:unmatched`** — *no route ran*, covering 404 and 405 alike. Also additional.
+ *
+ * `logRequests` gets this right and is worth reading as a reference (`src/logger.ts`): it takes
+ * the outcome from `request:end` and only the message from `request:failed`.
  */
 export interface EventPayload {
+  /**
+   * What the event is about, for a human reading a log line.
+   *
+   * **Never use this as a metric label.** On the request events it is caller-controlled: for a
+   * matched request it is the route pattern, but on `request:start` and `route:unmatched` it is
+   * built from the path that arrived. A matched path is bounded by the route table; an unmatched
+   * one is bounded by nothing at all, and a scanner walking `/aaa`, `/aab`, `/aac` becomes one
+   * label per distinct URL — a memory leak with a metrics backend attached. Label on {@link route},
+   * which is bounded by construction.
+   */
   name: string;
   scope?: string;
   error?: unknown;
@@ -41,10 +102,23 @@ export interface EventPayload {
   requestId?: string;
   /** A `traceparent` header carried verbatim. Core parses nothing — that is the exporter's job. */
   traceId?: string;
-  /** The matched *pattern* (`/users/:id`), never the concrete path — see {@link Correlation}. */
+  /**
+   * The matched *pattern* (`/users/:id`), never the concrete path — see {@link Correlation}.
+   *
+   * Bounded by the route table, which is what makes it the field to label a metric on. When nothing
+   * matched it is `'<unmatched>'` rather than absent, on `route:unmatched` and on the `request:end`
+   * that follows it: a single series for every path that was never a route, instead of a fallback
+   * each consumer invents and some get wrong. It cannot collide with a real pattern, which always
+   * starts with `/`.
+   */
   route?: string;
   method?: string;
   transport?: string;
+  /**
+   * The status the client received. Present on `request:end` always, and on `request:failed`
+   * except when a custom `onError` renderer threw while producing it — the one case where the
+   * framework does not know what was sent, and will not guess.
+   */
   status?: number;
 }
 
@@ -57,6 +131,22 @@ export interface EventPayload {
  * than the application. Handing anyone that shape by default would be the framework's fault.
  */
 export type Correlation = Pick<EventPayload, 'requestId' | 'traceId' | 'route' | 'method' | 'transport'>;
+
+/**
+ * The read-only half of the {@link Bus}, as `@needs('events')` hands it over.
+ *
+ * `on` and deliberately not `emit`: a channel anything can write to is not an observation channel,
+ * and the framework's own events would stop being trustworthy the moment a node could forge one.
+ * Plugins get exactly this same narrowing.
+ *
+ * `on` returns its own unsubscribe. Use it — a `@Provider` that subscribes should release in
+ * `dispose()`, and a `@Step` should not subscribe at all, since it runs once per request and would
+ * add a listener each time. A plugin, which gets `on` and `onShutdown` together, is the home this
+ * token exists to point at rather than replace.
+ */
+export interface Events {
+  on: Bus['on'];
+}
 
 /** In-process pub/sub for framework lifecycle events; observer failures are swallowed so they never break the pipeline. */
 export class Bus {

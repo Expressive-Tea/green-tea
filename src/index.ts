@@ -60,7 +60,7 @@ export {
 
 // Bus & flow
 export { Bus } from './bus';
-export type { LifecycleEvent, EventPayload, Correlation } from './bus';
+export type { LifecycleEvent, EventPayload, Correlation, Events } from './bus';
 export { flow, Flow } from './flow';
 export type { StepFn, CompiledFlow } from './flow';
 
@@ -81,6 +81,7 @@ export type { StreamEncoder } from './encoders';
 
 // HTTP, security & validation
 export type { RequestLimits } from './http';
+export { UNMATCHED_ROUTE } from './http/core';
 export type { TlsOptions, CorsOptions, SecurityOptions } from './security';
 export type { UploadedFile, MultipartBody } from './multipart';
 export type { StandardSchemaV1 } from './standard-schema';

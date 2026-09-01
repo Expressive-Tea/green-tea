@@ -129,7 +129,7 @@ function parseAcquired(
 
   return parseRequestBody(acquired.bytes, contentType, duplicates, maxParts).then((parsed) =>
     'error' in parsed
-      ? { fail: renderError(new HttpError(parsed.status ?? 400, parsed.error), req, opts?.onError) }
+      ? { fail: renderError(new HttpError(parsed.status ?? 400, parsed.error), req, opts?.onError, opts?.logger) }
       : { body: parsed.body },
   );
 }

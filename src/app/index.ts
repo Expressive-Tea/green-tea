@@ -1,5 +1,5 @@
 import type http from 'http';
-import { Bus } from '../bus';
+import { Bus, type Events } from '../bus';
 import { createDefaultLogger, logRequests, type Logger } from '../logger';
 import { Container } from '../container';
 import { topoSort, subgraphFor, GraphNode, nearest } from '../graph';
@@ -62,7 +62,7 @@ interface Registry {
   exportedProviders: string[];
   exportedSteps: string[];
   exportedRoutes: RouteEntry[];
-  setRunner(name: string, runner: Runner): void;
+  setRunner(name: string, runner: Runner, framework?: boolean): void;
 }
 
 /**
@@ -86,6 +86,8 @@ interface PipelineDeps {
   planSteps(plan: RoutePlan): PipelineStep[];
   bus: Bus;
   onError?: ErrorRenderer;
+  /** Where a failing `onError` is reported — the renderer's error is not the request's. */
+  logger: Logger;
 }
 
 /**
@@ -208,7 +210,7 @@ export function createApp(opts: {
   const { providerNodes, stepNodes, runners, providerMeta, routePlans } = registry;
   const teardown = buildTeardownRegistry(opts.hooks, opts.teardownTimeoutMs, opts.shutdownTimeoutMs);
   mountPlugins(opts.plugins, bus, registry, teardown);
-  provideBuiltins(registry, logger);
+  provideBuiltins(registry, logger, bus);
 
   // For each route, resolve which providers/steps feed it via topo order.
   // MVP: every route depends on every declared step + provider in the app graph.
@@ -229,7 +231,7 @@ export function createApp(opts: {
 
   const providedSeed = (plan: RoutePlan) => seedProviders(container, plan);
   const planSteps = (plan: RoutePlan) => compilePlanSteps(runners, plan);
-  const pipelineDeps: PipelineDeps = { providedSeed, planSteps, bus, onError: opts.onError };
+  const pipelineDeps: PipelineDeps = { providedSeed, planSteps, bus, onError: opts.onError, logger };
   let meshControl: MeshControl | undefined;
 
   // mesh teacup: connect remote teapots and splice their scopes/routes in, then finalize.
@@ -306,7 +308,7 @@ export function createApp(opts: {
   };
   const fetchFn = buildAppFetch(
     routePlans,
-    { providedSeed, planSteps, bus, onError: opts.onError },
+    { providedSeed, planSteps, bus, onError: opts.onError, logger },
     fetchOpts,
     bootApp,
     devRoutes,
@@ -404,7 +406,12 @@ export function createApp(opts: {
 function emptyRegistry(): Registry {
   const runners = new Map<string, Runner>(); // node name -> runtime fn
 
-  const setRunner = (name: string, runner: Runner) => {
+  const setRunner = (name: string, runner: Runner, framework = false) => {
+    if (!framework && RESERVED_TOKENS.has(name))
+      throw new Error(
+        `'${name}' is reserved by the framework and cannot be provided by a module, plugin or mesh export — ` +
+          `rename it. The framework's own '${name}' is what '@needs' resolves to.`,
+      );
     if (runners.has(name))
       throw new Error(`duplicate provider/step name '${name}' — names must be unique across modules and plugins`);
     runners.set(name, runner);
@@ -593,22 +600,46 @@ function mountPlugins(plugins: Plugin[] | undefined, bus: Bus, registry: Registr
 }
 
 /** Auto-provides a shared {@link Rooms} instance unless the user already declared a `rooms` provider. */
-function provideBuiltins(registry: Registry, logger: Logger): void {
+/**
+ * Token names the framework owns. Declaring one is a boot error, not a silent override.
+ *
+ * Builtins used to be registered with `if (!runners.has(name))`, so a provider called `logger`
+ * quietly replaced the framework's own and every `@needs('logger')` in the app got something else.
+ * That is the kind of thing that is discovered from a log line that never appeared.
+ *
+ * `bus` is reserved without being provided, on purpose. It is not a graph token — putting the `Bus`
+ * itself in the graph would hand `emit` to every node and turn a one-way observation channel into
+ * something anything can forge events on. Reserving the name means `@needs('bus')` can say that,
+ * instead of resolving to whatever a user happened to call `bus` and being wrong in silence.
+ */
+const RESERVED_TOKENS = new Set(['logger', 'rooms', 'events', 'bus']);
+
+function provideBuiltins(registry: Registry, logger: Logger, bus: Bus): void {
+  const builtin = (name: string, value: () => Record<string, unknown>): void => {
+    registry.providerNodes.push({ name, needs: [], provides: [name], origin: 'builtin' });
+    registry.providerMeta.set(name, { optional: false });
+    registry.setRunner(name, value, true);
+  };
+
   // `logger` is registered as an ordinary provider *in addition to* being framework infrastructure,
   // so a step or handler reaches it with `@needs('logger')` like any other dependency. It is the
   // same object createApp holds, not a second one — core cannot depend on the graph for something
   // it must use while the graph is still resolving.
-  if (!registry.runners.has('logger')) {
-    registry.providerNodes.push({ name: 'logger', needs: [], provides: ['logger'], origin: 'builtin' });
-    registry.providerMeta.set('logger', { optional: false });
-    registry.setRunner('logger', () => ({ logger }));
-  }
+  builtin('logger', () => ({ logger }));
 
-  if (registry.runners.has('rooms')) return;
   const roomsInstance = new Rooms();
-  registry.providerNodes.push({ name: 'rooms', needs: [], provides: ['rooms'], origin: 'builtin' });
-  registry.providerMeta.set('rooms', { optional: false });
-  registry.setRunner('rooms', () => ({ rooms: roomsInstance })); // merge object -> ctx.rooms
+  builtin('rooms', () => ({ rooms: roomsInstance }));
+
+  // The read-only half of the bus, and only the read-only half: `on`, never `emit`. The same
+  // narrowing a plugin gets, for the same reason — an observation channel anything can write to is
+  // not one.
+  //
+  // A subscription is not like the other injectables, and the difference is the scope that reaches
+  // it. A `@Provider` runs once, so subscribing there is fine; a `@Step` runs *per request*, and a
+  // step that calls `on()` registers a listener on every one of them. `on()` returns its own
+  // unsubscribe for the provider that wants to clean up in `dispose()` — but a plugin, which gets
+  // `on` and `onShutdown` together, remains the right home for observation.
+  builtin('events', () => ({ events: { on: bus.on.bind(bus) } satisfies Events }));
 }
 
 // Boot-time nudge: a route whose need-closure pulls this many steps is almost always a modeling
@@ -666,6 +697,21 @@ function assertNeedsSatisfiable(routePlans: RoutePlan[], providerNodes: GraphNod
   for (const plan of routePlans) {
     for (const need of plan.needs) {
       if (allowed.has(need)) continue;
+
+      // The generic message plus a nearest-match is right for a typo and useless here: nothing is
+      // spelled nearly enough like `bus` to suggest, and the reader's mistake is not a typo but a
+      // reasonable guess about the shape. `@needs('logger')` teaches that framework things are
+      // graph tokens, so `@needs('bus')` is the next instinct — and the boot error is the first
+      // news that it is not the same shape. Say why, where they are.
+      if (need === 'bus') {
+        throw new Error(
+          `handler '${plan.handlerName}' needs 'bus' — the Bus is not a graph token, because a node ` +
+            `that could reach it could also emit, and an observation channel anything can write to ` +
+            `is not one. Use @needs('events') for the read-only half ({ on }), or write a plugin, ` +
+            `which gets on() and onShutdown() together and is the right home for observation.`,
+        );
+      }
+
       const hint = nearest(need, allowed);
       throw new Error(
         `handler '${plan.handlerName}' needs '${need}' but nothing (local or mesh) provides it${hint ? ` — did you mean '${hint}'?` : ''}`,
@@ -1006,7 +1052,7 @@ function buildMeshControl(
 
   if (!mesh?.secret || !hasExports) return undefined;
   const { container, orderedProviders, orderedSteps } = deps;
-  const { bus, providedSeed, planSteps, onError } = deps.deps;
+  const { bus, providedSeed, planSteps, onError, logger } = deps.deps;
   const manifest = buildManifest({ providers: exportedProviders, steps: exportedSteps, routes: exportedRoutes });
 
   const resolveScope = async (name: string, env: RequestEnvelope): Promise<unknown> => {
@@ -1045,6 +1091,7 @@ function buildMeshControl(
       transformer: plan.transformer,
       bus,
       onError,
+      logger,
       transport: plan.transport,
       correlation: {
         requestId: env.correlation?.requestId,
@@ -1070,7 +1117,7 @@ function buildMeshControl(
 
 /** Compiles every non-ws route plan into an HTTP route that seeds and runs the pipeline, plus any remote routes. */
 function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps: PipelineDeps): RouteDef[] {
-  const { providedSeed, planSteps, bus, onError } = deps;
+  const { providedSeed, planSteps, bus, onError, logger } = deps;
 
   const local = routePlans
     .filter((plan) => plan.transport !== 'ws') // buffer | sse | ndjson | negotiate
@@ -1089,6 +1136,7 @@ function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps
           transformer: plan.transformer,
           bus,
           onError,
+          logger,
           transport: plan.transport,
           // `route` is the pattern, never req.url — a metrics consumer labelling on concrete
           // paths gets one label per distinct URL, and that takes down the metrics backend.

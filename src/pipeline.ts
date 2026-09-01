@@ -3,6 +3,7 @@ import { renderError, type ErrorRenderer } from './transformers';
 import { isAsyncIterable } from './channel';
 import type { TransformerFn, Transport } from './metadata';
 import { TransportMismatchError } from './signals';
+import type { Logger } from './logger';
 
 /** A single step in a request pipeline: a named unit whose `run` merges its output into the shared context. */
 export interface PipelineStep {
@@ -113,9 +114,10 @@ export async function runPipeline(args: {
   bus: Bus;
   transport: Transport;
   onError?: ErrorRenderer;
+  logger?: Logger;
   correlation?: Correlation;
 }): Promise<PipelineResult> {
-  const { steps, handler, transformer, seed, bus, transport, onError, correlation = {} } = args;
+  const { steps, handler, transformer, seed, bus, transport, onError, logger, correlation = {} } = args;
   // context is intentionally `any`: each step merges arbitrary keys into the accumulator
   let context: any = { ...seed };
 
@@ -137,16 +139,33 @@ export async function runPipeline(args: {
     const transformed = transformer(result);
     return { status: transformed.status ?? 200, headers: transformed.headers ?? {}, body: transformed.body };
   } catch (error) {
-    // Both fire for a failing step, deliberately: `request:step:error` above marks the span,
-    // this marks the trace. A tracing exporter needs each, and only emitting the outer one is
-    // what produces a trace that says a request failed without saying where.
-    if (bus.hasListeners('request:failed'))
-      bus.emit('request:failed', { name: correlation.route ?? 'pipeline', error, ...correlation });
     const req = (context.req ?? {}) as { method?: string; url?: string; headers?: Record<string, unknown> };
-    return renderError(
-      error,
-      { method: req.method ?? '', url: req.url ?? '', headers: (context.headers ?? req.headers ?? {}) as never },
-      onError,
-    );
+    let status: number | undefined;
+
+    try {
+      const rendered = renderError(
+        error,
+        { method: req.method ?? '', url: req.url ?? '', headers: (context.headers ?? req.headers ?? {}) as never },
+        onError,
+        logger,
+      );
+      status = rendered.status;
+      return rendered;
+    } finally {
+      // Both fire for a failing step, deliberately: `request:step:error` above marks the span,
+      // this marks the trace. A tracing exporter needs each, and only emitting the outer one is
+      // what produces a trace that says a request failed without saying where.
+      //
+      // Emitted after the render rather than before it, because the status is only decided there:
+      // `onError` may turn any throw into any status, so deriving one from the error would be a
+      // guess that a custom renderer makes wrong.
+      //
+      // In `finally` rather than after the call, so that nothing between here and the emit can cost
+      // us the only record that a request failed. `renderError` already contains a throwing
+      // `onError` and degrades to the built-in rendering, so this is a second line rather than the
+      // first — but a failure whose reporting is what broke is the worst one to lose.
+      if (bus.hasListeners('request:failed'))
+        bus.emit('request:failed', { name: correlation.route ?? 'pipeline', error, status, ...correlation });
+    }
   }
 }

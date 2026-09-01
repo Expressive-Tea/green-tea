@@ -1,5 +1,6 @@
 import { describe, expect, it, test, vi } from 'vitest';
 import * as net from 'node:net';
+import { ServerResponse } from 'node:http';
 import { once } from 'node:events';
 import { Bus } from '../src/bus';
 import { matchRoute, parseQuery, createHttpServer } from '../src/http';
@@ -417,6 +418,47 @@ describe('request hardening', () => {
     expect(calls).toBe(0);
 
     server.close();
+  });
+
+
+  // `maxConcurrentRequests` is opt-in and unlimited by default, so the overwhelming majority of
+  // apps used to pay a closure and an EventEmitter registration per request for a feature that is
+  // off. Small in absolute terms, and on the hot path, which is why it is asserted rather than
+  // trusted: a `res.once('close')` is exactly the kind of line that comes back.
+  it('registers no per-request close listener when no request budget is configured', async () => {
+    const closeListeners: string[] = [];
+    // Typed loosely on purpose: `once` is an overloaded EventEmitter signature and the spy only
+    // needs to see the event name before handing the call straight back to the real one.
+    const proto = ServerResponse.prototype as unknown as {
+      once(event: string | symbol, listener: (...args: unknown[]) => void): unknown;
+    };
+    const realOnce = proto.once;
+    const spy = vi.spyOn(proto, 'once').mockImplementation(function (this: unknown, event, listener) {
+      if (event === 'close') closeListeners.push('close');
+      return realOnce.call(this, event, listener);
+    });
+
+    try {
+      const unlimited = createHttpServer([{ method: 'GET', pattern: '/ping', transport: 'buffer', handler }]);
+      await new Promise<void>((r) => unlimited.listen(0, r));
+      expect((await fetch(`${getUrl(unlimited)}/ping`)).status).toBe(200);
+      expect(closeListeners).toHaveLength(0);
+      unlimited.close();
+
+      // With a budget set, the listener is what releases the slot on a client disconnect, so it
+      // has to come back — the guard is about the unset case, not about dropping the feature.
+      const limited = createHttpServer(
+        [{ method: 'GET', pattern: '/ping', transport: 'buffer', handler }],
+        [], undefined, undefined,
+        { limits: { maxConcurrentRequests: 4 } },
+      );
+      await new Promise<void>((r) => limited.listen(0, r));
+      expect((await fetch(`${getUrl(limited)}/ping`)).status).toBe(200);
+      expect(closeListeners.length).toBeGreaterThan(0);
+      limited.close();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
 });
