@@ -41,7 +41,7 @@ import type { App, InspectLine, Explain, RoutePlan, MeshConfig } from './types';
 import { inspectRoute, buildGraphView, explainRoute } from './introspect';
 import { compilePattern } from '../http/router';
 
-export type { App, InspectLine, ExplainNode, Explain, MeshConfig } from './types';
+export type { App, InspectLine, ExplainNode, Explain, MeshConfig, Hooks } from './types';
 
 type Runner = (ctx: any) => any;
 

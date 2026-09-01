@@ -40,8 +40,10 @@ export {
   Options,
   Html,
 } from './metadata';
-export type { Transport, HttpMethod, RouteDecorator } from './metadata';
-export type { Plugin } from './plugin';
+export type { Transport, HttpMethod, RouteDecorator, TransformerFn } from './metadata';
+export type { Plugin, PluginApi, ScopeApi, ScopeNode } from './plugin';
+export type { Hooks } from './app';
+export type { TeardownFn } from './lifecycle';
 
 // Transformers & error signals
 export { JsonTransformer } from './transformers';
