@@ -76,8 +76,8 @@ export type { Logger, LogLevel, LogFields } from './logger';
 export { channel, isAsyncIterable } from './channel';
 export type { Channel } from './channel';
 export { Rooms } from './rooms';
-export { sseEncoder, ndjsonEncoder } from './encoders';
-export type { StreamEncoder } from './encoders';
+export { sse, isSseEvent, sseEncoder, ndjsonEncoder } from './encoders';
+export type { StreamEncoder, SseEvent, SseFields } from './encoders';
 
 // HTTP, security & validation
 export type { RequestLimits } from './http';
