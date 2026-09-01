@@ -8,6 +8,78 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ## [Unreleased]
 
+### Added
+
+- **A request budget, not just a connection cap.** `createApp({ limits: { maxConcurrentRequests } })`
+  bounds how many handlers run at once, per server and per Fetch adapter instance; over the budget a
+  request gets `503` with `Retry-After: 1` instead of queueing behind the ones already running. It is
+  opt-in and unlimited by default, and it counts *executing handlers* rather than open connections —
+  the slot is released when routing and the handler finish, so a long-lived SSE stream or a WebSocket
+  upgrade does not hold one for its lifetime. On Node a client disconnect releases the slot early. A
+  handler that never returns keeps its slot, which is the honest behaviour for a budget of this shape.
+  Contributed by @hgshreyas.
+
+  Node's connection cap also stopped being silent: reaching `maxConnections` now logs a warning
+  naming the dropped peer, rate-limited to one a minute. Until now the socket was destroyed with no
+  HTTP response and nothing said so, which reads from the outside like a network fault.
+
+- **`createApp({ handleSignals: true })` registers `SIGINT`/`SIGTERM` to close and exit.** Off by
+  default, and that is the design rather than caution: a library that installs process-wide handlers
+  behind your back is worse than one that installs none, because when the process exits is the
+  application's call. Both halves are supported — keep the handler, or hand it over. What is not
+  optional either way is that *something* calls `close()`; the teardown registry only runs from
+  there, so a container `SIGKILL`ed after its grace period skips every `dispose()` and reports
+  nothing.
+
+  Declared once and wired per runtime by whichever boot call runs — `listen()`, `serveDeno()` and
+  `serveBun()` each attach it to the closer that drains *their* server, so `process.on` on Node and
+  Bun and `Deno.addSignalListener` on Deno stop being the application's problem. `close()`
+  unregisters, which means a *second* signal falls through to the platform default and ends the
+  process at once: Ctrl-C twice is the way out of a teardown that is stuck.
+
+- **The extension-point types are exported, not just the extension points.** `TransformerFn` — the
+  type of `@Transformer`'s only argument — could not be imported, so a custom transformer was
+  attached with its shape redeclared inline or borrowed off a value as `typeof JsonTransformer`.
+  Checking the barrel for the same oversight turned up four more, all now exported: `PluginApi`,
+  `ScopeApi` and `ScopeNode`, the chain reached through `api.scope.add`, without which a plugin split
+  into named functions cannot annotate what it receives; plus `Hooks` and `TeardownFn`. Types only —
+  nothing at runtime moved and no existing export changed.
+
+### Changed
+
+- **A request's security and CORS headers are computed once.** They were derived twice per request
+  and three times for a preflight — once in the adapter, to seed the headers a response written
+  before routing still has to carry, and again during dispatch. Nothing was incorrect, but
+  `cors.origins` is a predicate precisely so it can be a lookup: an allowlist in Redis, a tenant
+  query. Running it two or three times charged the caller's latency budget and their backend for an
+  answer whose inputs had not changed in between, and made a predicate with a counter in it count
+  double.
+
+### Fixed
+
+- **A `cors.origins` predicate that throws no longer takes the process down.** The predicate runs on
+  the request path, above the region where errors convert to a response, so a throw became a rejected
+  promise nobody awaited — and Node's default for that is to exit. One cross-origin request was
+  enough, `onError` never saw it, and the trigger is a browser: the predicate is only reached when an
+  `Origin` header is present, so no test that forgets the header can catch it. A predicate that throws
+  now **denies** the origin and the failure is logged. A lookup that failed has not said yes, and a
+  broken allowlist must never widen into an open one.
+
+- **The JSR package works.** JSR serves `src/` rather than the tsup build, and the ESM build's
+  `createRequire` banner therefore never existed there — so every lazy `require()` in the source had
+  nothing to resolve. `@Html('file')` and template mode died at boot on Deno with `ReferenceError:
+  require is not defined`. Two other sites were worse than the crash because they answered
+  confidently and wrongly: `static` reported *"needs a filesystem and is unavailable on this runtime
+  (edge)"* while running on Deno, which has one, and multipart reported `busboy` as not installed
+  while it sat in `node_modules`. Both blamed the runtime for a packaging problem, and both named a
+  runtime the reader was not on.
+
+  Every call site now resolves through one helper that prefers the ambient `require` — so both npm
+  builds behave exactly as before — and otherwise rebuilds one from
+  `process.getBuiltinModule('node:module')`, which Node, Deno and Bun all expose synchronously. On
+  workerd, which offers neither, nothing changes and the guarded sites' "edge has no filesystem"
+  story is finally the true one.
+
 ## [26.8.0-beta.1] - 2026-08-19
 
 ### Added
