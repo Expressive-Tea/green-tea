@@ -13,8 +13,6 @@ export interface CompiledPattern {
   segments: CompiledSegment[];
   kinds: number[];
   catchAll: boolean;
-  /** Every segment is a literal, so this pattern scores the maximum specificity and cannot be outranked. */
-  allStatic: boolean;
 }
 
 const compiledCache = new Map<string, CompiledPattern>();
@@ -160,7 +158,6 @@ export function compilePattern(pattern: string): CompiledPattern {
       .filter((segment) => segment.kind !== 'catchAll')
       .map((segment) => (segment.kind === 'static' ? 3 : segment.constraint ? 2 : 1)),
     catchAll: segments.at(-1)?.kind === 'catchAll',
-    allStatic: segments.every((segment) => segment.kind === 'static'),
   };
   compiledCache.set(pattern, compiled);
   return compiled;
@@ -248,7 +245,10 @@ export function normalizeRequestPath(path: string): string {
 }
 
 function decodeSegment(value: string): string {
-  return decodeURIComponent(value);
+  // Same gate `normalizeRequestPath` uses on the whole path, for the same reason: a segment with no
+  // `%` decodes to itself, so the call only ever proves that. Most segments have no `%`, and this
+  // runs for every param segment of every candidate route the scan reaches.
+  return value.includes('%') ? decodeURIComponent(value) : value;
 }
 
 /**
@@ -262,7 +262,18 @@ function splitPath(path: string): string[] {
   return path.split('/').filter(Boolean);
 }
 
-function matchCompiled(compiled: CompiledPattern, pathSegs: string[]): Record<string, string> | undefined {
+/**
+ * Matches one compiled pattern against a request's segments.
+ *
+ * `decoded` memoizes per request, not per candidate: a scan reaching the same parameter position on
+ * several routes decoded the same string once per route. Position is all decoding depends on, so one
+ * array shared across the scan is the same answer for less work.
+ */
+function matchCompiled(
+  compiled: CompiledPattern,
+  pathSegs: string[],
+  decoded?: Array<string | undefined>,
+): Record<string, string> | undefined {
   const params: Record<string, string> = {};
 
   for (let index = 0; index < compiled.segments.length; index++) {
@@ -280,7 +291,7 @@ function matchCompiled(compiled: CompiledPattern, pathSegs: string[]): Record<st
       continue;
     }
 
-    const value = decodeSegment(pathSegs[index]);
+    const value = decoded ? (decoded[index] ??= decodeSegment(pathSegs[index])) : decodeSegment(pathSegs[index]);
     if (segment.constraint && !segment.constraint.test(value)) return undefined;
     params[segment.name] = value;
   }
@@ -293,10 +304,15 @@ export function matchPattern(pattern: string, path: string): Record<string, stri
   return matchCompiled(compilePattern(pattern), splitPath(path));
 }
 
-/** Orders matching patterns by exactness, then static/constrained/plain segment specificity. */
-function moreSpecific(a: string, b: string): number {
-  const scoreA = compilePattern(a);
-  const scoreB = compilePattern(b);
+/**
+ * Orders patterns by exactness, then static/constrained/plain segment specificity.
+ *
+ * Takes compiled patterns rather than their source strings: it used to re-derive both through
+ * `compilePattern`, which is a `Map` lookup each, on every comparison of every request.
+ */
+function moreSpecific(a: CompiledPattern, b: CompiledPattern): number {
+  const scoreA = a;
+  const scoreB = b;
   if (scoreA.catchAll !== scoreB.catchAll) return scoreA.catchAll ? -1 : 1;
   const length = Math.max(scoreA.kinds.length, scoreB.kinds.length);
 
@@ -309,35 +325,65 @@ function moreSpecific(a: string, b: string): number {
   return 0;
 }
 
-/** Finds the most specific route matching both method and path; ties keep registration order. */
-export function matchRoute(routes: RouteDef[], method: string, path: string): MatchedRoute | undefined {
-  const pathSegs = splitPath(path);
-  let best: MatchedRoute | undefined;
-  let bestPattern = '';
+/** One route with its pattern already compiled. Built once per table, ordered within its method. */
+interface IndexedRoute {
+  def: RouteDef;
+  compiled: CompiledPattern;
+}
 
-  for (const route of routes) {
-    if (route.method !== method) continue;
-    const compiled = compilePattern(route.pattern);
-    const params = matchCompiled(compiled, pathSegs);
-    if (!params) continue;
+/**
+ * Compiled, method-bucketed, specificity-ordered route tables, keyed by the identity of the array
+ * they were built from.
+ *
+ * A server hands the same array to every request, so this is built once and collected with the
+ * table it describes. A table assembled fresh — mesh splicing a teapot's exports in at boot — is a
+ * different array and gets its own index, so nothing has to remember to invalidate anything.
+ */
+const routeIndexCache = new WeakMap<RouteDef[], Map<string, IndexedRoute[]>>();
 
-    // An all-static match ends the scan. Specificity ranks a literal segment above every other
-    // kind, so no pattern that also matches this path can outrank one made only of literals — and
-    // an equal rank keeps registration order, which is this route. Finishing the scan would
-    // re-derive the answer already in hand.
-    //
-    // The scan used to run to the end regardless: `/hello` cost the same whether it was declared
-    // first or last among 32 routes, 1227 ns against 1237 ns. That is ~38 ns of scanning per
-    // registered route on every request, and it grows with the route table.
-    if (compiled.allStatic) return { params, def: route };
+function routeIndex(routes: RouteDef[]): Map<string, IndexedRoute[]> {
+  const cached = routeIndexCache.get(routes);
+  if (cached) return cached;
 
-    if (!best || moreSpecific(route.pattern, bestPattern) > 0) {
-      best = { params, def: route };
-      bestPattern = route.pattern;
-    }
+  const byMethod = new Map<string, IndexedRoute[]>();
+
+  for (const def of routes) {
+    const entry: IndexedRoute = { def, compiled: compilePattern(def.pattern) };
+    const bucket = byMethod.get(def.method);
+    if (bucket) bucket.push(entry);
+    else byMethod.set(def.method, [entry]);
   }
 
-  return best;
+  // Most specific first, so the first match *is* the answer. `sort` is stable, so equal patterns
+  // keep registration order — which is exactly what the old scan did by refusing to replace its
+  // best on a tie.
+  for (const bucket of byMethod.values()) bucket.sort((a, b) => moreSpecific(b.compiled, a.compiled));
+
+  routeIndexCache.set(routes, byMethod);
+  return byMethod;
+}
+
+/**
+ * Finds the most specific route matching both method and path; ties keep registration order.
+ *
+ * The ranking is settled when the table is built, not per request: the answer cannot change between
+ * requests, and re-deriving it charged every request for a scan to the end plus a `moreSpecific`
+ * call — two `compilePattern` lookups each — per candidate. Both scaled with the size of the route
+ * table. What is left here is a walk that stops at the first match.
+ */
+export function matchRoute(routes: RouteDef[], method: string, path: string): MatchedRoute | undefined {
+  const candidates = routeIndex(routes).get(method);
+  if (!candidates) return undefined;
+
+  const pathSegs = splitPath(path);
+  const decoded: Array<string | undefined> = new Array(pathSegs.length);
+
+  for (const { def, compiled } of candidates) {
+    const params = matchCompiled(compiled, pathSegs, decoded);
+    if (params) return { params, def };
+  }
+
+  return undefined;
 }
 
 /** Route resolution adds the one HTTP fallback the matcher supports: buffered GET serves HEAD. */

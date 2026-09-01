@@ -119,6 +119,23 @@ describe('matchRoute precedence', () => {
     expect(matchRoute(routes, 'GET', '/users/diego')?.def.pattern).toBe('/users/:value');
   });
 
+  it('keeps registration order between patterns of equal specificity', () => {
+    // The tie-break the ordering rests on. Ranking is settled once when the table is built, and the
+    // sort that settles it is stable — which is what preserves the behaviour the scan used to get
+    // by refusing to replace its best on an equal rank. A sort that reordered equals would change
+    // which of two same-shape routes answers, silently and only for the ones that collide.
+    const routes = [route('GET', '/a/:first'), route('GET', '/a/:second')];
+    expect(matchRoute(routes, 'GET', '/a/x')?.def.pattern).toBe('/a/:first');
+    expect(matchRoute([...routes].reverse(), 'GET', '/a/x')?.def.pattern).toBe('/a/:second');
+  });
+
+  it('decodes a parameter once per position, however many candidates the scan walks', () => {
+    // Not an optimisation detail: the decoded value each candidate sees must be the same one, so
+    // memoising per request cannot change which route matches or what it receives.
+    const routes = [route('GET', '/a/:x/zzz'), route('GET', '/a/:y/b')];
+    expect(matchRoute(routes, 'GET', '/a/a%20b/b')?.params).toEqual({ y: 'a b' });
+  });
+
   it('returns undefined when no pattern matches the path', () => {
     expect(matchRoute([route('GET', '/a')], 'GET', '/b')).toBeUndefined();
   });
