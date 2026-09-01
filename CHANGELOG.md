@@ -45,6 +45,32 @@ npm treats versions as semver and semver forbids leading zeros.
   into named functions cannot annotate what it receives; plus `Hooks` and `TeardownFn`. Types only —
   nothing at runtime moved and no existing export changed.
 
+- **The lifecycle stream has a contract now, not just events.** `request:end` is documented as
+  terminal and universal — it fires for every request shape and is the only one carrying the status
+  the client received, which makes it the request counter. `request:failed` means *handler code
+  threw*, which no status expresses on its own since a rendered `422` is also a throw, and
+  `route:unmatched` means *no route ran*. Both are **additional** to `request:end`, not alternatives
+  to it: one failing request emits three events and a 404 emits two, all sharing a `requestId`, and
+  an exporter that treats them as separate outcomes counts the same request twice. Silently — the
+  metrics just come out wrong.
+
+  `request:failed` now carries `status`, so an error counter can break down by status without
+  joining back through `requestId` for something the emitter already had. It is absent in exactly
+  one case: a custom `onError` that threw while producing it, where the framework does not know what
+  was sent and will not guess.
+
+- **`@needs('events')` reaches the read-only half of the bus** — `{ on }`, the same narrowing
+  plugins already get, exported as the `Events` type. `app.bus` was public and a plugin could
+  subscribe, but the bus was not a graph token, so `@needs('bus')` failed at boot and nothing said
+  why. It still is not one, and that is the design: handing `emit` to every node turns a one-way
+  observation channel into something anything can forge events on. `@needs('bus')` now fails saying
+  exactly that, and pointing at the two things that do work.
+
+  A plugin remains the right home for observation, because it gets `on` and `onShutdown` *together*.
+  This token gives the subscribe half alone — `on()` returns its own unsubscribe for a `@Provider`
+  to release in `dispose()`, and a `@Step` should not subscribe at all, since it runs per request
+  and would add a listener each time.
+
 ### Changed
 
 - **A request's security and CORS headers are computed once.** They were derived twice per request
@@ -54,6 +80,37 @@ npm treats versions as semver and semver forbids leading zeros.
   query. Running it two or three times charged the caller's latency budget and their backend for an
   answer whose inputs had not changed in between, and made a predicate with a counter in it count
   double.
+
+- **Every `request:end` is now preceded by a `request:start` carrying the same `requestId`.** The
+  pairing held by accident until `maxConcurrentRequests` arrived: `request:start` had a single
+  emitter, so nothing could break it, and a shed request emitted only the `request:end`. A consumer
+  that opens per-request state on the first and closes it on the second — an in-flight gauge, most
+  obviously — would have drifted under shedding, which is when an operator is reading it, and would
+  have done so by producing a plausible wrong number rather than an error. It is a guarantee now,
+  written next to `LifecycleEvent` and enforced by a test that enumerates every response shape.
+
+- **An unmatched request carries a bounded `route`.** `route:unmatched` was the one terminal request
+  event with no `route`, so the only subject a consumer could reach was `name` — which on that event
+  is the concrete, caller-controlled path. A matched path is bounded by the route table; an
+  unmatched one is bounded by nothing, and a scanner walking `/aaa`, `/aab`, `/aac` is a memory leak
+  with a metrics backend attached. It and the `request:end` that follows now carry
+  `route: '<unmatched>'`, exported as `UNMATCHED_ROUTE`. Written down alongside it: `name` is
+  caller-controlled and must never be a metric label.
+
+- **Framework token names are reserved.** `logger`, `rooms`, `events` and `bus` cannot be declared
+  by a module, plugin or mesh export; taking one is a boot error naming it. Built-ins used to be
+  registered only if the name was free, so a provider called `logger` silently replaced the
+  framework's own and every `@needs('logger')` in the app got something that was not the logger core
+  writes to — a divergence discovered from a log line that never appeared. `bus` is reserved without
+  being provided, so `@needs('bus')` cannot resolve to whatever a user happened to call `bus`.
+
+  **This can fail an app that boots today**, which is the point of it, and the fix is to rename.
+
+- **No per-request bookkeeping when no request budget is set.** Every request registered a `close`
+  listener and set a flag for `maxConcurrentRequests`, which is opt-in and unlimited by default — so
+  most applications paid a closure and an `EventEmitter` registration per request, on the hot path,
+  for a feature that was off. Unchanged where a budget *is* configured: the listener is what
+  releases a slot when a client disconnects mid-handler.
 
 ### Fixed
 
@@ -79,6 +136,19 @@ npm treats versions as semver and semver forbids leading zeros.
   `process.getBuiltinModule('node:module')`, which Node, Deno and Bun all expose synchronously. On
   workerd, which offers neither, nothing changes and the guarded sites' "edge has no filesystem"
   story is finally the true one.
+
+- **A custom `onError` that throws no longer takes the process down.** `createApp({ onError })` is
+  the advertised way to render errors, it runs on the request path, and it ran with no boundary — a
+  renderer that threw exited the process, exit code 1. It is the same shape as the CORS predicate
+  crash above and easier to reach: not a cross-origin request, but *any* request that produces an
+  error. The renderer produces the 404 too, so an app with a custom renderer and no matching route
+  was one request away from exiting.
+
+  It was also the worst-timed crash there was, since the renderer only runs once something has
+  already gone wrong: an error occurs, the code written to report it fails, and instead of a
+  degraded report the server ends. A renderer that throws now falls back to the built-in rendering —
+  which is exactly what the option overrides — so the original error still gets its response, and
+  the renderer's own failure is logged separately, naming both.
 
 ## [26.8.0-beta.1] - 2026-08-19
 
