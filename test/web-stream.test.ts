@@ -166,6 +166,28 @@ describe('buildFetch request gate', () => {
     const afterRelease = await fetchHandler(new Request('http://localhost/slow'));
     expect(afterRelease.status).toBe(200);
   });
+  it('consults a cors.origins predicate once per request on the fetch path too', async () => {
+    let calls = 0;
+    const fetchHandler = buildFetch(
+      [{ method: 'GET', pattern: '/ok', transport: 'buffer',
+         handler: async () => ({ status: 200, headers: {}, body: 'ok' }) }],
+      { cors: { origins: () => { calls++; return true; } } },
+    );
+
+    const res = await fetchHandler(new Request('http://localhost/ok', { headers: { origin: 'https://a.com' } }));
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://a.com');
+    expect(calls).toBe(1);
+
+    calls = 0;
+    const preflight = await fetchHandler(new Request('http://localhost/ok', {
+      method: 'OPTIONS',
+      headers: { origin: 'https://a.com', 'access-control-request-method': 'GET' },
+    }));
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get('access-control-allow-methods')).toContain('GET');
+    expect(calls).toBe(1);
+  });
+
   it('releases the slot when a streaming handler returns', async () => {
     async function* stream() {
       yield { n: 1 };

@@ -212,6 +212,7 @@ export function handle(
   routes: RouteDef[],
   opts: HttpOptions | undefined,
   req: NeutralRequest,
+  injected?: Record<string, string>,
 ): Promise<HandleResult | Preflight> {
   const bus = opts?.bus;
 
@@ -227,10 +228,10 @@ export function handle(
       bus.hasListeners('route:unmatched')
     )
   ) {
-    return dispatch(routes, opts, req, undefined, undefined);
+    return dispatch(routes, opts, req, undefined, undefined, injected);
   }
 
-  return observedDispatch(routes, opts, req, bus);
+  return observedDispatch(routes, opts, req, bus, injected);
 }
 
 async function observedDispatch(
@@ -238,6 +239,7 @@ async function observedDispatch(
   opts: HttpOptions | undefined,
   req: NeutralRequest,
   bus: Bus,
+  injected?: Record<string, string>,
 ): Promise<HandleResult | Preflight> {
   const watchingEnd = bus.hasListeners('request:end');
   const startedAt = watchingEnd ? performance.now() : 0;
@@ -251,7 +253,7 @@ async function observedDispatch(
       traceId: req.traceId,
     });
 
-  const result = await dispatch(routes, opts, req, bus, trace);
+  const result = await dispatch(routes, opts, req, bus, trace, injected);
 
   if (watchingEnd) {
     // A preflight is a 204 the router never routed; a stream has no status of its own and is a 200
@@ -277,8 +279,13 @@ async function dispatch(
   req: NeutralRequest,
   bus: Bus | undefined,
   trace: Trace | undefined,
+  precomputed?: Record<string, string>,
 ): Promise<HandleResult | Preflight> {
-  const injected = computeInjected(opts, req);
+  // Both adapters compute this before routing, because a response written above `handle()` — a
+  // shed 503, a 413 from the body reader — has to carry the same headers as one written below it.
+  // Recomputing here would run `security` and, worse, the `origins` predicate a second time for
+  // one request. `computeInjected` stays as the fallback for callers that have nothing yet.
+  const injected = precomputed ?? computeInjected(opts, req);
   let path: string;
 
   try {
@@ -288,7 +295,7 @@ async function dispatch(
   }
 
   if (opts?.cors && req.method === 'OPTIONS' && req.headers['access-control-request-method']) {
-    return { preflight: corsPreflightHeaders(opts.cors, req, opts.logger) };
+    return { preflight: corsPreflightHeaders(opts.cors, req, injected) };
   }
 
   const matched = resolveRoute(routes, req.method, path);

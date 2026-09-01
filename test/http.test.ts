@@ -384,4 +384,39 @@ describe('request hardening', () => {
     server.close();
   });
 
+
+  // `origins` is a predicate because the shapes it exists for are lookups — an allowlist in Redis, a
+  // tenant query. Running one twice for a GET and three times for a preflight charges the caller's
+  // latency budget and their backend for an answer whose inputs did not change in between.
+  it('consults a cors.origins predicate once per request, not once per header computation', async () => {
+    let calls = 0;
+    const server = createHttpServer(
+      [{ method: 'GET', pattern: '/ping', transport: 'buffer', handler }],
+      [], undefined, undefined,
+      { cors: { origins: () => { calls++; return true; } } },
+    );
+    await new Promise<void>((r) => server.listen(0, r));
+    const origin = { origin: 'https://a.com' };
+
+    const plain = await fetch(`${getUrl(server)}/ping`, { headers: origin });
+    expect(plain.headers.get('access-control-allow-origin')).toBe('https://a.com');
+    expect(calls).toBe(1);
+
+    calls = 0;
+    const preflight = await fetch(`${getUrl(server)}/ping`, {
+      method: 'OPTIONS', headers: { ...origin, 'access-control-request-method': 'GET' },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get('access-control-allow-methods')).toContain('GET');
+    expect(preflight.headers.get('access-control-allow-origin')).toBe('https://a.com');
+    expect(calls).toBe(1);
+
+    // No Origin header never reaches the predicate at all — that part was already right.
+    calls = 0;
+    await fetch(`${getUrl(server)}/ping`);
+    expect(calls).toBe(0);
+
+    server.close();
+  });
+
 });

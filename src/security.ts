@@ -128,9 +128,13 @@ export function resolveCors(
 export function corsPreflightHeaders(
   opts: CorsOptions,
   req: { headers: Record<string, string | string[] | undefined> },
-  logger?: Logger,
+  resolved?: Headers,
 ): Headers {
-  const headers = resolveCors(opts, req, logger);
+  // The caller has almost always resolved CORS already, one layer up, to seed the headers every
+  // response carries. Re-deriving here would consult `origins` a second time for the same request —
+  // and `origins` may be a predicate doing a network lookup. Copied rather than used in place: the
+  // preflight-only keys below belong to this 204, not to the shared object.
+  const headers: Headers = { ...resolved };
   if (!headers['access-control-allow-origin']) return headers; // origin not allowed → bare 204
   headers['access-control-allow-methods'] = (opts.methods ?? ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']).join(
     ', ',

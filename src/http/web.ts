@@ -173,23 +173,31 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
 
       acquired = true;
 
-      result = await handle(routes, opts, {
-        ...correlation,
-        method: request.method,
-        url: path,
-        headers,
-        readBody,
-        source: request,
-        secure,
-        // Mirrors Node's `deriveIp` (src/http/request.ts): only trust `x-forwarded-for` when the proxy is
-        // trusted, and take its first hop — an untrusted XFF is client-spoofable, and there's no socket
-        // peer address to fall back to on the fetch path, so the untrusted case is simply ''.
-        ip: opts?.trustProxy
-          ? String(headers['x-forwarded-for'] ?? '')
-              .split(',')[0]
-              .trim()
-          : '',
-      });
+      result = await handle(
+        routes,
+        opts,
+        {
+          ...correlation,
+          method: request.method,
+          url: path,
+          headers,
+          readBody,
+          source: request,
+          secure,
+          // Mirrors Node's `deriveIp` (src/http/request.ts): only trust `x-forwarded-for` when the
+          // proxy is trusted, and take its first hop — an untrusted XFF is client-spoofable, and
+          // there's no socket peer address to fall back to on the fetch path, so the untrusted case
+          // is simply ''.
+          ip: opts?.trustProxy
+            ? String(headers['x-forwarded-for'] ?? '')
+                .split(',')[0]
+                .trim()
+            : '',
+        },
+        // Already computed above for the shed-503 path; handing it down keeps `cors.origins` to
+        // one call per request.
+        injected,
+      );
     } finally {
       // Release when routing/handling finishes, not when a returned stream finishes.
       // Long-lived streams therefore do not permanently consume the request budget.

@@ -3,12 +3,11 @@ import type https from 'https';
 import { createRequestGate } from './request-gate';
 import { renderError, type ErrorRequest } from '../transformers';
 import type { Bus } from '../bus';
-import { buildSecurityHeaders, resolveCors } from '../security';
 import { readBody as readBodyBytes, deriveSecure, deriveIp } from './request';
 import { pipeStream } from './stream';
 import { attachWs } from './ws';
 import { mergeInjectedHeaders } from './headers';
-import { handle, correlateRequest, type HandleResult, type Preflight } from './core';
+import { handle, correlateRequest, computeInjected, type HandleResult, type Preflight } from './core';
 import type { BodyFailure, BodyReader } from './body';
 import type { RouteDef, WsRouteDef, MeshControl, HttpOptions } from './types';
 import { nodeRequire } from '../node-require';
@@ -95,12 +94,11 @@ function createRequestHandler(cfg: HandlerConfig) {
     const secure = deriveSecure(req, trustProxy);
     // Derived before the body is read, so a 413 rejected below still carries an identity.
     const correlation = correlateRequest(req.headers);
-    const injected: Record<string, string> = { ...buildSecurityHeaders(opts?.security ?? true, secure) };
+    // One computation for the whole request: this object is patched into every response below, and
+    // handed to `handle()` so routing does not derive it a second time — `security` is pure, but
+    // `cors.origins` may be a predicate with a network call in it.
+    const injected = computeInjected(opts, { secure, headers: req.headers });
     patchResponseHeaders(res, injected);
-
-    // CORS is added to `injected` AFTER the patch is installed — the patch reads it lazily
-    // by reference at writeHead time, so keys added here still land on every response.
-    if (opts?.cors) Object.assign(injected, resolveCors(opts.cors, req, opts?.logger));
 
     let result: HandleResult | Preflight;
     let acquired = false;
@@ -138,16 +136,21 @@ function createRequestHandler(cfg: HandlerConfig) {
         gate.release();
       });
 
-      result = await handle(routes, opts, {
-        ...correlation,
-        method: req.method ?? 'GET',
-        url: req.url ?? '/',
-        headers: req.headers,
-        readBody,
-        source: req,
-        secure,
-        ip: deriveIp(req, trustProxy),
-      });
+      result = await handle(
+        routes,
+        opts,
+        {
+          ...correlation,
+          method: req.method ?? 'GET',
+          url: req.url ?? '/',
+          headers: req.headers,
+          readBody,
+          source: req,
+          secure,
+          ip: deriveIp(req, trustProxy),
+        },
+        injected,
+      );
     } finally {
       if (acquired) {
         acquired = false;
