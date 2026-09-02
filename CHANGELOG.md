@@ -131,6 +131,26 @@ npm treats versions as semver and semver forbids leading zeros.
   for a feature that was off. Unchanged where a budget *is* configured: the listener is what
   releases a slot when a client disconnects mid-handler.
 
+- **Route ranking is settled when the route table is built, not on every request.** Matching scanned
+  every route registered under the request's method and ranked the candidates as it went, deriving
+  each pattern's specificity from its source string per comparison. Both the scan and the ranking
+  scale with the size of the route table, and neither can produce a different answer between two
+  requests — the table is assembled once, after the graph is prepared, and handed to the adapter
+  unchanged. Routes are now compiled, bucketed by method and ordered most-specific-first once, and
+  matching returns at the first route that matches.
+
+  Nothing about which route answers changes. Equal specificity still keeps registration order, which
+  the ordering carries through a stable sort rather than through a scan that declined to replace its
+  best on a tie. Two smaller savings ride along on the same path: a path segment holding no `%` skips
+  `decodeURIComponent` entirely, and decoding is memoized per request rather than repeated for every
+  candidate route that reaches the same parameter position.
+
+  Worth nothing on a small route table and worth a great deal on a large one, which is the shape of
+  the saving rather than a caveat on it: **no measurable change at 6 routes, +3.4% at 50, and +12% to
+  +14.9% at 200**. That is also why it went unnoticed for two releases — the benchmark had no
+  route-table-width dimension until this one, so every matcher change measured as noise regardless of
+  its size.
+
 - **Independent providers boot concurrently.** Boot walked the topological order one node at a time,
   so an application paid the *sum* of its providers' latencies rather than its longest chain — three
   providers with no edges between them and 200ms of work each took 616ms for a graph whose critical
