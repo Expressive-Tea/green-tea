@@ -37,6 +37,8 @@ export interface RenderData {
   scenarios: ScenarioBlock[];
   stepScaling: { path: string; steps: number; reqSec: number }[];
   secureCost: { label: string; reqSec: number }[];
+  /** Optional: results captured before the runtime matrix existed still render. */
+  runtimes?: { runtime: string; scenario: string; reqSec: number }[];
 }
 
 const fmtInt = (n: number): string => Math.round(n).toLocaleString('en-US');
@@ -124,6 +126,33 @@ function renderStepScaling(stepScaling: RenderData['stepScaling']): string {
   return ['## Step-scaling (green-tea)', '', header, divider, ...lines, '', deltaNote, ''].join('\n');
 }
 
+/** green-tea on each runtime it supports, one column per runtime, all loading the built bundle. */
+function renderRuntimes(runtimes: RenderData['runtimes']): string {
+  if (!runtimes?.length) return '';
+
+  const names = [...new Set(runtimes.map((row) => row.runtime))];
+  const scenarios = [...new Set(runtimes.map((row) => row.scenario))];
+  const at = (runtime: string, scenario: string): number | undefined =>
+    runtimes.find((row) => row.runtime === runtime && row.scenario === scenario)?.reqSec;
+
+  const header = `| Scenario | ${names.join(' | ')} |`;
+  const divider = `| --- | ${names.map(() => '---').join(' | ')} |`;
+  const lines = scenarios.map((scenario) => {
+    const cells = names.map((runtime) => {
+      const value = at(runtime, scenario);
+      return value === undefined ? '—' : fmtInt(value);
+    });
+    return `| ${scenario} | ${cells.join(' | ')} |`;
+  });
+
+  const note =
+    'Same application, same built bundle, same box — only the runtime differs. Read across a row, ' +
+    'never against the cross-framework tables above: those measure other frameworks on Node, and ' +
+    'nobody ran fastify on Bun here. A runtime that is not installed is absent rather than zero.';
+
+  return ['## green-tea across runtimes', '', header, divider, ...lines, '', note].join('\n');
+}
+
 function renderSecureCost(secureCost: RenderData['secureCost']): string {
   const header = '| Label | req/s |';
   const divider = '| --- | --- |';
@@ -196,7 +225,7 @@ function renderLeaderboard(scenarios: ScenarioBlock[]): string {
 }
 
 export function renderMarkdown(data: RenderData): string {
-  const { env, config, scenarios, stepScaling, secureCost } = data;
+  const { env, config, scenarios, stepScaling, secureCost, runtimes } = data;
 
   return [
     renderLeaderboard(scenarios),
@@ -208,6 +237,7 @@ export function renderMarkdown(data: RenderData): string {
     '',
     renderScenarios(scenarios),
     renderStepScaling(stepScaling),
+    renderRuntimes(runtimes),
     renderSecureCost(secureCost),
     renderMethodology(),
   ].join('\n');

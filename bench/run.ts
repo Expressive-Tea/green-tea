@@ -1,16 +1,29 @@
 import autocannon from 'autocannon';
 import { spawn, execSync } from 'child_process';
 import os from 'os';
-import { writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { SCENARIOS, STEP_ROUTES } from './scenarios';
 import { aggregate } from './stats';
 import { renderMarkdown, type RenderData, type Row, type ScenarioBlock } from './render';
+
+/** Hand-written notes start here and are carried across regenerations verbatim. */
+const KEEP_BELOW = '<!-- keep-below: hand-written, survives `npm run bench` -->';
 
 const SMOKE = process.env.BENCH_SMOKE === '1';
 const CONNS = Number(process.env.BENCH_CONNS ?? 100);
 const DURATION = SMOKE ? 1 : Number(process.env.BENCH_DURATION ?? 10);
 const RUNS = SMOKE ? 1 : Number(process.env.BENCH_RUNS ?? 5);
 const WARMUP = SMOKE ? 0 : Number(process.env.BENCH_WARMUP ?? 1);
+
+/** Whether a runtime is on PATH. */
+function which(cmd: string): boolean {
+  try {
+    execSync(`command -v ${cmd}`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function log(msg: string): void {
   process.stderr.write(`[bench] ${msg}\n`);
@@ -23,11 +36,25 @@ interface RunResult {
   p999: number;
 }
 
+/**
+ * How each server is launched. Node servers are TypeScript run through tsx; the Deno and Bun ones
+ * are handed to their own runtime, which is the whole point of measuring them.
+ */
+const LAUNCHERS: Record<string, (file: string) => { cmd: string; args: string[] }> = {
+  node: (file) => ({ cmd: process.execPath, args: ['--import', 'tsx', file] }),
+  // `-A` rather than an enumerated permission set: this is a benchmark server on loopback, and a
+  // missing flag fails as a boot timeout that reads like a framework problem.
+  deno: (file) => ({ cmd: 'deno', args: ['run', '-A', file] }),
+  bun: (file) => ({ cmd: 'bun', args: [file] }),
+};
+
 async function spawnServer(
   name: string,
   extraEnv: Record<string, string> = {},
+  runtime: 'node' | 'deno' | 'bun' = 'node',
 ): Promise<{ port: number; kill: () => Promise<void> }> {
-  const child = spawn(process.execPath, ['--import', 'tsx', `bench/servers/${name}.ts`], {
+  const { cmd, args } = LAUNCHERS[runtime](`bench/servers/${name}.ts`);
+  const child = spawn(cmd, args, {
     env: { ...process.env, TSX_TSCONFIG_PATH: 'bench/tsconfig.json', ...extraEnv },
   });
   let stderr = '';
@@ -96,6 +123,7 @@ async function main(): Promise<void> {
   }));
   const stepScaling: RenderData['stepScaling'] = [];
   const secureCost: RenderData['secureCost'] = [];
+  const runtimes: RenderData['runtimes'] = [];
 
   for (const fw of frameworks) {
     log(`booting ${fw}`);
@@ -145,6 +173,42 @@ async function main(): Promise<void> {
     }
   }
 
+  // green-tea on each runtime it supports. Kept out of the cross-framework tables above on purpose:
+  // those compare frameworks on one runtime, and a green-tea-on-Bun row sitting beside
+  // fastify-on-Node would read as a comparison nobody made.
+  //
+  // All three load `dist/`, so what varies is the runtime. Skipped rather than failed when a
+  // runtime is not installed — a contributor without Bun should still get every other table.
+  for (const { runtime, server } of [
+    { runtime: 'node', server: 'green-tea-node' },
+    { runtime: 'deno', server: 'green-tea-deno' },
+    { runtime: 'bun', server: 'green-tea-bun' },
+  ] as const) {
+    if (runtime !== 'node' && !which(runtime)) {
+      log(`skipping ${runtime}: not installed`);
+      continue;
+    }
+
+    log(`booting green-tea on ${runtime}`);
+
+    try {
+      const { port, kill } = await spawnServer(server, {}, runtime);
+
+      try {
+        for (const s of SCENARIOS) {
+          const runs = await measure(port, s.path, s.method, s.body);
+          runtimes.push({ runtime, scenario: s.title, reqSec: aggregate(runs.map((r) => r.reqSec)).median });
+        }
+      } finally {
+        await kill();
+      }
+    } catch (error) {
+      // A runtime that cannot boot the built bundle is worth reporting, not worth losing the rest
+      // of the run over.
+      log(`${runtime} failed to boot: ${(error as Error).message.split('\n')[0]}`);
+    }
+  }
+
   const commit = execSync('git rev-parse --short HEAD').toString().trim();
   const data: RenderData = {
     env: {
@@ -160,8 +224,15 @@ async function main(): Promise<void> {
     scenarios: scenarioBlocks,
     stepScaling,
     secureCost,
+    runtimes,
   };
-  writeFileSync('BENCHMARKS.md', renderMarkdown(data));
+  // Everything below the marker is written by hand and survives a re-run. The generated tables
+  // answer "how fast is it today"; the notes below them carry what a table cannot — which release
+  // moved a number, and what the move bought. Regenerating and silently deleting that is how the
+  // history this file exists to keep gets lost a second time.
+  const previous = existsSync('BENCHMARKS.md') ? readFileSync('BENCHMARKS.md', 'utf8') : '';
+  const kept = previous.includes(KEEP_BELOW) ? previous.slice(previous.indexOf(KEEP_BELOW)) : '';
+  writeFileSync('BENCHMARKS.md', renderMarkdown(data) + (kept ? `\n${kept}` : ''));
   writeFileSync('bench/results.json', JSON.stringify(data, null, 2));
   log('wrote BENCHMARKS.md + bench/results.json');
 }
