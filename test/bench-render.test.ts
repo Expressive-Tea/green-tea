@@ -76,3 +76,46 @@ describe('renderMarkdown', () => {
     expect(md.indexOf('fastify')).toBeLessThan(md.indexOf('green-tea')); // fastify (50k) before green-tea (42k)
   });
 });
+
+describe('renderMarkdown runtime matrix', () => {
+  const base = {
+    env: { date: '2026-09-01', commit: 'abc1234', node: 'v22', os: 'darwin', cpu: 'M4', ram: '69 GB', pinned: false },
+    config: { conns: 100, duration: 10, runs: 5, warmup: 1, pipelining: 1 },
+    scenarios: [],
+    stepScaling: [],
+    secureCost: [],
+  };
+
+  it('renders one column per runtime and one row per scenario', () => {
+    const md = renderMarkdown({
+      ...base,
+      runtimes: [
+        { runtime: 'node', scenario: 'JSON hello', reqSec: 90_000 },
+        { runtime: 'bun', scenario: 'JSON hello', reqSec: 120_000 },
+      ],
+    } as never);
+
+    expect(md).toContain('## green-tea across runtimes');
+    expect(md).toContain('| Scenario | node | bun |');
+    expect(md).toContain('| JSON hello | 90,000 | 120,000 |');
+  });
+
+  it('marks a runtime that produced no number rather than printing a zero', () => {
+    // A skipped runtime must not read as "it ran and scored nothing".
+    const md = renderMarkdown({
+      ...base,
+      runtimes: [
+        { runtime: 'node', scenario: 'JSON hello', reqSec: 90_000 },
+        { runtime: 'deno', scenario: 'Route param', reqSec: 80_000 },
+      ],
+    } as never);
+
+    expect(md).toContain('| JSON hello | 90,000 | — |');
+    expect(md).toContain('| Route param | — | 80,000 |');
+  });
+
+  it('omits the section entirely when no runtime was measured', () => {
+    expect(renderMarkdown({ ...base, runtimes: [] } as never)).not.toContain('across runtimes');
+    expect(renderMarkdown(base as never)).not.toContain('across runtimes');
+  });
+});
