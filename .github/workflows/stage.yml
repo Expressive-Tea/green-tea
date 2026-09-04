@@ -1,12 +1,18 @@
 name: Stage → Verdaccio
 
-# Staging publish. Runs on GITEA ONLY (the `if` guards against GitHub) for release
-# branches. Publishes prereleases to the internal Verdaccio under the `stg` dist-tag.
+# Staging publish. Runs on GITEA ONLY (the `if` guards against GitHub). Publishes to the
+# internal Verdaccio under the `stg` dist-tag, from a `release/**` branch or from a `v*` tag.
 # Staging versions are intentionally mutable: an existing prerelease is removed before
 # publishing the updated release candidate under the same version.
+#
+# The tag trigger is what makes creating a tag on Gitea safe. It runs the real publish path —
+# the same `prepublishOnly` gate, the same tarball, the same commit — against a registry we
+# can overwrite, so the release is proven before the tag is promoted to GitHub, where npm
+# allows 72 hours to unpublish and JSR allows nothing at all.
 on:
   push:
     branches: ['release/**']
+    tags: ['v*']
 
 jobs:
   publish-stg:
@@ -32,6 +38,11 @@ jobs:
         run: |
           npm config set //npm.svc.zoit.services/:_authToken "$NODE_AUTH_TOKEN"
           VER=$(node -p "require('./package.json').version")
+          # Staging overwrites the version it publishes, and a stable number that changes
+          # under an internal consumer is worse than no staging at all. This will need
+          # revisiting at the first stable release, which is exactly the one most worth
+          # staging: the answer is probably to stage it under a suffixed version rather
+          # than to drop the guard.
           case "$VER" in
             *-*) ;;
             *) echo "Refusing to stage non-prerelease version: $VER" >&2; exit 1 ;;
