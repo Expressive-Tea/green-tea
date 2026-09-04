@@ -29,16 +29,19 @@ Run the first four before proposing anything as finished. The runtime suites sta
 
 ## Two forges
 
-Development lives on a private Gitea instance. GitHub is a downstream mirror that receives `main` and release tags, nothing else.
+Development lives on a private Gitea instance. GitHub is a downstream mirror that receives `main` automatically and release tags only by hand.
 
 ```
 feature/* → develop → main → [promote.yml] → GitHub main
-                ↑                                  ↓
-           lead dev                          GitHub contrib ← external PRs
+                ↑              │                   ↓
+           lead dev            │            GitHub contrib ← external PRs
+                               │
+                    v* tag ────┴─── Gitea: [stage.yml] → Verdaccio
+                               └─── GitHub (pushed by hand): [release.yml] → npm + JSR
 ```
 
 - **Gitea `develop`** — active development.
-- **Gitea `main`** — staging. Merging here publishes nothing; only a `v*` tag publishes.
+- **Gitea `main`** — staging. Merging here publishes nothing. A `v*` tag here publishes to the internal Verdaccio, never to a public registry.
 - **GitHub `main`** — production mirror. No human touches it. Protected against force-push and deletion, with no review requirement, because `promote.yml` pushes to it directly and a review rule would block that.
 - **`contrib`** — exists on *both* forges. Where outside contributions land.
 
@@ -84,6 +87,19 @@ number feels.
 Bumping `package.json` and `deno.json` ahead of the tag is fine and necessary — those say what the
 *next* publish will be called, and the docs repo's `verify:release` compares the tag against them.
 A version number is a plan; a changelog heading is a receipt.
+
+**A tag is created twice, on purpose.** Pushing `v*` to Gitea stages that exact commit to
+Verdaccio through the real publish path; pushing the same tag to GitHub publishes it to npm and
+JSR. Nothing promotes the tag for you — `promote.yml` mirrors `main` and only `main`, so the
+second push is a decision made after reading the first run:
+
+```bash
+git push origin v<version>   # Gitea → Verdaccio, reversible
+git push gh v<version>       # GitHub → npm + JSR, permanent on JSR
+```
+
+The split exists because a mistake caught on Verdaccio costs a re-tag, and the same mistake
+caught on JSR costs the version number forever.
 
 **After a beta release, move the channel tag by hand.** A publish sets exactly one dist-tag, and it
 is the only npm write the release workflow can make — Trusted Publishing's OIDC exchange lives inside
