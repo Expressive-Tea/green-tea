@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 green-tea uses calendar versioning: `YY.M.PATCH` — the month is not zero-padded, since
 npm treats versions as semver and semver forbids leading zeros.
 
-## [26.9.0-beta.1] - 2026-09-03
+## [26.9.0-beta.1] - 2026-09-04
 
 ### Added
 
