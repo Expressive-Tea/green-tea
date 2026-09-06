@@ -25,6 +25,37 @@ class SvcCtl {
 @Module({ mountpoint: '/api', steps: [Config, Auth], controllers: [SvcCtl] })
 class TeapotModule {}
 
+/** A step slow enough that the teapot can be killed while its RPC is still on the wire. */
+@Step({ provides: 'slow', needs: [], export: true })
+class Slow {
+  async run() {
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+
+    return { slow: { done: true } };
+  }
+}
+@Route('/svc')
+class SlowRouteCtl {
+  @Get('/slow', { export: true })
+  async slow() {
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+
+    return { done: true };
+  }
+}
+@Module({ mountpoint: '/api', steps: [Slow], controllers: [SlowRouteCtl] })
+class SlowTeapotModule {}
+
+@Route('/local')
+class SlowCtl {
+  @Get('/slow')
+  slow(@needs('slow') slow: any) {
+    return { slow };
+  }
+}
+@Module({ mountpoint: '/api', controllers: [SlowCtl] })
+class SlowTeacupModule {}
+
 @Route('/local')
 class LocalCtl {
   @Get('/who')
@@ -84,6 +115,52 @@ describe('mesh link failure', () => {
 
     await teacup.close();
   });
+
+  // The tests above kill the teapot *between* requests, so the link is already down when the next
+  // one arrives and `rpc` fails before it sends anything. These two kill it with the RPC in flight,
+  // which is the case that can hang: the request is parked on a promise waiting for an `rpc-res`
+  // frame that is never coming. `endSession` has to reject what was waiting, not just stop
+  // accepting new work. The assertion is on 503 specifically rather than "not 200" — a 504 would
+  // mean the per-RPC timeout caught it instead, which is a much slower and much worse answer.
+  it('answers 503 when the teapot dies with a step RPC still in flight', async () => {
+    const teapot = createApp({ modules: [SlowTeapotModule], experimental: true, mesh: { secret: SECRET } });
+    const tServer = await teapot.listen(0);
+    const teacup = createApp({
+      modules: [SlowTeacupModule],
+      experimental: true,
+      mesh: { teapots: [{ url: controlUrl(tServer), secret: SECRET }] },
+    });
+
+    await teacup.ready();
+    const inFlight = teacup.fetch(new Request('http://x/api/local/slow'));
+    await new Promise((r) => setTimeout(r, 100)); // let the rpc-req reach the teapot
+    await teapot.close();
+
+    const res = await inFlight;
+
+    expect(res.status).toBe(503);
+    await teacup.close();
+  }, 10_000);
+
+  it('answers 503 when the teapot dies with a proxied route RPC still in flight', async () => {
+    const teapot = createApp({ modules: [SlowTeapotModule], experimental: true, mesh: { secret: SECRET } });
+    const tServer = await teapot.listen(0);
+    const teacup = createApp({
+      modules: [SlowTeacupModule],
+      experimental: true,
+      mesh: { teapots: [{ url: controlUrl(tServer), secret: SECRET }] },
+    });
+
+    await teacup.ready();
+    const inFlight = teacup.fetch(new Request('http://x/api/svc/slow'));
+    await new Promise((r) => setTimeout(r, 100));
+    await teapot.close();
+
+    const res = await inFlight;
+
+    expect(res.status).toBe(503);
+    await teacup.close();
+  }, 10_000);
 
   it('answers 503 on an exported step that used to be a cached app-scope provider', async () => {
     // Superseded by "forbid exporting a provider": `config` used to be an app-scope @Provider,
