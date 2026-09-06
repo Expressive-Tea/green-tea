@@ -10,13 +10,13 @@
 //   teapot            -> exports scopes, prints {"port":N}, serves until killed
 //   teacup <controlUrl> -> consumes the remote scopes, prints {"ok":true,"body":{...}}
 import 'reflect-metadata';
-import { createApp, Provider, Step, Route, Get, Module, needs } from '../../src/index';
+import { createApp, Step, Route, Get, Module, needs } from '../../src/index';
 
 const SECRET = process.env.MESH_SECRET ?? 's3cr3t';
 
-@Provider({ provides: 'config', export: true })
+@Step({ provides: 'config', needs: [], export: true })
 class Config {
-  provide() {
+  run() {
     return { config: { region: 'mx', runtime: 'node' } };
   }
 }
@@ -26,7 +26,7 @@ class Auth {
     return { auth: { token: ctx.headers?.['x-token'] ?? 'anon' } };
   }
 }
-@Module({ mountpoint: '/api', providers: [Config], steps: [Auth] })
+@Module({ mountpoint: '/api', steps: [Config, Auth] })
 class TeapotModule {}
 
 @Route('/local')

@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createApp, Provider, Step, Route, Get, Module, needs } from '../../src/index';
+import { createApp, Step, Route, Get, Module, needs } from '../../src/index';
 
 const SECRET = 's3cr3t';
 
-@Provider({ provides: 'config', export: true })
-class Config { provide() { return { config: { region: 'mx' } }; } }
+@Step({ provides: 'config', needs: [], export: true })
+class Config { run() { return { config: { region: 'mx' } }; } }
 
 @Step({ provides: 'auth', needs: [], export: true })
 class Auth { run(ctx: any) { return { auth: { token: ctx.headers?.['x-token'] ?? 'anon' } }; } }
@@ -12,7 +12,7 @@ class Auth { run(ctx: any) { return { auth: { token: ctx.headers?.['x-token'] ??
 @Route('/remote')
 class RemoteCtl { @Get('/ping', { export: true }) ping() { return { pong: true }; } }
 
-@Module({ mountpoint: '/api', providers: [Config], steps: [Auth], controllers: [RemoteCtl] })
+@Module({ mountpoint: '/api', steps: [Config, Auth], controllers: [RemoteCtl] })
 class TeapotModule {}
 
 @Route('/local')

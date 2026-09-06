@@ -437,7 +437,16 @@ function collectProviders(providers: Ctor[], origin: string, registry: Registry)
     const meta = getProviderMeta(ProviderClass)!;
     registry.providerNodes.push({ name: meta.provides, needs: meta.needs, provides: [meta.provides], origin });
     registry.providerMeta.set(meta.provides, { optional: meta.optional });
-    if (meta.export) registry.exportedProviders.push(meta.provides);
+    // A provider's value IS the object it builds — a pool, a client, a `db`. That cannot cross a
+    // wire, and the half of it that could (plain data) arrived as an app-scope binding the teacup
+    // resolved once and cached for the life of the process. A step is the shape that travels:
+    // it runs per request, on the teapot, and only its result comes back.
+    if (meta.export)
+      throw new Error(
+        `mesh: provider '${meta.provides}' cannot be exported — a provider is a factory whose value ` +
+          'is the object itself, and the mesh transports data, not objects. ' +
+          'Export a @Step instead, which runs on the teapot per request and returns its result.',
+      );
     const instance: any = new ProviderClass();
     registry.providerInstances.set(meta.provides, instance);
     registry.setRunner(meta.provides, (ctx) => instance.provide(ctx));

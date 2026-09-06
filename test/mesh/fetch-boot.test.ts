@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { createApp, Provider, Step, Route, Get, Module, needs } from '../../src/index';
+import { createApp, Step, Route, Get, Module, needs } from '../../src/index';
 import { channel } from '../../src/channel';
 import { encode, decode, MESH_PROTOCOL_VERSION } from '../../src/mesh/protocol';
 import type { WsSocket, WsRequest } from '../../src/http/ws-core';
 
 const SECRET = 's3cr3t';
 
-@Provider({ provides: 'config', export: true })
+@Step({ provides: 'config', needs: [], export: true })
 class Config {
-  provide() {
+  run() {
     return { config: { region: 'mx' } };
   }
 }
@@ -18,7 +18,7 @@ class Auth {
     return { auth: { token: ctx.headers?.['x-token'] ?? 'anon' } };
   }
 }
-@Module({ mountpoint: '/api', providers: [Config], steps: [Auth] })
+@Module({ mountpoint: '/api', steps: [Config, Auth] })
 class TeapotModule {}
 
 @Route('/local')
@@ -134,7 +134,7 @@ describe('mesh over app.fetch (no listen)', () => {
     const chain = teacup.inspect('/api/local/who').map((line) => `${line.kind}:${line.name}`);
 
     // the remote provider and step spliced into the local route's chain
-    expect(chain).toContain('provider:config');
+    expect(chain).toContain('step:config');
     expect(chain).toContain('step:auth');
     expect(teacup.graph().nodes.some((n) => n.name === 'config')).toBe(true);
 
@@ -183,7 +183,7 @@ describe('mesh over app.fetch (no listen)', () => {
     await teacup.ready();
 
     expect(teacup.graph().nodes.some((n) => n.name === 'config')).toBe(true);
-    expect(teacup.inspect('/api/local/who').map((l) => `${l.kind}:${l.name}`)).toContain('provider:config');
+    expect(teacup.inspect('/api/local/who').map((l) => `${l.kind}:${l.name}`)).toContain('step:config');
     expect(teacup.explain('/api/local/who')).toBeTruthy();
 
     await teacup.close();
@@ -276,7 +276,7 @@ describe('mesh control over app.upgrade (no listen)', () => {
     expect(peer.sent[0]).toMatchObject({
       type: 'manifest',
       v: MESH_PROTOCOL_VERSION,
-      scopes: expect.arrayContaining([{ token: 'config', scope: 'app' }]),
+      scopes: expect.arrayContaining([{ token: 'config', scope: 'request' }]),
     });
     await teapot.close();
   });
