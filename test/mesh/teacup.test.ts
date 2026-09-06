@@ -9,15 +9,6 @@ const fakeLink = (calls: any[]): Link => ({
 });
 
 describe('teacup buildRemote', () => {
-  it('turns every manifest step into a lazy remote node', async () => {
-    const link = { manifest: { steps: ['auth'], routes: [] }, rpc: async () => ({ ok: true }) } as any;
-    const { steps, routes } = buildRemote(link);
-
-    expect(routes).toEqual([]);
-    expect(steps.map((s: any) => s.name)).toEqual(['auth']);
-    expect(await steps[0].run({})).toEqual({ auth: { ok: true } });
-  });
-
   it('makes a step node per manifest token, with RPC runners returning merge objects', async () => {
     const calls: any[] = [];
     const { steps } = buildRemote(fakeLink(calls));
