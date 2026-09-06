@@ -221,8 +221,8 @@ export function createApp(opts: {
   let remoteRoutes: RouteDef[] = [];
   const meshLinks: Link[] = [];
 
-  const finalize = (): void => {
-    ({ orderedProviders, orderedSteps } = finalizeGraph(registry, logger, opts.warnGraphDepth));
+  const finalize = (missingNote?: (key: string) => string): void => {
+    ({ orderedProviders, orderedSteps } = finalizeGraph(registry, logger, opts.warnGraphDepth, missingNote));
     booted = true;
   };
 
@@ -241,7 +241,12 @@ export function createApp(opts: {
       const spliced = await spliceRemoteScopes(opts.mesh, bus, registry, logger);
       remoteRoutes = spliced.remoteRoutes;
       meshLinks.push(...spliced.meshLinks);
-      finalize();
+      // Without this the error is `missing dependency: auth needed by getUser` and says nothing
+      // about the teapot that was away — which is the actual cause every time it is the cause.
+      const meshNote = spliced.absent.length
+        ? () => ` — these teapots did not connect, so their exports are absent: ${spliced.absent.join(', ')}`
+        : undefined;
+      finalize(meshNote);
     }
 
     meshControl = buildMeshControl(opts.mesh, registry, {
@@ -662,9 +667,10 @@ function finalizeGraph(
   registry: Registry,
   logger: Logger,
   warnDepth: number | false = DEEP_GRAPH_WARN,
+  missingNote?: (key: string) => string,
 ): { orderedProviders: GraphNode[]; orderedSteps: GraphNode[] } {
   const { providerNodes, stepNodes, routePlans } = registry;
-  const ordered = topoSort([...providerNodes, ...stepNodes], ['req', 'params']);
+  const ordered = topoSort([...providerNodes, ...stepNodes], ['req', 'params'], missingNote);
   const orderedProviders = ordered.filter((node) => providerNodes.includes(node));
   const orderedSteps = ordered.filter((node) => stepNodes.includes(node));
   const alwaysSteps = stepNodes.filter((node) => node.provides.length === 0); // side-effect/observer steps (plugins)
@@ -739,13 +745,18 @@ function assertNeedsSatisfiable(routePlans: RoutePlan[], providerNodes: GraphNod
  * Each failed attempt is both logged and emitted as `mesh:boot:retry` — logged so an operator
  * watching a deploy sees why it is taking so long, emitted so the wait is visible to whatever
  * collects lifecycle events rather than only to whoever is reading a terminal.
+ *
+ * Exhausting the budget no longer throws (D4 keeps the one exception: a permanent refusal still
+ * does). Every export a teapot makes is now lazy — a request-scope step or a proxied route — so
+ * nothing needs it resolved by boot; an absent teapot only costs a 503 on the requests that need
+ * it, and a teacup that refuses to start would take down the half of itself that never did.
  */
 async function connectUntilDeadline(
   mesh: MeshConfig,
   bus: Bus,
   logger: Logger,
   attempt: () => Promise<Link>,
-): Promise<Link> {
+): Promise<Link | undefined> {
   const budgetMs = mesh.bootTimeoutMs ?? mesh.timeoutMs ?? 30_000;
   const deadline = Date.now() + budgetMs;
   let delay = 500;
@@ -766,11 +777,15 @@ async function connectUntilDeadline(
         throw error;
       }
 
-      // Rethrown as-is rather than wrapped: connectLink already says whether this was a refused
-      // handshake, a version mismatch or a timeout, and each sends you somewhere different.
+      // The budget is a grace for a co-deploy, not a requirement. Every export is a lazy step or a
+      // proxied route now, so an absent teapot costs a 503 on the requests that need it — and a
+      // teacup that refuses to start takes down the half of itself that never needed the teapot.
       if (remaining <= 0) {
-        logger.error(`mesh: giving up after ${attempts} attempt(s) over ${budgetMs}ms — ${(error as Error).message}`);
-        throw error;
+        logger.warn(
+          `mesh: teapot unreachable after ${attempts} attempt(s) over ${budgetMs}ms ` +
+            `(${(error as Error).message}) — starting without it; its steps and routes will 503`,
+        );
+        return undefined;
       }
 
       bus.emit('mesh:boot:retry', { name: `attempt ${attempts}`, error });
@@ -809,9 +824,10 @@ async function spliceRemoteScopes(
   bus: Bus,
   registry: Registry,
   logger: Logger,
-): Promise<{ remoteRoutes: RouteDef[]; meshLinks: Link[] }> {
+): Promise<{ remoteRoutes: RouteDef[]; meshLinks: Link[]; absent: string[] }> {
   const remoteRoutes: RouteDef[] = [];
   const meshLinks: Link[] = [];
+  const absent: string[] = []; // urls of teapots that never connected within the boot budget
   const routeOwners = new Map<string, { url: string; pattern: string }>(); // "METHOD effective-shape" -> owner
 
   try {
@@ -829,6 +845,12 @@ async function spliceRemoteScopes(
           bus,
         }),
       );
+
+      if (!link) {
+        absent.push(teapot.url);
+        continue;
+      }
+
       meshLinks.push(link);
       const { steps, routes } = buildRemote(link);
       const origin = `mesh:${teapot.url}`;
@@ -901,7 +923,7 @@ async function spliceRemoteScopes(
     throw err;
   }
 
-  return { remoteRoutes, meshLinks };
+  return { remoteRoutes, meshLinks, absent };
 }
 
 /** Swaps provider/step runners by token — a value replaces the runner, a function becomes it. */

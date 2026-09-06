@@ -43,7 +43,7 @@ export interface GraphNode {
 }
 
 /** Orders nodes so every dependency precedes its dependents; throws on missing keys or cycles. */
-export function topoSort(nodes: GraphNode[], seedKeys: string[]): GraphNode[] {
+export function topoSort(nodes: GraphNode[], seedKeys: string[], note?: (key: string) => string): GraphNode[] {
   const producedBy = new Map<string, GraphNode>();
   for (const node of nodes) for (const key of node.provides) producedBy.set(key, node);
 
@@ -51,7 +51,7 @@ export function topoSort(nodes: GraphNode[], seedKeys: string[]): GraphNode[] {
   for (const node of nodes) {
     for (const key of node.needs) {
       if (!seedKeys.includes(key) && !producedBy.has(key)) {
-        throw new Error(`missing dependency: ${key} needed by ${node.name}`);
+        throw new Error(`missing dependency: ${key} needed by ${node.name}${note?.(key) ?? ''}`);
       }
     }
   }

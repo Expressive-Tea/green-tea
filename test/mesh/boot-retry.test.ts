@@ -1,3 +1,4 @@
+import * as net from 'node:net';
 import { describe, it, expect } from 'vitest';
 import { createApp, Step, Route, Get, Module, needs } from '../../src/index';
 
@@ -20,6 +21,28 @@ class LocalCtl {
 @Module({ mountpoint: '/api', controllers: [LocalCtl] })
 class TeacupModule {}
 
+@Route('/ping')
+class PingCtl {
+  @Get('/')
+  ping() {
+    return { ok: true };
+  }
+}
+@Module({ mountpoint: '/api', controllers: [PingCtl] })
+class LocalOnlyModule {}
+
+// A step (not a route handler) needing 'auth' so the missing-dependency check that fires is
+// `topoSort`'s — the one that gets the "these teapots did not connect" note — rather than the
+// route-level `assertNeedsSatisfiable` check, which is untouched by this change.
+@Step({ provides: 'profile', needs: ['auth'] })
+class NeedsAuth {
+  run() {
+    return { profile: {} };
+  }
+}
+@Module({ mountpoint: '/api', steps: [NeedsAuth] })
+class NeedsAuthModule {}
+
 const collect = () => {
   const lines: string[] = [];
   return { lines, logger: { debug() {}, info() {}, warn: (m: string) => lines.push(m), error: (m: string) => lines.push(m) } };
@@ -28,9 +51,9 @@ const collect = () => {
 describe('mesh boot retry', () => {
   it('waits for a teapot that starts late, rather than failing the deploy', async () => {
     const port = await new Promise<number>((resolve) => {
-      const probe = require('node:net').createServer();
+      const probe = net.createServer();
       probe.listen(0, () => {
-        const { port: p } = probe.address();
+        const { port: p } = probe.address() as { port: number };
         probe.close(() => resolve(p));
       });
     });
@@ -78,8 +101,10 @@ describe('mesh boot retry', () => {
     });
 
     try {
+      // exhausting the budget is no longer fatal by itself (that's the point of this change) —
+      // the boot still fails here because `who` needs 'auth' and nothing local provides it.
       await expect(teacup.fetch(new Request('http://x/api/local/who'))).rejects.toThrow(/mesh/);
-      expect(lines.some((l) => l.includes('giving up after'))).toBe(true);
+      expect(lines.some((l) => l.includes('starting without it'))).toBe(true);
     } finally {
       await teacup.close();
     }
@@ -115,6 +140,44 @@ describe('mesh boot retry', () => {
       server.close();
     }
   }, 40_000);
+
+  it('boots when a teapot is unreachable and nothing local needs it', async () => {
+    const teacup = createApp({
+      modules: [LocalOnlyModule], // declares no needs on a remote token
+      experimental: true,
+      mesh: {
+        teapots: [{ url: 'ws://127.0.0.1:9/x', secret: 's' }],
+        secret: 's',
+        bootTimeoutMs: 300,
+      },
+    });
+
+    try {
+      await expect(teacup.ready()).resolves.toBeUndefined();
+      const res = await teacup.fetch(new Request('http://x/api/ping'));
+      expect(res.status).toBe(200);
+    } finally {
+      await teacup.close();
+    }
+  }, 15_000);
+
+  it('still fails the boot when a local step needs a token the absent teapot owned', async () => {
+    const teacup = createApp({
+      modules: [NeedsAuthModule], // a step with needs: ['auth']
+      experimental: true,
+      mesh: {
+        teapots: [{ url: 'ws://127.0.0.1:9/x', secret: 's' }],
+        secret: 's',
+        bootTimeoutMs: 300,
+      },
+    });
+
+    try {
+      await expect(teacup.ready()).rejects.toThrow(/missing dependency: auth[\s\S]*did not connect/i);
+    } finally {
+      await teacup.close();
+    }
+  }, 15_000);
 
   it('bootTimeoutMs: 0 makes one attempt, as before', async () => {
     const { lines, logger } = collect();

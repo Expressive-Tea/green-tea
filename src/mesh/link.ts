@@ -393,8 +393,6 @@ export function connectLink(args: {
   reconnect?: boolean | ReconnectOptions;
   /** What to do when a returning teapot's manifest no longer backs the graph (default: `'refuse'`). */
   onManifestChange?: ManifestPolicy;
-  /** Called after a *successful* reconnect, so app-scope values resolved from this link are re-resolved. */
-  onReconnect?: () => void;
   logger?: Logger;
 }): Promise<Link> {
   const timeoutMs = args.timeoutMs ?? 30_000;
@@ -453,7 +451,7 @@ export function connectLink(args: {
   };
 
   /** Adopt an established session, or refuse it when its manifest no longer backs the graph. */
-  const adopt = (session: Session, attempt: number, reconnected: boolean): boolean => {
+  const adopt = (session: Session, _attempt: number): boolean => {
     const missing = missingFromManifest(link.manifest, session.manifest);
 
     if (missing.length > 0) {
@@ -478,7 +476,6 @@ export function connectLink(args: {
     refusalLogged = '';
     state.socket = session.socket;
     args.bus?.emit('mesh:connect', { name: args.url });
-    if (reconnected) args.onReconnect?.();
 
     return true;
   };
@@ -494,7 +491,7 @@ export function connectLink(args: {
         return;
       }
 
-      if (!adopt(session, attempt, true)) scheduleRetry(attempt);
+      if (!adopt(session, attempt)) scheduleRetry(attempt);
     } catch {
       // openSession's own abort listener already scheduled the retry through `onEnd`; a rejection
       // that never opened a socket (a bad URL, DNS) needs one scheduled here instead.
@@ -504,7 +501,7 @@ export function connectLink(args: {
 
   return openSession(sessionArgs(() => endSession(0))).then((session) => {
     link.manifest = session.manifest;
-    adopt(session, 0, false);
+    adopt(session, 0);
 
     return link;
   });
