@@ -191,6 +191,41 @@ describe('mesh boot retry', () => {
     }
   }, 15_000);
 
+  it('names the teapot in the log a later 404 points back to', async () => {
+    // A route the absent teapot would have exported 404s, because nothing was ever registered for a
+    // manifest that never arrived. That is the right status — you cannot serve what was never
+    // declared — but a bare 404 is indistinguishable from a typo in the path. The boot log is the
+    // only place the two are told apart, so it has to name *which* teapot and say that no manifest
+    // was exchanged. The unreachable error itself is a socket error and does not reliably carry
+    // the url, so the url is passed in rather than scraped out of the message.
+    const { lines, logger } = collect();
+    const teacup = createApp({
+      modules: [LocalOnlyModule],
+      experimental: true,
+      logger,
+      mesh: {
+        teapots: [{ url: 'ws://127.0.0.1:9/x', secret: 's' }],
+        secret: 's',
+        bootTimeoutMs: 300,
+      },
+    });
+
+    try {
+      await teacup.ready();
+      const gaveUp = lines.find((line) => line.includes('starting without it'));
+
+      expect(gaveUp).toBeDefined();
+      expect(gaveUp).toContain('ws://127.0.0.1:9/x');
+      expect(gaveUp).toMatch(/no manifest was ever exchanged/i);
+      expect(gaveUp).toMatch(/404/);
+
+      // and the retry lines on the way there name it too, so a deploy tailing logs sees which one
+      expect(lines.some((line) => /retrying/.test(line) && line.includes('ws://127.0.0.1:9/x'))).toBe(true);
+    } finally {
+      await teacup.close();
+    }
+  }, 15_000);
+
   it('still fails the boot when a local step needs a token the absent teapot owned', async () => {
     const teacup = createApp({
       modules: [NeedsAuthModule], // a step with needs: ['auth']

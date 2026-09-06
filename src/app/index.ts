@@ -775,6 +775,7 @@ async function connectUntilDeadline(
   mesh: MeshConfig,
   bus: Bus,
   logger: Logger,
+  url: string,
   attempt: () => Promise<Link>,
 ): Promise<Link | undefined> {
   const budgetMs = mesh.bootTimeoutMs ?? mesh.timeoutMs ?? 30_000;
@@ -793,7 +794,7 @@ async function connectUntilDeadline(
       // thirty seconds. Retrying a wrong secret only spends the deploy's patience to reach the
       // identical error, so it fails now.
       if (isPermanentRefusal(error)) {
-        logger.error(`mesh: the teapot refused this peer, which retrying cannot fix — ${(error as Error).message}`);
+        logger.error(`mesh: teapot ${url} refused this peer, which retrying cannot fix — ${(error as Error).message}`);
         throw error;
       }
 
@@ -804,17 +805,18 @@ async function connectUntilDeadline(
       // at all — its routes 404 and a local `needs` on its tokens still fails in finalize().
       if (remaining <= 0) {
         logger.warn(
-          `mesh: teapot unreachable after ${attempts} attempt(s) over ${budgetMs}ms ` +
-            `(${(error as Error).message}) — starting without it. It sent no manifest, so none of ` +
-            `its steps or routes are in this graph: its routes 404, and the boot still fails if ` +
-            `anything local needs one of its tokens.`,
+          `mesh: teapot ${url} unreachable after ${attempts} attempt(s) over ${budgetMs}ms ` +
+            `(${(error as Error).message}) — starting without it. No manifest was ever exchanged, ` +
+            `so none of its steps or routes are in this graph: its routes 404 like any path that ` +
+            `was never registered, and the boot still fails if anything local needs one of its ` +
+            `tokens. This line is what a later 404 on one of its routes points back to.`,
         );
         return undefined;
       }
 
       bus.emit('mesh:boot:retry', { name: `attempt ${attempts}`, error });
       logger.warn(
-        `mesh: teapot unreachable (${(error as Error).message}) — retrying, ${remaining}ms of boot budget left`,
+        `mesh: teapot ${url} unreachable (${(error as Error).message}) — retrying, ${remaining}ms of boot budget left`,
       );
       await new Promise((resolve) => setTimeout(resolve, Math.min(delay, Math.max(0, remaining))));
       delay = Math.min(delay * 2, 5_000);
@@ -857,7 +859,7 @@ async function spliceRemoteScopes(
   try {
     for (const teapot of mesh.teapots ?? []) {
       warnIfCleartext(teapot.url, logger);
-      const link = await connectUntilDeadline(mesh, bus, logger, () =>
+      const link = await connectUntilDeadline(mesh, bus, logger, teapot.url, () =>
         connectLink({
           url: teapot.url,
           secret: teapot.secret,
