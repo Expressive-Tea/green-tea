@@ -451,7 +451,7 @@ export function connectLink(args: {
   };
 
   /** Adopt an established session, or refuse it when its manifest no longer backs the graph. */
-  const adopt = (session: Session, _attempt: number): boolean => {
+  const adopt = (session: Session): boolean => {
     const missing = missingFromManifest(link.manifest, session.manifest);
 
     if (missing.length > 0) {
@@ -491,7 +491,7 @@ export function connectLink(args: {
         return;
       }
 
-      if (!adopt(session, attempt)) scheduleRetry(attempt);
+      if (!adopt(session)) scheduleRetry(attempt);
     } catch {
       // openSession's own abort listener already scheduled the retry through `onEnd`; a rejection
       // that never opened a socket (a bad URL, DNS) needs one scheduled here instead.
@@ -501,7 +501,7 @@ export function connectLink(args: {
 
   return openSession(sessionArgs(() => endSession(0))).then((session) => {
     link.manifest = session.manifest;
-    adopt(session, 0);
+    adopt(session);
 
     return link;
   });

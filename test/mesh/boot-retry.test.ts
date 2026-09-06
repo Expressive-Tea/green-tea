@@ -102,9 +102,35 @@ describe('mesh boot retry', () => {
 
     try {
       // exhausting the budget is no longer fatal by itself (that's the point of this change) —
-      // the boot still fails here because `who` needs 'auth' and nothing local provides it.
-      await expect(teacup.fetch(new Request('http://x/api/local/who'))).rejects.toThrow(/mesh/);
+      // the boot still fails here because `who` needs 'auth' and nothing local provides it. The
+      // exact message, not a bare /mesh/ match (which would also match this message's own
+      // "(local or connected mesh)" wording for an unrelated reason).
+      await expect(teacup.fetch(new Request('http://x/api/local/who'))).rejects.toThrow(
+        /needs 'auth' but nothing \(local or connected mesh\) provides it[\s\S]*did not connect/i,
+      );
       expect(lines.some((l) => l.includes('starting without it'))).toBe(true);
+    } finally {
+      await teacup.close();
+    }
+  }, 15_000);
+
+  it('names the absent teapot when a route handler needs its token directly', async () => {
+    // `who` needs 'auth' via `@needs`, not through a `@Step` — this goes through
+    // `assertNeedsSatisfiable`, a different check than `topoSort`'s, and must carry the same note.
+    const teacup = createApp({
+      modules: [TeacupModule],
+      experimental: true,
+      mesh: {
+        teapots: [{ url: 'ws://127.0.0.1:9/x', secret: 's' }],
+        secret: 's',
+        bootTimeoutMs: 300,
+      },
+    });
+
+    try {
+      await expect(teacup.ready()).rejects.toThrow(
+        /needs 'auth' but nothing \(local or connected mesh\) provides it[\s\S]*did not connect.*127\.0\.0\.1:9/i,
+      );
     } finally {
       await teacup.close();
     }
@@ -193,7 +219,9 @@ describe('mesh boot retry', () => {
     });
 
     try {
-      await expect(teacup.fetch(new Request('http://x/api/local/who'))).rejects.toThrow(/mesh/);
+      await expect(teacup.fetch(new Request('http://x/api/local/who'))).rejects.toThrow(
+        /needs 'auth' but nothing \(local or connected mesh\) provides it[\s\S]*did not connect/i,
+      );
       expect(lines.filter((l) => l.includes('of boot budget left'))).toEqual([]);
     } finally {
       await teacup.close();

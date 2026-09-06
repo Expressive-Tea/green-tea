@@ -695,12 +695,17 @@ function finalizeGraph(
     }
   }
 
-  assertNeedsSatisfiable(routePlans, providerNodes, stepNodes);
+  assertNeedsSatisfiable(routePlans, providerNodes, stepNodes, missingNote);
   return { orderedProviders, orderedSteps };
 }
 
 /** Throws if any route needs a key that nothing (local or mesh) provides, suggesting the nearest match. */
-function assertNeedsSatisfiable(routePlans: RoutePlan[], providerNodes: GraphNode[], stepNodes: GraphNode[]): void {
+function assertNeedsSatisfiable(
+  routePlans: RoutePlan[],
+  providerNodes: GraphNode[],
+  stepNodes: GraphNode[],
+  missingNote?: (key: string) => string,
+): void {
   const producedKeys = new Set<string>([
     ...providerNodes.flatMap((node) => node.provides),
     ...stepNodes.flatMap((node) => node.provides),
@@ -726,8 +731,13 @@ function assertNeedsSatisfiable(routePlans: RoutePlan[], providerNodes: GraphNod
       }
 
       const hint = nearest(need, allowed);
+      // "local or mesh" claims the mesh was consulted and came up empty — true only when every
+      // teapot connected. When one didn't, say "connected mesh" instead so the message doesn't
+      // assert a search that never happened, and let missingNote name which teapots were away.
+      const scope = missingNote ? 'local or connected mesh' : 'local or mesh';
       throw new Error(
-        `handler '${plan.handlerName}' needs '${need}' but nothing (local or mesh) provides it${hint ? ` — did you mean '${hint}'?` : ''}`,
+        `handler '${plan.handlerName}' needs '${need}' but nothing (${scope}) provides it` +
+          `${hint ? ` — did you mean '${hint}'?` : ''}${missingNote?.(need) ?? ''}`,
       );
     }
   }
