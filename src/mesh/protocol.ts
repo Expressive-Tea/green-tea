@@ -18,6 +18,14 @@
  *
  * Bumping per change would make the number mean "work happened" rather than "we are
  * incompatible", which is the one thing it is here to say.
+ *
+ * **One exception has been taken, and its terms are the point.** The manifest's `scopes` field was
+ * renamed to `steps` at v1 — a rename, which the first rule above would otherwise cover — without a
+ * bump. It was allowed because there is no deployed pair the rename could split: mesh is alpha,
+ * every app using it is gated behind `experimental: true`, and both peers ship out of this one
+ * repo, so a teacup and a teapot are always on the same version. Each of those three has to hold
+ * for the exception to; the first mesh release that drops `experimental` retires it, and a rename
+ * after that earns a bump like any other.
  */
 export const MESH_PROTOCOL_VERSION = 1;
 

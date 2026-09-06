@@ -145,7 +145,9 @@ export interface MeshConfig {
    * one of its tokens still fails the boot, naming it. A permanent refusal — a wrong secret, a
    * protocol mismatch — fails at once without spending the grace.
    *
-   * `0` restores the old behaviour of a single attempt.
+   * `0` means one attempt and no grace. That is the attempt count boot used to have, and nothing
+   * more: exhausting it no longer fails the boot, so a single unreachable teapot still warns and
+   * starts. To make a teapot's absence fatal, have something local `@needs` one of its tokens.
    */
   bootTimeoutMs?: number;
 }
