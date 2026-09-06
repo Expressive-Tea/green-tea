@@ -699,7 +699,14 @@ function finalizeGraph(
   return { orderedProviders, orderedSteps };
 }
 
-/** Throws if any route needs a key that nothing (local or mesh) provides, suggesting the nearest match. */
+/**
+ * Throws if any route needs a key that nothing provides, suggesting the nearest match.
+ *
+ * `missingNote` arrives only from a mesh boot, and only when a teapot did not connect. It changes
+ * what the message can honestly claim: "local or connected mesh" instead of "local or mesh", since
+ * the exports of an absent teapot were never searched — and it appends which teapots those were,
+ * which is the actual cause every time it is the cause.
+ */
 function assertNeedsSatisfiable(
   routePlans: RoutePlan[],
   providerNodes: GraphNode[],

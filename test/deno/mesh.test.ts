@@ -1,4 +1,4 @@
-// Real Deno integration test for mesh: a teapot exporting its scopes and a teacup consuming
+// Real Deno integration test for mesh: a teapot exporting its steps and a teacup consuming
 // them, both under the actual Deno runtime, driven entirely through serveDeno.
 //
 // This is the test that makes "mesh runs off Node" a fact rather than an intention. It covers,

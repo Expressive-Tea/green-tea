@@ -1,4 +1,4 @@
-// Real Bun integration test for mesh: a teapot exporting its scopes and a teacup consuming
+// Real Bun integration test for mesh: a teapot exporting its steps and a teacup consuming
 // them, both under the actual Bun runtime, driven entirely through serveBun.
 //
 // Bun's ws lifecycle differs from Deno's — its socket events land on a server-level handler

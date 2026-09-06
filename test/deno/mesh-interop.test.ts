@@ -112,7 +112,7 @@ Deno.test('interop: a Deno teacup consumes a Node teapot', async () => {
   try {
     const res = await teacup.fetch(new Request('http://x/api/local/who', { headers: { 'x-token': 'abc' } }));
     assertEquals(res.status, 200);
-    // the config came from the Node process: proof the scope crossed the runtime boundary
+    // the config came from the Node process: proof the remote step crossed the runtime boundary
     assertEquals(await res.json(), {
       config: { region: 'mx', runtime: 'node' },
       auth: { token: 'abc' },
@@ -140,7 +140,7 @@ Deno.test('interop: a Node teacup consumes a Deno teapot', async () => {
   try {
     const result = await firstJsonLine(node);
     assertEquals(result.ok, true);
-    // the Node peer resolved a scope served by Deno's app.upgrade control channel
+    // the Node peer ran a step served by Deno's app.upgrade control channel
     assertEquals(result.body.config, { region: 'mx', runtime: 'deno' });
     assertEquals(result.body.auth, { token: 'abc' });
   } finally {
