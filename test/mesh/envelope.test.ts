@@ -103,7 +103,7 @@ describe('mesh rpc errors', () => {
         const frame = decode(data.toString());
         if (!authed && frame.type === 'hello') {
           authed = true;
-          ws.send(encode({ type: 'manifest', v: V, scopes: [{ token: 'billing', scope: 'request' }], routes: [] }));
+          ws.send(encode({ type: 'manifest', v: V, steps: ['billing'], routes: [] }));
           return;
         }
         if (frame.type === 'rpc-req') {
@@ -130,7 +130,7 @@ describe('teapot hardening', () => {
   const control = () =>
     createMeshControl({
       secret: 'good',
-      manifest: { scopes: [{ token: 'auth', scope: 'request' }], routes: [] },
+      manifest: { steps: ['auth'], routes: [] },
       resolveScope: async () => 'value',
       resolveRoute: async () => ({ status: 200, headers: {}, body: '' }),
     });

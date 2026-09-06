@@ -20,7 +20,7 @@ function teapotOn(port: number, manifest: Manifest, answer: unknown = { ok: true
       if (!authed) {
         if (frame.type === 'hello' && frame.secret === 'good') {
           authed = true;
-          ws.send(encode({ type: 'manifest', v: V, scopes: manifest.scopes, routes: manifest.routes }));
+          ws.send(encode({ type: 'manifest', v: V, steps: manifest.steps, routes: manifest.routes }));
         } else ws.close(1008);
         return;
       }
@@ -54,13 +54,13 @@ async function freePort(): Promise<number> {
 
 const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const url = (port: number) => `ws://127.0.0.1:${port}/__mesh__/control`;
-const SCOPES: Manifest = { scopes: [{ token: 'auth', scope: 'app' }], routes: [] };
+const STEPS: Manifest = { steps: ['auth'], routes: [] };
 const fast = { initialDelayMs: 20, maxDelayMs: 60 };
 
 describe('mesh reconnection', () => {
   it('reconnects to the same teapot and serves again', async () => {
     const port = await freePort();
-    let teapot = await teapotOn(port, SCOPES);
+    let teapot = await teapotOn(port, STEPS);
     const link = await connectLink({ url: url(port), secret: 'good', reconnect: fast, heartbeatMs: 50 });
 
     expect(await link.rpc('scope', 'auth', env)).toEqual({ ok: true });
@@ -70,7 +70,7 @@ describe('mesh reconnection', () => {
     // the window where the link is down answers immediately rather than after timeoutMs
     await expect(link.rpc('scope', 'auth', env)).rejects.toMatchObject({ status: 503 });
 
-    teapot = await teapotOn(port, SCOPES, { ok: 'again' });
+    teapot = await teapotOn(port, STEPS, { ok: 'again' });
     await settle(300);
 
     expect(await link.rpc('scope', 'auth', env)).toEqual({ ok: 'again' });
@@ -80,7 +80,7 @@ describe('mesh reconnection', () => {
 
   it('refuses a returning teapot whose manifest lost a token the graph needs', async () => {
     const port = await freePort();
-    let teapot = await teapotOn(port, SCOPES);
+    let teapot = await teapotOn(port, STEPS);
     const warnings: string[] = [];
     const logger = { debug() {}, info() {}, warn: (m: string) => warnings.push(m), error() {} };
     const link = await connectLink({ url: url(port), secret: 'good', reconnect: fast, heartbeatMs: 50, logger });
@@ -89,11 +89,11 @@ describe('mesh reconnection', () => {
     await settle(50);
 
     // comes back exporting nothing — the graph was validated against 'auth' at boot
-    teapot = await teapotOn(port, { scopes: [], routes: [] });
+    teapot = await teapotOn(port, { steps: [], routes: [] });
     await settle(300);
 
     await expect(link.rpc('scope', 'auth', env)).rejects.toMatchObject({ status: 503 });
-    expect(warnings.some((w) => w.includes("app-scope 'auth'") && w.includes('refusing to reconnect'))).toBe(true);
+    expect(warnings.some((w) => w.includes("step 'auth'") && w.includes('refusing to reconnect'))).toBe(true);
     // logged once per distinct manifest, not once per attempt
     expect(warnings.filter((w) => w.includes('refusing to reconnect')).length).toBe(1);
 
@@ -103,7 +103,7 @@ describe('mesh reconnection', () => {
 
   it('stops reconnecting once the application closes the link', async () => {
     const port = await freePort();
-    const teapot = await teapotOn(port, SCOPES);
+    const teapot = await teapotOn(port, STEPS);
     const link = await connectLink({ url: url(port), secret: 'good', reconnect: fast, heartbeatMs: 50 });
 
     await teapot.close();
@@ -111,7 +111,7 @@ describe('mesh reconnection', () => {
 
     // if close() were not terminal, the link would reconnect to the teapot that comes back here —
     // which is what would leave app.close() with a process that cannot exit
-    const revived = await teapotOn(port, SCOPES, { ok: 'revived' });
+    const revived = await teapotOn(port, STEPS, { ok: 'revived' });
     await settle(300);
 
     await expect(link.rpc('scope', 'auth', env)).rejects.toMatchObject({ status: 503 });
@@ -120,11 +120,11 @@ describe('mesh reconnection', () => {
 
   it('reconnect: false keeps the old fail-once behaviour', async () => {
     const port = await freePort();
-    let teapot = await teapotOn(port, SCOPES);
+    let teapot = await teapotOn(port, STEPS);
     const link = await connectLink({ url: url(port), secret: 'good', reconnect: false, heartbeatMs: 50 });
 
     await teapot.close();
-    teapot = await teapotOn(port, SCOPES);
+    teapot = await teapotOn(port, STEPS);
     await settle(300);
 
     await expect(link.rpc('scope', 'auth', env)).rejects.toMatchObject({ status: 503 });
@@ -135,10 +135,7 @@ describe('mesh reconnection', () => {
 
 describe('missingFromManifest', () => {
   const booted: Manifest = {
-    scopes: [
-      { token: 'auth', scope: 'request' },
-      { token: 'config', scope: 'app' },
-    ],
+    steps: ['auth', 'config'],
     routes: [{ method: 'GET', pattern: '/svc/:id' }],
   };
 
@@ -148,30 +145,24 @@ describe('missingFromManifest', () => {
 
   it('accepts extra exports — the graph is fixed at boot and nothing new is spliced', () => {
     const wider: Manifest = {
-      scopes: [...booted.scopes, { token: 'billing', scope: 'app' }],
+      steps: [...booted.steps, 'billing'],
       routes: [...booted.routes, { method: 'POST', pattern: '/svc/new' }],
     };
     expect(missingFromManifest(booted, wider)).toEqual([]);
   });
 
   it('accepts a route parameter that was only renamed', () => {
-    const renamed: Manifest = { scopes: booted.scopes, routes: [{ method: 'GET', pattern: '/svc/:name' }] };
+    const renamed: Manifest = { steps: booted.steps, routes: [{ method: 'GET', pattern: '/svc/:name' }] };
     expect(missingFromManifest(booted, renamed)).toEqual([]);
   });
 
-  it('reports a token whose lifetime changed, since the graph resolved it under the old one', () => {
-    const flipped: Manifest = {
-      scopes: [
-        { token: 'auth', scope: 'app' },
-        { token: 'config', scope: 'app' },
-      ],
-      routes: booted.routes,
-    };
-    expect(missingFromManifest(booted, flipped)).toEqual(["request-scope 'auth'"]);
+  it('reports a step token that vanished, since the graph resolved it under the old manifest', () => {
+    const shrunk: Manifest = { steps: ['config'], routes: booted.routes };
+    expect(missingFromManifest(booted, shrunk)).toEqual(["step 'auth'"]);
   });
 
   it('reports a missing route by method and pattern', () => {
-    const routeless: Manifest = { scopes: booted.scopes, routes: [] };
+    const routeless: Manifest = { steps: booted.steps, routes: [] };
     expect(missingFromManifest(booted, routeless)).toEqual(["route 'GET /svc/:id'"]);
   });
 });

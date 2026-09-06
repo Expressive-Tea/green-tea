@@ -276,7 +276,7 @@ describe('mesh control over app.upgrade (no listen)', () => {
     expect(peer.sent[0]).toMatchObject({
       type: 'manifest',
       v: MESH_PROTOCOL_VERSION,
-      scopes: expect.arrayContaining([{ token: 'config', scope: 'request' }]),
+      steps: expect.arrayContaining(['config']),
     });
     await teapot.close();
   });

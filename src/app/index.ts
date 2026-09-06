@@ -33,7 +33,7 @@ import { buildOpenApi, type OpenApiInfo } from '../openapi';
 import { connectLink, isPermanentRefusal, type Link } from '../mesh/link';
 import { Rooms } from '../rooms';
 import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
-import { buildRemote } from '../mesh/teacup';
+import { buildRemote, type RemoteScopeNode } from '../mesh/teacup';
 import { buildManifest, createMeshControl, MESH_CONTROL_PATH } from '../mesh/teapot';
 import type { MeshControl } from '../http';
 import type { RequestEnvelope, RouteEntry } from '../mesh/protocol';
@@ -850,7 +850,11 @@ async function spliceRemoteScopes(
         }),
       );
       meshLinks.push(link);
-      const { providers, steps, routes } = buildRemote(link);
+      // `buildRemote` no longer returns `providers` — every exported token is a step now (Task 1
+      // refuses a provider export at boot). Kept as an empty array, not deleted, so the loop below
+      // still typechecks; Task 3 removes the loop itself along with the rest of provider-splicing.
+      const providers: RemoteScopeNode[] = [];
+      const { steps, routes } = buildRemote(link);
       const origin = `mesh:${teapot.url}`;
 
       for (const provider of providers) {
@@ -1094,7 +1098,7 @@ function buildMeshControl(
   if (!mesh?.secret || !hasExports) return undefined;
   const { container, orderedProviders, orderedSteps } = deps;
   const { bus, providedSeed, planSteps, onError, logger } = deps.deps;
-  const manifest = buildManifest({ providers: exportedProviders, steps: exportedSteps, routes: exportedRoutes });
+  const manifest = buildManifest({ steps: exportedSteps, routes: exportedRoutes });
 
   const resolveScope = async (name: string, env: RequestEnvelope): Promise<unknown> => {
     // context is intentionally `any`: providers and steps merge arbitrary keys into it

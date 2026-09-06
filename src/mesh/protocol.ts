@@ -43,19 +43,21 @@ export interface RequestEnvelope {
   correlation?: { requestId?: string; traceId?: string };
 }
 
-/** Manifest entry for an exported scope token and its lifetime. */
-export interface ScopeEntry {
-  token: string;
-  scope: 'app' | 'request';
-}
 /** Manifest entry for an exported route. */
 export interface RouteEntry {
   method: string;
   pattern: string;
 }
-/** A mesh server's advertised scopes and routes. */
+
+/**
+ * A mesh server's advertised steps and routes.
+ *
+ * Steps only: a provider's value is the object it builds, which cannot cross a JSON wire, so
+ * exporting one is refused at boot (`collectProviders`). Every entry here is request-scope and
+ * lazy — the token exists in the teacup's graph, and running it is an RPC.
+ */
 export interface Manifest {
-  scopes: ScopeEntry[];
+  steps: string[];
   routes: RouteEntry[];
 }
 
@@ -68,7 +70,7 @@ export interface Manifest {
  */
 export type Frame =
   | { type: 'hello'; v: number; secret: string }
-  | { type: 'manifest'; v: number; scopes: ScopeEntry[]; routes: RouteEntry[] }
+  | { type: 'manifest'; v: number; steps: string[]; routes: RouteEntry[] }
   | { type: 'rpc-req'; id: string; kind: 'scope' | 'route'; name: string; ctx: RequestEnvelope }
   | { type: 'rpc-res'; id: string; ok: true; result: unknown }
   | { type: 'rpc-res'; id: string; ok: false; error: { message: string; status?: number } }
@@ -94,7 +96,7 @@ const SHAPE: Record<Frame['type'], ShapeCheck> = {
   },
   manifest: (frame, bad) => {
     if (!isNumber(frame.v)) bad('missing protocol version');
-    if (!Array.isArray(frame.scopes) || !Array.isArray(frame.routes)) bad('scopes and routes must be arrays');
+    if (!Array.isArray(frame.steps) || !Array.isArray(frame.routes)) bad('steps and routes must be arrays');
   },
   'rpc-req': (frame, bad) => {
     if (!isString(frame.id)) bad('id must be a string');

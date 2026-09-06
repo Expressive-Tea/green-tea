@@ -37,27 +37,18 @@ export function envelopeFrom(ctx: any): RequestEnvelope {
   };
 }
 
-/** Turn a link's manifest into local proxy nodes: app-scope providers, request-scope steps, and routes. */
-export function buildRemote(link: Link): {
-  providers: RemoteScopeNode[];
-  steps: RemoteScopeNode[];
-  routes: RemoteRoute[];
-} {
-  const providers: RemoteScopeNode[] = [];
-  const steps: RemoteScopeNode[] = [];
-
-  for (const scope of link.manifest.scopes) {
-    const node: RemoteScopeNode = {
-      name: scope.token,
-      run: async (ctx: any) => ({ [scope.token]: await link.rpc('scope', scope.token, envelopeFrom(ctx)) }),
-    };
-    (scope.scope === 'app' ? providers : steps).push(node);
-  }
+/** Turn a link's manifest into local proxy nodes: lazy request-scope steps, and routes. */
+export function buildRemote(link: Link): { steps: RemoteScopeNode[]; routes: RemoteRoute[] } {
+  const steps: RemoteScopeNode[] = link.manifest.steps.map((token) => ({
+    name: token,
+    run: async (ctx: any) => ({ [token]: await link.rpc('scope', token, envelopeFrom(ctx)) }),
+  }));
 
   const routes: RemoteRoute[] = link.manifest.routes.map((route) => ({
     method: route.method,
     pattern: route.pattern,
     handler: async (req: RequestEnvelope) => (await link.rpc('route', route.pattern, req)) as ResponseShape,
   }));
-  return { providers, steps, routes };
+
+  return { steps, routes };
 }

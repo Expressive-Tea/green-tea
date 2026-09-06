@@ -16,7 +16,7 @@ function startTeapot(secret = 'good') {
     ws.on('message', (d) => {
       const f = decode(d.toString());
       if (!authed) {
-        if (f.type === 'hello' && f.secret === secret) { authed = true; ws.send(encode({ type: 'manifest', v: V, scopes: [{ token: 'auth', scope: 'request' }], routes: [] })); }
+        if (f.type === 'hello' && f.secret === secret) { authed = true; ws.send(encode({ type: 'manifest', v: V, steps: ['auth'], routes: [] })); }
         else ws.close(1008);
         return;
       }
@@ -36,7 +36,7 @@ function startSilentTeapot(secret = 'good') {
   wss.on('connection', (ws) => {
     ws.on('message', (d) => {
       const f = decode(d.toString());
-      if (f.type === 'hello' && f.secret === secret) ws.send(encode({ type: 'manifest', v: V, scopes: [], routes: [] }));
+      if (f.type === 'hello' && f.secret === secret) ws.send(encode({ type: 'manifest', v: V, steps: [], routes: [] }));
       // ignore rpc-req entirely
     });
   });
@@ -48,7 +48,7 @@ function startSilentTeapot(secret = 'good') {
 function startSkewedTeapot() {
   const wss = new WebSocketServer({ port: 0 });
   wss.on('connection', (ws) => {
-    ws.on('message', () => ws.send(encode({ type: 'manifest', v: V + 1, scopes: [], routes: [] } as any)));
+    ws.on('message', () => ws.send(encode({ type: 'manifest', v: V + 1, steps: [], routes: [] } as any)));
   });
   const port = (wss.address() as any).port;
   return { url: `ws://127.0.0.1:${port}/__mesh__/control`, close: () => wss.close() };
@@ -68,7 +68,7 @@ describe('WebSocket client implementations', () => {
     const t = startTeapot();
     const link = await connectLink({ url: t.url, secret: 'good', Ctor });
 
-    expect(link.manifest.scopes).toEqual([{ token: 'auth', scope: 'request' }]);
+    expect(link.manifest.steps).toEqual(['auth']);
     expect(await link.rpc('scope', 'auth', env)).toEqual({ got: 'auth' });
     link.close();
     t.close();
@@ -86,7 +86,7 @@ describe('connectLink', () => {
     wss.on('connection', (ws) =>
       ws.on('message', (d) => {
         seen.push(decode(d.toString()));
-        ws.send(encode({ type: 'manifest', v: V, scopes: [], routes: [] }));
+        ws.send(encode({ type: 'manifest', v: V, steps: [], routes: [] }));
       }),
     );
     const url = `ws://127.0.0.1:${(wss.address() as any).port}/__mesh__/control`;
@@ -105,7 +105,7 @@ describe('connectLink', () => {
   it('handshakes and exposes the manifest', async () => {
     const t = startTeapot();
     const link = await connectLink({ url: t.url, secret: 'good' });
-    expect(link.manifest.scopes).toEqual([{ token: 'auth', scope: 'request' }]);
+    expect(link.manifest.steps).toEqual(['auth']);
     link.close(); t.close();
   });
 
