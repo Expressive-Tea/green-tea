@@ -97,6 +97,9 @@ const SHAPE: Record<Frame['type'], ShapeCheck> = {
   manifest: (frame, bad) => {
     if (!isNumber(frame.v)) bad('missing protocol version');
     if (!Array.isArray(frame.steps) || !Array.isArray(frame.routes)) bad('steps and routes must be arrays');
+    // Array.isArray above already guarantees this, but TS does not carry that narrowing through a
+    // `never`-typed callback parameter — the cast is safe, not a bypass.
+    if (!(frame.steps as unknown[]).every(isString)) bad('every step must be a string');
   },
   'rpc-req': (frame, bad) => {
     if (!isString(frame.id)) bad('id must be a string');

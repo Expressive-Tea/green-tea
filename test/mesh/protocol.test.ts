@@ -32,6 +32,12 @@ describe('protocol codec', () => {
     );
   });
 
+  it('rejects a manifest whose steps array contains a non-string element', () => {
+    expect(() => decode(JSON.stringify({ type: 'manifest', v: V, steps: [123], routes: [] }))).toThrow(
+      /every step must be a string/,
+    );
+  });
+
   it('throws on malformed json', () => {
     expect(() => decode('{not json')).toThrow();
   });
