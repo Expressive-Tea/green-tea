@@ -43,6 +43,16 @@ class NeedsAuth {
 @Module({ mountpoint: '/api', steps: [NeedsAuth] })
 class NeedsAuthModule {}
 
+/** A free port, taken by opening and immediately closing a server on port 0. */
+const freePort = async (): Promise<number> =>
+  new Promise<number>((resolve) => {
+    const probe = net.createServer();
+    probe.listen(0, () => {
+      const { port } = probe.address() as { port: number };
+      probe.close(() => resolve(port));
+    });
+  });
+
 const collect = () => {
   const lines: string[] = [];
   return { lines, logger: { debug() {}, info() {}, warn: (m: string) => lines.push(m), error: (m: string) => lines.push(m) } };
@@ -50,13 +60,7 @@ const collect = () => {
 
 describe('mesh boot retry', () => {
   it('waits for a teapot that starts late, rather than failing the deploy', async () => {
-    const port = await new Promise<number>((resolve) => {
-      const probe = net.createServer();
-      probe.listen(0, () => {
-        const { port: p } = probe.address() as { port: number };
-        probe.close(() => resolve(p));
-      });
-    });
+    const port = await freePort();
     const { lines, logger } = collect();
 
     const teacup = createApp({
@@ -202,6 +206,50 @@ describe('mesh boot retry', () => {
       await expect(teacup.ready()).rejects.toThrow(/missing dependency: auth[\s\S]*did not connect/i);
     } finally {
       await teacup.close();
+    }
+  }, 15_000);
+
+  it('leaves no reconnect supervisor behind when the boot never reached its teapot', async () => {
+    // Every failed boot attempt used to leak one. `openSession`'s abort listener runs `onEnd` even
+    // when the connect promise *rejects*, and `onEnd` schedules a retry — but a link that never
+    // resolved was never handed to anyone, so it was never pushed to `meshLinks` and `close()`
+    // could not reach it. Before the app was allowed to start without a teapot the process died
+    // with them; now it survives, and each one holds a socket open forever.
+    const port = await freePort();
+    const { logger } = collect();
+    const teacupConnects: string[] = [];
+
+    const teacup = createApp({
+      modules: [LocalOnlyModule], // nothing local needs the teapot, so the boot is allowed to finish
+      experimental: true,
+      logger,
+      mesh: {
+        teapots: [{ url: `ws://127.0.0.1:${port}/__mesh__/control`, secret: 'good' }],
+        timeoutMs: 200,
+        bootTimeoutMs: 600, // several attempts, each of which used to leave a supervisor running
+        reconnect: { initialDelayMs: 20, maxDelayMs: 60 }, // a leak would hammer, not trickle
+      },
+    });
+    teacup.bus.on('mesh:connect', (event) => teacupConnects.push(event.name));
+
+    await teacup.ready();
+    await teacup.close();
+
+    // Only now does the teapot arrive. Nothing in this process holds a link to it.
+    const teapotConnects: string[] = [];
+    const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: 'good' } });
+    teapot.bus.on('mesh:connect', (event) => teapotConnects.push(event.name));
+    const server = await teapot.listen(port);
+
+    try {
+      await new Promise((r) => setTimeout(r, 500)); // ~8 retries at the bounds above
+
+      expect(teacupConnects).toEqual([]);
+      // the teapot side, so this fails on a socket that opened even if the teacup never adopted it
+      expect(teapotConnects).toEqual([]);
+    } finally {
+      await teapot.close();
+      server.close();
     }
   }, 15_000);
 

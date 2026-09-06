@@ -499,10 +499,25 @@ export function connectLink(args: {
     }
   };
 
-  return openSession(sessionArgs(() => endSession(0))).then((session) => {
-    link.manifest = session.manifest;
-    adopt(session);
+  return openSession(sessionArgs(() => endSession(0))).then(
+    (session) => {
+      link.manifest = session.manifest;
+      adopt(session);
 
-    return link;
-  });
+      return link;
+    },
+    (error) => {
+      // The first connect failed, so this `Link` never escaped — nobody holds it and nobody can
+      // ever call `close()` on it. But `openSession`'s abort listener has already run `onEnd`,
+      // which scheduled a retry: left alone, that supervisor reconnects forever to a handle no
+      // caller has, and `closeLinks` cannot reach it because the link was never pushed to
+      // `meshLinks`. Boot already retries above this (`connectUntilDeadline`), so a second
+      // supervisor underneath it is pure leak — every failed attempt used to leave one behind.
+      // Reconnection for a link that *did* connect is untouched: this path runs only on the
+      // initial rejection, and a session that drops later still goes through `endSession`.
+      state.closed = true;
+      clearTimeout(state.retry);
+      throw error;
+    },
+  );
 }
