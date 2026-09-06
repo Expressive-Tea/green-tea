@@ -88,6 +88,9 @@ export type Frame =
 const isString = (value: unknown): value is string => typeof value === 'string';
 const isNumber = (value: unknown): boolean => typeof value === 'number';
 const isObject = (value: unknown): boolean => typeof value === 'object' && value !== null;
+/** A manifest route entry: both fields reach `compilePattern`, so both must really be strings. */
+const isRouteEntry = (value: unknown): boolean =>
+  isObject(value) && isString((value as RouteEntry).method) && isString((value as RouteEntry).pattern);
 
 /** Rejects a frame whose fields don't match its `type` tag. `bad` always throws. */
 type ShapeCheck = (frame: Record<string, unknown>, bad: (why: string) => never) => void;
@@ -108,6 +111,10 @@ const SHAPE: Record<Frame['type'], ShapeCheck> = {
     // Array.isArray above already guarantees this, but TS does not carry that narrowing through a
     // `never`-typed callback parameter — the cast is safe, not a bypass.
     if (!(frame.steps as unknown[]).every(isString)) bad('every step must be a string');
+    // Checked for the same reason steps are: past `decode` a route entry goes straight to
+    // `compilePattern`, where a non-string `pattern` dies as a boot `TypeError` about a peer's
+    // frame — a failure that reads like a green-tea bug rather than a malformed manifest.
+    if (!(frame.routes as unknown[]).every(isRouteEntry)) bad('every route must have a string method and pattern');
   },
   'rpc-req': (frame, bad) => {
     if (!isString(frame.id)) bad('id must be a string');

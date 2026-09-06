@@ -38,6 +38,18 @@ describe('protocol codec', () => {
     );
   });
 
+  it('rejects a manifest whose routes array contains a malformed entry', () => {
+    // Not a hole that was open — `compilePattern` would have thrown downstream — but it threw a
+    // `TypeError` at boot instead of naming the peer's frame as the malformed thing it is.
+    const routes = [{ method: 5, pattern: {} }];
+    expect(() => decode(JSON.stringify({ type: 'manifest', v: V, steps: [], routes }))).toThrow(
+      /every route must have a string method and pattern/,
+    );
+    expect(() => decode(JSON.stringify({ type: 'manifest', v: V, steps: [], routes: ['GET /x'] }))).toThrow(
+      /every route must have a string method and pattern/,
+    );
+  });
+
   it('throws on malformed json', () => {
     expect(() => decode('{not json')).toThrow();
   });
