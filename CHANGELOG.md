@@ -32,17 +32,28 @@ npm treats versions as semver and semver forbids leading zeros.
   caution, it was arithmetic: an app-scope value has to resolve *at boot*, because there is no later
   to resolve it in. A step is nothing but later. The `bootTimeoutMs` grace still waits, since "the
   container is thirty seconds behind" and "the teapot does not exist" look identical for the first
-  thirty seconds; exhausting it now warns and starts without that teapot, whose steps and routes
-  answer `503`. Refusing to start took down the half of the teacup that never needed that teapot at
-  all, and moved a `503` on some requests into an outage on every one of them.
+  thirty seconds; exhausting it now warns and starts without that teapot.
 
-  Two conditions still fail the boot, both deliberately. A **permanent refusal** — a wrong secret,
-  a protocol mismatch — is the teapot's decision rather than the network's, and it will be the same
-  decision in thirty seconds; retrying only spends the deploy's patience to arrive at the identical
-  error. And a local step that **needs a token nothing provides** still fails, because that check is
-  what catches a typo in a token name, and a typo does not come good by waiting. That error now
-  names the teapots that did not connect, and says "local or connected mesh" rather than "local or
-  mesh" — the old wording claimed a search that had not happened.
+  What that buys is narrower than it sounds, and worth stating exactly. A teapot that never
+  connected sent no manifest, so the teacup learned nothing about it — no step runners, no routes,
+  a graph identical to the one it would have had if that teapot were never configured. Its routes
+  therefore **404**, through the ordinary unmatched-route path, because nothing was ever registered
+  to match. And any local step or handler that needs one of its tokens **still fails the boot**,
+  naming the teapot that did not connect. `503` is what a teapot that connected and *later* died
+  answers: that link exists, its steps and routes are registered, and the dead link is what returns
+  the status. Never reachable and reachable-then-gone are different situations, and they read
+  differently on purpose.
+
+  So the change is for the teacup that does *not* depend on that teapot: it starts, rather than
+  refusing over a dependency it never had. It is not graceful degradation of the dependency, and
+  cannot be — answering `503` for an absent teapot's tokens means knowing what it *would* have
+  exported, and only a declaration can say. That declaration is the `expects` list in
+  `docs/plans/2026-08-18-mesh-degrade-plan.md`, which is planned and not built. Two things are
+  unchanged: a **permanent refusal** — a wrong secret, a protocol mismatch — still fails the boot
+  without spending the grace, because it is the teapot's decision rather than the network's and will
+  be the same decision in thirty seconds; and the missing-token error, which now says "local or
+  connected mesh" rather than "local or mesh", the old wording having claimed a search that never
+  happened.
 
 - **Mesh (alpha): the manifest carries step names.** `{ scopes: [{ token, scope }], routes }` is now
   `{ steps: string[], routes }`. Every export is request-scope after the change above, so the

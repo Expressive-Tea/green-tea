@@ -755,18 +755,21 @@ function assertNeedsSatisfiable(
  *
  * The grace exists because "the container is thirty seconds behind" and "the teapot does not
  * exist" look identical for the first thirty seconds, and only one of them should stop a deploy.
- * When the deadline passes it still throws: a provider the graph depends on is not optional, and
- * booting without it would only move the failure to the first request, where it becomes a caller's
- * 503 instead of the deploy's error.
  *
  * Each failed attempt is both logged and emitted as `mesh:boot:retry` — logged so an operator
  * watching a deploy sees why it is taking so long, emitted so the wait is visible to whatever
  * collects lifecycle events rather than only to whoever is reading a terminal.
  *
- * Exhausting the budget no longer throws (D4 keeps the one exception: a permanent refusal still
- * does). Every export a teapot makes is now lazy — a request-scope step or a proxied route — so
- * nothing needs it resolved by boot; an absent teapot only costs a 503 on the requests that need
- * it, and a teacup that refuses to start would take down the half of itself that never did.
+ * Exhausting the budget returns `undefined` rather than throwing (D4 keeps the one exception: a
+ * permanent refusal still does). Every export a teapot makes is lazy now — a request-scope step or
+ * a proxied route — so nothing needed this link resolved by boot, and a teacup that refuses to
+ * start takes down the half of itself that never needed the teapot.
+ *
+ * Returning `undefined` is not the same as degrading it. The caller registers nothing for a link it
+ * never got, because a teapot that did not connect sent no manifest and so nobody knows what it
+ * would have exported. Its routes 404 like any unregistered path, and a local node that needs one
+ * of its tokens still fails the boot in finalize(), named. Serving 503 for those tokens instead
+ * needs an `expects` declaration — see docs/plans/2026-08-18-mesh-degrade-plan.md, still planned.
  */
 async function connectUntilDeadline(
   mesh: MeshConfig,
@@ -795,12 +798,16 @@ async function connectUntilDeadline(
       }
 
       // The budget is a grace for a co-deploy, not a requirement. Every export is a lazy step or a
-      // proxied route now, so an absent teapot costs a 503 on the requests that need it — and a
-      // teacup that refuses to start takes down the half of itself that never needed the teapot.
+      // proxied route now, so nothing needed this link resolved by boot, and a teacup that refuses
+      // to start takes down the half of itself that never needed the teapot. What starting does NOT
+      // do is degrade the dependency: an absent teapot sent no manifest, so it contributes no nodes
+      // at all — its routes 404 and a local `needs` on its tokens still fails in finalize().
       if (remaining <= 0) {
         logger.warn(
           `mesh: teapot unreachable after ${attempts} attempt(s) over ${budgetMs}ms ` +
-            `(${(error as Error).message}) — starting without it; its steps and routes will 503`,
+            `(${(error as Error).message}) — starting without it. It sent no manifest, so none of ` +
+            `its steps or routes are in this graph: its routes 404, and the boot still fails if ` +
+            `anything local needs one of its tokens.`,
         );
         return undefined;
       }
