@@ -124,6 +124,9 @@ describe('mesh link failure', () => {
 
 describe('provider export', () => {
   it('refuses to boot when a provider is exported over the mesh', async () => {
+    // `as any` is load-bearing, not laziness: `export` is not in `@Provider`'s options type, so a
+    // TypeScript caller cannot write this at all. The cast is how the test reaches the runtime
+    // backstop that a JavaScript caller would hit.
     @Provider({ provides: 'db', needs: [], export: true } as any)
     class Db {
       provide() {

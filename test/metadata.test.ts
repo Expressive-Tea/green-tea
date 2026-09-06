@@ -67,12 +67,15 @@ describe('HEAD and OPTIONS decorators', () => {
 });
 
 describe('mesh export flags', () => {
-  it('providers/steps carry export (default false)', () => {
-    @Provider({ provides: 'config', export: true }) class C { provide() { return {}; } }
+  it('steps carry export, and a provider defaults to not exported', () => {
     @Step({ provides: 'auth', export: true }) class A { run() { return {}; } }
     @Provider({ provides: 'priv' }) class P { provide() { return {}; } }
-    expect(getProviderMeta(C)!.export).toBe(true);
     expect(getStepMeta(A)!.export).toBe(true);
+    // No `export: true` case for a provider: the option is gone from `@Provider`'s type, and its
+    // only behaviour is the boot throw that `test/mesh/failure.test.ts` covers end to end —
+    // asserting it is *stored* here would assert the option works. The default is a different
+    // claim and still load-bearing: `collectProviders` throws on anything truthy, so every plain
+    // provider recording `false` is what keeps ordinary apps booting.
     expect(getProviderMeta(P)!.export).toBe(false);
   });
 
