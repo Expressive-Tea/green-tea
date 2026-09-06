@@ -221,7 +221,7 @@ export function createApp(opts: {
   let remoteRoutes: RouteDef[] = [];
   const meshLinks: Link[] = [];
 
-  const finalize = (missingNote?: (key: string) => string): void => {
+  const finalize = (missingNote?: string): void => {
     ({ orderedProviders, orderedSteps } = finalizeGraph(registry, logger, opts.warnGraphDepth, missingNote));
     booted = true;
   };
@@ -244,7 +244,7 @@ export function createApp(opts: {
       // Without this the error is `missing dependency: auth needed by getUser` and says nothing
       // about the teapot that was away — which is the actual cause every time it is the cause.
       const meshNote = spliced.absent.length
-        ? () => ` — these teapots did not connect, so their exports are absent: ${spliced.absent.join(', ')}`
+        ? ` — these teapots did not connect, so their exports are absent: ${spliced.absent.join(', ')}`
         : undefined;
       finalize(meshNote);
     }
@@ -667,7 +667,7 @@ function finalizeGraph(
   registry: Registry,
   logger: Logger,
   warnDepth: number | false = DEEP_GRAPH_WARN,
-  missingNote?: (key: string) => string,
+  missingNote?: string,
 ): { orderedProviders: GraphNode[]; orderedSteps: GraphNode[] } {
   const { providerNodes, stepNodes, routePlans } = registry;
   const ordered = topoSort([...providerNodes, ...stepNodes], ['req', 'params'], missingNote);
@@ -711,7 +711,7 @@ function assertNeedsSatisfiable(
   routePlans: RoutePlan[],
   providerNodes: GraphNode[],
   stepNodes: GraphNode[],
-  missingNote?: (key: string) => string,
+  missingNote?: string,
 ): void {
   const producedKeys = new Set<string>([
     ...providerNodes.flatMap((node) => node.provides),
@@ -744,7 +744,7 @@ function assertNeedsSatisfiable(
       const scope = missingNote ? 'local or connected mesh' : 'local or mesh';
       throw new Error(
         `handler '${plan.handlerName}' needs '${need}' but nothing (${scope}) provides it` +
-          `${hint ? ` — did you mean '${hint}'?` : ''}${missingNote?.(need) ?? ''}`,
+          `${hint ? ` — did you mean '${hint}'?` : ''}${missingNote ?? ''}`,
       );
     }
   }
