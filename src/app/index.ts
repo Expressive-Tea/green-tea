@@ -33,7 +33,7 @@ import { buildOpenApi, type OpenApiInfo } from '../openapi';
 import { connectLink, isPermanentRefusal, type Link } from '../mesh/link';
 import { Rooms } from '../rooms';
 import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
-import { buildRemote, type RemoteScopeNode } from '../mesh/teacup';
+import { buildRemote } from '../mesh/teacup';
 import { buildManifest, createMeshControl, MESH_CONTROL_PATH } from '../mesh/teapot';
 import type { MeshControl } from '../http';
 import type { RequestEnvelope, RouteEntry } from '../mesh/protocol';
@@ -59,7 +59,6 @@ interface Registry {
    */
   providerInstances: Map<string, { dispose?: () => void | Promise<void> }>;
   routePlans: RoutePlan[];
-  exportedProviders: string[];
   exportedSteps: string[];
   exportedRoutes: RouteEntry[];
   setRunner(name: string, runner: Runner, framework?: boolean): void;
@@ -239,7 +238,7 @@ export function createApp(opts: {
   // can only be built here, after finalize(), and never at construction time.
   const prepareGraph = async (): Promise<void> => {
     if (opts.mesh && !booted) {
-      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry, logger, container);
+      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry, logger);
       remoteRoutes = spliced.remoteRoutes;
       meshLinks.push(...spliced.meshLinks);
       finalize();
@@ -424,7 +423,6 @@ function emptyRegistry(): Registry {
     providerMeta: new Map(),
     providerInstances: new Map(),
     routePlans: [],
-    exportedProviders: [],
     exportedSteps: [],
     exportedRoutes: [],
     setRunner,
@@ -805,26 +803,12 @@ function warnIfCleartext(url: string, logger: Logger): void {
   );
 }
 
-/**
- * Re-register a link's app-scope bindings after it reconnects, so their next resolve re-runs the RPC.
- *
- * Named and separate rather than inlined in the reconnect handler: this is the seam a future
- * `onManifestChange: 'reconcile'` reuses, and burying it would mean writing it twice.
- *
- * Lazy on purpose — the RPC runs on the next resolve, not here. Re-resolving eagerly would put a
- * network call on the reconnect path, where a failure has nowhere to go but a swallowed rejection.
- */
-function invalidateRemoteBindings(rebind: Array<() => void>): void {
-  for (const bind of rebind) bind();
-}
-
-/** Connects the configured teapots, splices their remote providers/steps into the registry, and returns their routes. */
+/** Connects the configured teapots, splices their remote steps into the registry, and returns their routes. */
 async function spliceRemoteScopes(
   mesh: MeshConfig,
   bus: Bus,
   registry: Registry,
   logger: Logger,
-  container: Container,
 ): Promise<{ remoteRoutes: RouteDef[]; meshLinks: Link[] }> {
   const remoteRoutes: RouteDef[] = [];
   const meshLinks: Link[] = [];
@@ -833,9 +817,6 @@ async function spliceRemoteScopes(
   try {
     for (const teapot of mesh.teapots ?? []) {
       warnIfCleartext(teapot.url, logger);
-      // Deferred so the reconnect callback can name this link's provider tokens, which are only
-      // known once its manifest arrives — the callback is registered before the link can drop.
-      const rebind: Array<() => void> = [];
       const link = await connectUntilDeadline(mesh, bus, logger, () =>
         connectLink({
           url: teapot.url,
@@ -844,28 +825,13 @@ async function spliceRemoteScopes(
           heartbeatMs: mesh.heartbeatMs,
           reconnect: mesh.reconnect,
           onManifestChange: mesh.onManifestChange,
-          onReconnect: () => invalidateRemoteBindings(rebind),
           logger,
           bus,
         }),
       );
       meshLinks.push(link);
-      // `buildRemote` no longer returns `providers` — every exported token is a step now (Task 1
-      // refuses a provider export at boot). Kept as an empty array, not deleted, so the loop below
-      // still typechecks; Task 3 removes the loop itself along with the rest of provider-splicing.
-      const providers: RemoteScopeNode[] = [];
       const { steps, routes } = buildRemote(link);
       const origin = `mesh:${teapot.url}`;
-
-      for (const provider of providers) {
-        registry.providerNodes.push({ name: provider.name, needs: [], provides: [provider.name], origin });
-        registry.providerMeta.set(provider.name, { optional: false });
-        registry.setRunner(provider.name, provider.run);
-        // A remote app-scope value is resolved once at boot and frozen into the container, so it
-        // would keep answering from a cache the teapot no longer stands behind. Re-registering
-        // gives the binding a factory that re-runs the RPC, and `register` drops the memo with it.
-        rebind.push(() => container.register(provider.name, 'app', () => provider.run({})));
-      }
 
       for (const step of steps) {
         registry.stepNodes.push({ name: step.name, needs: [], provides: [step.name], origin });
@@ -1088,8 +1054,8 @@ function buildMeshControl(
   registry: Registry,
   deps: { container: Container; orderedProviders: GraphNode[]; orderedSteps: GraphNode[]; deps: PipelineDeps },
 ): MeshControl | undefined {
-  const { exportedProviders, exportedSteps, exportedRoutes, routePlans, runners } = registry;
-  const hasExports = exportedProviders.length || exportedSteps.length || exportedRoutes.length;
+  const { exportedSteps, exportedRoutes, routePlans, runners } = registry;
+  const hasExports = exportedSteps.length || exportedRoutes.length;
 
   if (hasExports && !mesh?.secret) {
     throw new Error('mesh: exports declared (export: true) but no mesh.secret configured to gate the control channel');

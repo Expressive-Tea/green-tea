@@ -93,6 +93,55 @@ describe('mesh skeleton integration', () => {
     tServer.close(); cServer.close();
   });
 
+  it('re-runs the RPC on every request rather than caching a boot value', async () => {
+    // A dedicated single-step teapot/teacup pair, not the shared TeapotModule above: exporting
+    // two scopes (config + auth) makes resolveScope re-run the whole step graph per scope RPC,
+    // which would make a call counter here track that unrelated behaviour instead of the thing
+    // this test guards. With one exported step, a per-request counter is unambiguous: a step
+    // re-runs where a provider used to be resolved once at boot and cached for the process
+    // lifetime — this is the regression guard for removing the remote app-scope splice, proving
+    // it does not quietly reintroduce a cached value.
+    let calls = 0;
+    @Step({ provides: 'counter', needs: [], export: true })
+    class Counter {
+      run() {
+        calls += 1;
+        return { counter: calls };
+      }
+    }
+    @Module({ mountpoint: '/api', steps: [Counter] })
+    class CounterTeapotModule {}
+
+    @Route('/local')
+    class CounterLocalCtl {
+      @Get('/counter')
+      counter(@needs('counter') counter: number) {
+        return { counter };
+      }
+    }
+    @Module({ mountpoint: '/api', controllers: [CounterLocalCtl] })
+    class CounterTeacupModule {}
+
+    const teapot = createApp({ modules: [CounterTeapotModule], experimental: true, mesh: { secret: SECRET } });
+    const tServer = await teapot.listen(0);
+    const tPort = (tServer.address() as any).port;
+    const url = `ws://127.0.0.1:${tPort}/__mesh__/control`;
+
+    const teacup = createApp({
+      modules: [CounterTeacupModule],
+      experimental: true,
+      mesh: { teapots: [{ url, secret: SECRET }] },
+    });
+    const cServer = await teacup.listen(0);
+    const cPort = (cServer.address() as any).port;
+    const hit = () => fetch(`http://127.0.0.1:${cPort}/api/local/counter`).then((r) => r.json() as Promise<{ counter: number }>);
+
+    expect((await hit()).counter).toBe(1);
+    expect((await hit()).counter).toBe(2);
+
+    tServer.close(); cServer.close();
+  });
+
   it('mesh is gated behind experimental: true', () => {
     expect(() => createApp({ modules: [TeapotModule], mesh: { secret: SECRET } })).toThrow(/alpha feature/);
   });
