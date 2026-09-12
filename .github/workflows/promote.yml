@@ -1,8 +1,16 @@
 name: Promote → GitHub
 
-# Promotion. Runs on GITEA ONLY. Mirrors ONLY `main` to the public GitHub repo — develop and
-# feature branches stay Gitea-private (this is why we don't use Gitea's push-mirror, which
+# Promotion. Runs on GITEA ONLY. Mirrors two branches to the public GitHub repo and nothing else:
+#
+#     main    → GitHub main      the production mirror
+#     develop → GitHub contrib   what outside contributors fork from and target
+#
+# Feature branches stay Gitea-private (this is why we don't use Gitea's push-mirror, which
 # would expose every branch).
+#
+# Neither push is forced. For `contrib` that is the guard, not a limitation: the push is refused
+# exactly when `contrib` holds external merges that have not been carried into `develop` yet
+# (AGENTS.md, "External contributions"). Carry them and the next develop push fast-forwards.
 #
 # Tags are deliberately NOT mirrored. The same `v*` tag means two different things on the two
 # forges: on Gitea it stages to Verdaccio (`stage.yml`), on GitHub it publishes to npm and
@@ -16,7 +24,7 @@ name: Promote → GitHub
 # promoting `main` — a publish nobody chose, of a commit nobody was looking at.
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   push-github:
@@ -26,9 +34,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # full history for a clean push
-      - name: Push main to GitHub
+      - name: Push to GitHub
         env:
           GH_TOKEN: ${{ secrets.GH_PROMOTE_TOKEN }}
         run: |
+          case "$GITHUB_REF_NAME" in
+            main)    target=main ;;
+            develop) target=contrib ;;
+            *) echo "::error::promote runs for main and develop only, got '$GITHUB_REF_NAME'"; exit 1 ;;
+          esac
           git remote add github "https://x-access-token:${GH_TOKEN}@github.com/Expressive-Tea/green-tea.git"
-          git push github "HEAD:refs/heads/main"
+          if ! git push github "HEAD:refs/heads/${target}"; then
+            echo "::error::GitHub ${target} has commits that ${GITHUB_REF_NAME} does not. For contrib that means external merges not yet carried into develop — carry them (AGENTS.md, External contributions); never force this push."
+            exit 1
+          fi

@@ -29,12 +29,14 @@ Run the first four before proposing anything as finished. The runtime suites sta
 
 ## Two forges
 
-Development lives on a private Gitea instance. GitHub is a downstream mirror that receives `main` automatically and release tags only by hand.
+Development lives on a private Gitea instance. GitHub is a downstream mirror that receives `main` and `develop` automatically — `develop` under the name `contrib` — and release tags only by hand.
 
 ```
 feature/* → develop → main → [promote.yml] → GitHub main
-                ↑              │                   ↓
-           lead dev            │            GitHub contrib ← external PRs
+                │              │
+                └─[promote.yml]┼──→ GitHub contrib ← external PRs
+                ↑              │          │
+                └── carried back by hand ─┘  (a PR into develop)
                                │
                     v* tag ────┴─── Gitea: [stage.yml] → Verdaccio
                                └─── GitHub (pushed by hand): [release.yml] → npm + JSR
@@ -43,7 +45,7 @@ feature/* → develop → main → [promote.yml] → GitHub main
 - **Gitea `develop`** — active development.
 - **Gitea `main`** — staging. Merging here publishes nothing. A `v*` tag here publishes to the internal Verdaccio, never to a public registry.
 - **GitHub `main`** — production mirror. No human touches it. Protected against force-push and deletion, with no review requirement, because `promote.yml` pushes to it directly and a review rule would block that.
-- **`contrib`** — exists on *both* forges. Where outside contributions land.
+- **GitHub `contrib`** — mirror of `develop`, pushed by `promote.yml` on every develop merge, and where outside contributions land. GitHub only: there is no Gitea `contrib`.
 
 `develop` and `main` on Gitea have direct push disabled with an empty whitelist, so nobody can push to them, admins included. Advance them by opening a PR and merging it.
 
@@ -61,13 +63,13 @@ git diff <branch> <main> -- <suspect file>   # empty means the content is alread
 
 Merging such a branch to "recover" the commits duplicates the work and drags stale history along.
 
-**External contributions.** They arrive on GitHub `contrib`. Merge the pull request there, mirror that branch to Gitea, then open a `contrib → develop` pull request and merge it. Merge rather than rebase: because promotions are fast-forward-only, `develop` and `main` are the same commit, so there is no main-only history for a merge to drag in. Rebasing would rewrite the contributor's SHAs for no gain and push `contrib` out of `main`'s ancestry, which then costs a force-push at reset time. Merging keeps their commits reaching `main` under their own name and hash.
+**External contributions.** They arrive on GitHub `contrib`. Merge the pull request there, fetch GitHub `contrib` into a branch on Gitea, then open a pull request from it into `develop` and merge it. The next develop push mirrors back to `contrib`, and fast-forwards because `develop` now contains everything `contrib` had. Merge rather than rebase: because promotions are fast-forward-only, `develop` and `main` are the same commit, so there is no main-only history for a merge to drag in. Rebasing would rewrite the contributor's SHAs for no gain and leave `contrib` with commits `develop` does not have, so the mirror push is refused until someone forces it. Merging keeps their commits reaching `main` under their own name and hash.
 
 The exception is a `hotfix/*`, which lands on `main` without passing through `develop` and leaves the two out of step. Back-merge before taking a contribution through, or rebase that one and accept the force-push. If you do rebase, take the commit range from the pull request itself and never "everything since main": if a second contributor branched from `contrib` after the first one merged, the broad range sweeps up work that isn't theirs.
 
-**After every promotion, reset *both* `contrib` branches to `main`.** GitHub's is where external work lands; Gitea's is its mirror, and the easy one to forget because nothing there refuses the push. Normally this is an ordinary fast-forward, since `contrib` is already inside `main`'s history. It only needs a force-push when SHAs were rewritten on the way in — and GitHub then refuses it even for admins, so that branch's protection has to be lifted and restored around the reset.
+**Nothing to reset after a promotion.** `contrib` follows `develop` through the mirror, and there is no Gitea `contrib` to keep in step. The one thing the mirror will not do is push over external merges that were never carried in: that push is refused, the promote job fails, and the fix is to carry them as above — never to force.
 
-A conflict against unreleased `develop` work can never be delegated to an outside contributor — they cannot see the code they are conflicting with. Those are always the maintainer's to resolve.
+A conflict against `develop` is visible to the contributor through `contrib`, so it can be theirs to resolve: ask them to rebase onto the current `contrib`. Only a conflict against a feature branch that has not merged yet is the maintainer's alone, because that code they cannot see.
 
 ## Releasing
 
