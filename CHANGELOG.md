@@ -6,6 +6,65 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 green-tea uses calendar versioning: `YY.M.PATCH` — the month is not zero-padded, since
 npm treats versions as semver and semver forbids leading zeros.
 
+## [Unreleased]
+
+### Changed
+
+- **Mesh (alpha): only steps and routes can be exported.** `@Provider({ export: true })` now fails
+  the boot, with an error naming the provider and the replacement. A provider is a factory whose
+  value *is* the object it builds — a pool, a client, a `db` — and an object is not what a JSON wire
+  carries. What did cross was whatever half of it survived serialization, and it arrived as an
+  app-scope binding: the teacup resolved it once at boot and then served that value for the life of
+  the process, out of a cache the teapot no longer stood behind. Restarting the teapot, or changing
+  what it built, changed nothing on the teacup until the teacup itself restarted.
+
+  Export a `@Step` instead. It runs on the teapot, per request, and only its result comes back —
+  which is why the two entries below follow from this one: a remote export now holds nothing between
+  requests. `invalidateRemoteBindings`, the `rebind` array and the `onReconnect` callback that drove
+  them are gone with it. All three existed to throw away a cached app-scope value when a link came
+  back; there is no longer a cached value, so a reconnected link is simply usable again on the next
+  RPC. Internal, so nothing importable changed.
+
+  **A teapot that boots today can stop booting**, and the replacement is mechanical: the exported
+  `@Provider` becomes a `@Step` that returns what the provider's value carried.
+
+- **Mesh (alpha): an unreachable teapot no longer stops a teacup from booting.** Blocking was never
+  caution, it was arithmetic: an app-scope value has to resolve *at boot*, because there is no later
+  to resolve it in. A step is nothing but later. The `bootTimeoutMs` grace still waits, since "the
+  container is thirty seconds behind" and "the teapot does not exist" look identical for the first
+  thirty seconds; exhausting it now warns and starts without that teapot.
+
+  What that buys is narrower than it sounds, and worth stating exactly. A teapot that never
+  connected sent no manifest, so the teacup learned nothing about it — no step runners, no routes,
+  a graph identical to the one it would have had if that teapot were never configured. Its routes
+  therefore **404**, through the ordinary unmatched-route path, because nothing was ever registered
+  to match. And any local step or handler that needs one of its tokens **still fails the boot**,
+  naming the teapot that did not connect. `503` is what a teapot that connected and *later* died
+  answers: that link exists, its steps and routes are registered, and the dead link is what returns
+  the status. Never reachable and reachable-then-gone are different situations, and they read
+  differently on purpose.
+
+  So the change is for the teacup that does *not* depend on that teapot: it starts, rather than
+  refusing over a dependency it never had. It is not graceful degradation of the dependency, and
+  cannot be — answering `503` for an absent teapot's tokens means knowing what it *would* have
+  exported, and only a declaration can say. That declaration is the `expects` list in
+  `docs/plans/2026-08-18-mesh-degrade-plan.md`, which is planned and not built. Two things are
+  unchanged: a **permanent refusal** — a wrong secret, a protocol mismatch — still fails the boot
+  without spending the grace, because it is the teapot's decision rather than the network's and will
+  be the same decision in thirty seconds; and the missing-token error, which now says "local or
+  connected mesh" rather than "local or mesh", the old wording having claimed a search that never
+  happened.
+
+- **Mesh (alpha): the manifest carries step names.** `{ scopes: [{ token, scope }], routes }` is now
+  `{ steps: string[], routes }`. Every export is request-scope after the change above, so the
+  lifetime field had one possible value left and told a reader nothing. A manifest step that is not
+  a string is now rejected on arrival, rather than trusted because a peer sent it.
+
+  `MESH_PROTOCOL_VERSION` deliberately stays at `1`. Mesh is alpha behind `experimental: true`, both
+  peers ship from this repository, and there is no deployed pair of versions for a bump to protect —
+  it would spend the number on nobody. A stable wire would not get that option; alpha is exactly
+  what the word buys, and this is the last comfortable moment to use it.
+
 ## [26.9.0-beta.1] - 2026-09-04
 
 ### Added

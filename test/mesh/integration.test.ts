@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createApp, Provider, Step, Route, Get, Module, needs } from '../../src/index';
+import { createApp, Step, Route, Get, Module, needs } from '../../src/index';
 
 const SECRET = 's3cr3t';
 
-@Provider({ provides: 'config', export: true })
-class Config { provide() { return { config: { region: 'mx' } }; } }
+@Step({ provides: 'config', needs: [], export: true })
+class Config { run() { return { config: { region: 'mx' } }; } }
 
 @Step({ provides: 'auth', needs: [], export: true })
 class Auth { run(ctx: any) { return { auth: { token: ctx.headers?.['x-token'] ?? 'anon' } }; } }
@@ -12,7 +12,7 @@ class Auth { run(ctx: any) { return { auth: { token: ctx.headers?.['x-token'] ??
 @Route('/remote')
 class RemoteCtl { @Get('/ping', { export: true }) ping() { return { pong: true }; } }
 
-@Module({ mountpoint: '/api', providers: [Config], steps: [Auth], controllers: [RemoteCtl] })
+@Module({ mountpoint: '/api', steps: [Config, Auth], controllers: [RemoteCtl] })
 class TeapotModule {}
 
 @Route('/local')
@@ -89,6 +89,55 @@ describe('mesh skeleton integration', () => {
 
     const res = await fetch(`http://127.0.0.1:${cPort}/api/local/who`, { headers: { 'x-token': 'abc' } });
     expect(await res.json()).toEqual({ config: { region: 'mx' }, auth: { token: 'abc' } });
+
+    tServer.close(); cServer.close();
+  });
+
+  it('re-runs the RPC on every request rather than caching a boot value', async () => {
+    // A dedicated single-step teapot/teacup pair, not the shared TeapotModule above: exporting
+    // two scopes (config + auth) makes resolveScope re-run the whole step graph per scope RPC,
+    // which would make a call counter here track that unrelated behaviour instead of the thing
+    // this test guards. With one exported step, a per-request counter is unambiguous: a step
+    // re-runs where a provider used to be resolved once at boot and cached for the process
+    // lifetime — this is the regression guard for removing the remote app-scope splice, proving
+    // it does not quietly reintroduce a cached value.
+    let calls = 0;
+    @Step({ provides: 'counter', needs: [], export: true })
+    class Counter {
+      run() {
+        calls += 1;
+        return { counter: calls };
+      }
+    }
+    @Module({ mountpoint: '/api', steps: [Counter] })
+    class CounterTeapotModule {}
+
+    @Route('/local')
+    class CounterLocalCtl {
+      @Get('/counter')
+      counter(@needs('counter') counter: number) {
+        return { counter };
+      }
+    }
+    @Module({ mountpoint: '/api', controllers: [CounterLocalCtl] })
+    class CounterTeacupModule {}
+
+    const teapot = createApp({ modules: [CounterTeapotModule], experimental: true, mesh: { secret: SECRET } });
+    const tServer = await teapot.listen(0);
+    const tPort = (tServer.address() as any).port;
+    const url = `ws://127.0.0.1:${tPort}/__mesh__/control`;
+
+    const teacup = createApp({
+      modules: [CounterTeacupModule],
+      experimental: true,
+      mesh: { teapots: [{ url, secret: SECRET }] },
+    });
+    const cServer = await teacup.listen(0);
+    const cPort = (cServer.address() as any).port;
+    const hit = () => fetch(`http://127.0.0.1:${cPort}/api/local/counter`).then((r) => r.json() as Promise<{ counter: number }>);
+
+    expect((await hit()).counter).toBe(1);
+    expect((await hit()).counter).toBe(2);
 
     tServer.close(); cServer.close();
   });

@@ -21,7 +21,7 @@ function startTeapot(opts: { answerPings: boolean }) {
       seen.push(frame.type);
 
       if (frame.type === 'hello') {
-        ws.send(encode({ type: 'manifest', v: V, scopes: [{ token: 'auth', scope: 'request' }], routes: [] }));
+        ws.send(encode({ type: 'manifest', v: V, steps: ['auth'], routes: [] }));
       }
       if (frame.type === 'ping' && opts.answerPings) ws.send(encode({ type: 'pong' }));
       if (frame.type === 'rpc-req') ws.send(encode({ type: 'rpc-res', id: frame.id, ok: true, result: { got: 1 } }));

@@ -18,6 +18,14 @@
  *
  * Bumping per change would make the number mean "work happened" rather than "we are
  * incompatible", which is the one thing it is here to say.
+ *
+ * **One exception has been taken, and its terms are the point.** The manifest's `scopes` field was
+ * renamed to `steps` at v1 — a rename, which the first rule above would otherwise cover — without a
+ * bump. It was allowed because there is no deployed pair the rename could split: mesh is alpha,
+ * every app using it is gated behind `experimental: true`, and both peers ship out of this one
+ * repo, so a teacup and a teapot are always on the same version. Each of those three has to hold
+ * for the exception to; the first mesh release that drops `experimental` retires it, and a rename
+ * after that earns a bump like any other.
  */
 export const MESH_PROTOCOL_VERSION = 1;
 
@@ -43,19 +51,21 @@ export interface RequestEnvelope {
   correlation?: { requestId?: string; traceId?: string };
 }
 
-/** Manifest entry for an exported scope token and its lifetime. */
-export interface ScopeEntry {
-  token: string;
-  scope: 'app' | 'request';
-}
 /** Manifest entry for an exported route. */
 export interface RouteEntry {
   method: string;
   pattern: string;
 }
-/** A mesh server's advertised scopes and routes. */
+
+/**
+ * A mesh server's advertised steps and routes.
+ *
+ * Steps only: a provider's value is the object it builds, which cannot cross a JSON wire, so
+ * exporting one is refused at boot (`collectProviders`). Every entry here is request-scope and
+ * lazy — the token exists in the teacup's graph, and running it is an RPC.
+ */
 export interface Manifest {
-  scopes: ScopeEntry[];
+  steps: string[];
   routes: RouteEntry[];
 }
 
@@ -68,7 +78,7 @@ export interface Manifest {
  */
 export type Frame =
   | { type: 'hello'; v: number; secret: string }
-  | { type: 'manifest'; v: number; scopes: ScopeEntry[]; routes: RouteEntry[] }
+  | { type: 'manifest'; v: number; steps: string[]; routes: RouteEntry[] }
   | { type: 'rpc-req'; id: string; kind: 'scope' | 'route'; name: string; ctx: RequestEnvelope }
   | { type: 'rpc-res'; id: string; ok: true; result: unknown }
   | { type: 'rpc-res'; id: string; ok: false; error: { message: string; status?: number } }
@@ -78,6 +88,9 @@ export type Frame =
 const isString = (value: unknown): value is string => typeof value === 'string';
 const isNumber = (value: unknown): boolean => typeof value === 'number';
 const isObject = (value: unknown): boolean => typeof value === 'object' && value !== null;
+/** A manifest route entry: both fields reach `compilePattern`, so both must really be strings. */
+const isRouteEntry = (value: unknown): boolean =>
+  isObject(value) && isString((value as RouteEntry).method) && isString((value as RouteEntry).pattern);
 
 /** Rejects a frame whose fields don't match its `type` tag. `bad` always throws. */
 type ShapeCheck = (frame: Record<string, unknown>, bad: (why: string) => never) => void;
@@ -94,7 +107,14 @@ const SHAPE: Record<Frame['type'], ShapeCheck> = {
   },
   manifest: (frame, bad) => {
     if (!isNumber(frame.v)) bad('missing protocol version');
-    if (!Array.isArray(frame.scopes) || !Array.isArray(frame.routes)) bad('scopes and routes must be arrays');
+    if (!Array.isArray(frame.steps) || !Array.isArray(frame.routes)) bad('steps and routes must be arrays');
+    // Array.isArray above already guarantees this, but TS does not carry that narrowing through a
+    // `never`-typed callback parameter — the cast is safe, not a bypass.
+    if (!(frame.steps as unknown[]).every(isString)) bad('every step must be a string');
+    // Checked for the same reason steps are: past `decode` a route entry goes straight to
+    // `compilePattern`, where a non-string `pattern` dies as a boot `TypeError` about a peer's
+    // frame — a failure that reads like a green-tea bug rather than a malformed manifest.
+    if (!(frame.routes as unknown[]).every(isRouteEntry)) bad('every route must have a string method and pattern');
   },
   'rpc-req': (frame, bad) => {
     if (!isString(frame.id)) bad('id must be a string');

@@ -218,7 +218,7 @@ function settleManifest(frame: Extract<Frame, { type: 'manifest' }>, hs: Handsha
   // `mesh:connect` is emitted by the caller, not here: a reconnect whose manifest no longer backs
   // the graph is refused after this point, and announcing a connection we are about to hang up on
   // would tell an operator the opposite of what happened.
-  hs.resolve({ socket: hs.socket, manifest: { scopes: frame.scopes, routes: frame.routes }, heartbeat });
+  hs.resolve({ socket: hs.socket, manifest: { steps: frame.steps, routes: frame.routes }, heartbeat });
 }
 
 /** Consume the session's inbound frames until it closes, settling the handshake then each RPC. */
@@ -323,9 +323,9 @@ function openSession(args: SessionArgs): Promise<Session> {
   });
 }
 
-/** A scope token and its lifetime, flattened to the string the refusal check compares. */
-function scopeKeys(manifest: Manifest): Set<string> {
-  return new Set(manifest.scopes.map((scope) => `${scope.scope}:${scope.token}`));
+/** A manifest's step tokens, flattened to the set the refusal check compares. */
+function stepKeys(manifest: Manifest): Set<string> {
+  return new Set(manifest.steps);
 }
 
 /**
@@ -345,12 +345,12 @@ function routeKeys(manifest: Manifest): Set<string> {
  * missing and are ignored: the graph is fixed at boot and nothing new is spliced into it.
  */
 export function missingFromManifest(booted: Manifest, returned: Manifest): string[] {
-  const scopes = scopeKeys(returned);
+  const steps = stepKeys(returned);
   const routes = routeKeys(returned);
   const missing: string[] = [];
 
-  for (const scope of booted.scopes) {
-    if (!scopes.has(`${scope.scope}:${scope.token}`)) missing.push(`${scope.scope}-scope '${scope.token}'`);
+  for (const step of booted.steps) {
+    if (!steps.has(step)) missing.push(`step '${step}'`);
   }
 
   for (const route of booted.routes) {
@@ -393,8 +393,6 @@ export function connectLink(args: {
   reconnect?: boolean | ReconnectOptions;
   /** What to do when a returning teapot's manifest no longer backs the graph (default: `'refuse'`). */
   onManifestChange?: ManifestPolicy;
-  /** Called after a *successful* reconnect, so app-scope values resolved from this link are re-resolved. */
-  onReconnect?: () => void;
   logger?: Logger;
 }): Promise<Link> {
   const timeoutMs = args.timeoutMs ?? 30_000;
@@ -407,7 +405,7 @@ export function connectLink(args: {
   const link: Link = {
     // replaced with the real manifest before this object escapes; a reconnect never changes it,
     // because the graph is fixed at boot and only the *boot* manifest describes what it holds.
-    manifest: { scopes: [], routes: [] },
+    manifest: { steps: [], routes: [] },
     rpc: (kind, name, ctx) => sendRpc(state.socket, pending, String(counter++), kind, name, ctx, timeoutMs),
     close: () => {
       // Terminal, by contract. `closeLinks` runs on shutdown, and a link that reconnected after
@@ -453,7 +451,7 @@ export function connectLink(args: {
   };
 
   /** Adopt an established session, or refuse it when its manifest no longer backs the graph. */
-  const adopt = (session: Session, attempt: number, reconnected: boolean): boolean => {
+  const adopt = (session: Session): boolean => {
     const missing = missingFromManifest(link.manifest, session.manifest);
 
     if (missing.length > 0) {
@@ -478,7 +476,6 @@ export function connectLink(args: {
     refusalLogged = '';
     state.socket = session.socket;
     args.bus?.emit('mesh:connect', { name: args.url });
-    if (reconnected) args.onReconnect?.();
 
     return true;
   };
@@ -494,7 +491,7 @@ export function connectLink(args: {
         return;
       }
 
-      if (!adopt(session, attempt, true)) scheduleRetry(attempt);
+      if (!adopt(session)) scheduleRetry(attempt);
     } catch {
       // openSession's own abort listener already scheduled the retry through `onEnd`; a rejection
       // that never opened a socket (a bad URL, DNS) needs one scheduled here instead.
@@ -502,10 +499,25 @@ export function connectLink(args: {
     }
   };
 
-  return openSession(sessionArgs(() => endSession(0))).then((session) => {
-    link.manifest = session.manifest;
-    adopt(session, 0, false);
+  return openSession(sessionArgs(() => endSession(0))).then(
+    (session) => {
+      link.manifest = session.manifest;
+      adopt(session);
 
-    return link;
-  });
+      return link;
+    },
+    (error) => {
+      // The first connect failed, so this `Link` never escaped — nobody holds it and nobody can
+      // ever call `close()` on it. But `openSession`'s abort listener has already run `onEnd`,
+      // which scheduled a retry: left alone, that supervisor reconnects forever to a handle no
+      // caller has, and `closeLinks` cannot reach it because the link was never pushed to
+      // `meshLinks`. Boot already retries above this (`connectUntilDeadline`), so a second
+      // supervisor underneath it is pure leak — every failed attempt used to leave one behind.
+      // Reconnection for a link that *did* connect is untouched: this path runs only on the
+      // initial rejection, and a session that drops later still goes through `endSession`.
+      state.closed = true;
+      clearTimeout(state.retry);
+      throw error;
+    },
+  );
 }

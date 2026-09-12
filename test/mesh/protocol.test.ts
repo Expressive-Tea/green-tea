@@ -11,7 +11,7 @@ describe('protocol codec', () => {
       {
         type: 'manifest',
         v: V,
-        scopes: [{ token: 'auth', scope: 'request' }],
+        steps: ['auth'],
         routes: [{ method: 'GET', pattern: '/u/:id' }],
       },
       { type: 'rpc-req', id: '1', kind: 'scope', name: 'auth', ctx: env },
@@ -19,6 +19,35 @@ describe('protocol codec', () => {
       { type: 'rpc-res', id: '2', ok: false, error: { message: 'no', status: 401 } },
     ];
     for (const f of frames) expect(decode(encode(f))).toEqual(f);
+  });
+
+  it('encodes a manifest of step names', () => {
+    const frame = decode(encode({ type: 'manifest', v: V, steps: ['auth'], routes: [] }));
+    expect(frame).toEqual({ type: 'manifest', v: V, steps: ['auth'], routes: [] });
+  });
+
+  it('rejects a manifest whose steps are not an array', () => {
+    expect(() => decode(JSON.stringify({ type: 'manifest', v: V, steps: 'auth', routes: [] }))).toThrow(
+      /steps and routes must be arrays/,
+    );
+  });
+
+  it('rejects a manifest whose steps array contains a non-string element', () => {
+    expect(() => decode(JSON.stringify({ type: 'manifest', v: V, steps: [123], routes: [] }))).toThrow(
+      /every step must be a string/,
+    );
+  });
+
+  it('rejects a manifest whose routes array contains a malformed entry', () => {
+    // Not a hole that was open — `compilePattern` would have thrown downstream — but it threw a
+    // `TypeError` at boot instead of naming the peer's frame as the malformed thing it is.
+    const routes = [{ method: 5, pattern: {} }];
+    expect(() => decode(JSON.stringify({ type: 'manifest', v: V, steps: [], routes }))).toThrow(
+      /every route must have a string method and pattern/,
+    );
+    expect(() => decode(JSON.stringify({ type: 'manifest', v: V, steps: [], routes: ['GET /x'] }))).toThrow(
+      /every route must have a string method and pattern/,
+    );
   });
 
   it('throws on malformed json', () => {
@@ -46,7 +75,7 @@ describe('protocol codec', () => {
 describe('protocol versioning', () => {
   it('carries the protocol version on the handshake frames', () => {
     const hello = decode(encode({ type: 'hello', v: V, secret: 's' }));
-    const manifest = decode(encode({ type: 'manifest', v: V, scopes: [], routes: [] }));
+    const manifest = decode(encode({ type: 'manifest', v: V, steps: [], routes: [] }));
 
     expect(hello).toMatchObject({ v: V });
     expect(manifest).toMatchObject({ v: V });
@@ -54,7 +83,7 @@ describe('protocol versioning', () => {
 
   it('rejects a handshake frame with no version — an unversioned peer is not decodable', () => {
     expect(() => decode(JSON.stringify({ type: 'hello', secret: 's' }))).toThrow(/malformed hello/i);
-    expect(() => decode(JSON.stringify({ type: 'manifest', scopes: [], routes: [] }))).toThrow(/malformed manifest/i);
+    expect(() => decode(JSON.stringify({ type: 'manifest', steps: [], routes: [] }))).toThrow(/malformed manifest/i);
   });
 });
 
@@ -64,7 +93,7 @@ describe('protocol field validation', () => {
   it.each([
     ['hello without secret', { type: 'hello', v: V }],
     ['hello with non-string secret', { type: 'hello', v: V, secret: 42 }],
-    ['manifest with non-array scopes', { type: 'manifest', v: V, scopes: 'nope', routes: [] }],
+    ['manifest with non-array steps', { type: 'manifest', v: V, steps: 'nope', routes: [] }],
     ['rpc-req without id', { type: 'rpc-req', kind: 'scope', name: 'auth', ctx: env }],
     ['rpc-req without ctx', { type: 'rpc-req', id: '1', kind: 'scope', name: 'auth' }],
     ['rpc-req with unknown kind', { type: 'rpc-req', id: '1', kind: 'bogus', name: 'auth', ctx: env }],

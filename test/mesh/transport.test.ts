@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createApp, Provider, Route, Get, Module, needs } from '../../src/index';
+import { createApp, Step, Route, Get, Module, needs } from '../../src/index';
 import { untransportable } from '../../src/mesh/protocol';
 
 describe('untransportable', () => {
@@ -45,13 +45,13 @@ class Pool {
   }
 }
 
-@Provider({ provides: 'db', export: true })
+@Step({ provides: 'db', needs: [], export: true })
 class Db {
-  provide() {
+  run() {
     return { db: new Pool() };
   }
 }
-@Module({ mountpoint: '/api', providers: [Db] })
+@Module({ mountpoint: '/api', steps: [Db] })
 class TeapotModule {}
 
 @Route('/local')
@@ -78,10 +78,12 @@ describe('exporting a handle over the mesh', () => {
 
     try {
       // before this guard: HTTP 200 with `{}` — an object that passes any truthiness check and
-      // then throws "db.query is not a function" somewhere else entirely
-      await expect(teacup.fetch(new Request('http://x/api/local/use'))).rejects.toThrow(
-        /mesh cannot transport 'db'[\s\S]*Pool instance/,
-      );
+      // then throws "db.query is not a function" somewhere else entirely. `db` is now exported by
+      // a @Step (a @Provider can no longer be exported at all), so the failure happens per request
+      // and surfaces as an ordinary 500 response rather than a rejected fetch promise.
+      const res = await teacup.fetch(new Request('http://x/api/local/use'));
+      expect(res.status).toBe(500);
+      expect(await res.text()).toMatch(/mesh cannot transport 'db'[\s\S]*Pool instance/);
     } finally {
       await teacup.close();
       await teapot.close();

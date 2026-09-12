@@ -8,14 +8,14 @@
 // Run with: npm run test:bun
 import 'reflect-metadata';
 import { test, expect } from 'bun:test';
-import { createApp, Provider, Step, Route, Get, Module, needs } from '../../src/index.ts';
+import { createApp, Step, Route, Get, Module, needs } from '../../src/index.ts';
 import { serveBun } from '../../src/bun.ts';
 
 const SECRET = 's3cr3t';
 
-@Provider({ provides: 'config', export: true })
+@Step({ provides: 'config', needs: [], export: true })
 class Config {
-  provide() {
+  run() {
     return { config: { runtime: 'bun' } };
   }
 }
@@ -25,7 +25,7 @@ class Auth {
     return { auth: { token: ctx.headers?.['x-token'] ?? 'anon' } };
   }
 }
-@Module({ mountpoint: '/api', providers: [Config], steps: [Auth] })
+@Module({ mountpoint: '/api', steps: [Config, Auth] })
 class TeapotModule {}
 
 @Route('/local')

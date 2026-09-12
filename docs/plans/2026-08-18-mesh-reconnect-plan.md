@@ -85,6 +85,12 @@ not a wait for `timeoutMs`.
 3. **Manifest comparison.** Capture the contributed set at boot, compare per D4, reuse
    `compilePattern(...).shape` for routes. Refusal logs the missing token or route by name.
 4. **`invalidateRemoteBindings(link)`** per D8, called on successful reconnect.
+
+   **Note, 2026-09-06:** this no longer exists. When the mesh stopped exporting providers, the
+   remote app-scope binding went with it, and `invalidateRemoteBindings`, the `rebind` array and the
+   `onReconnect` callback went with that — there is no cached value left to invalidate, so a
+   reconnected link is simply usable again on the next RPC. The rest of this plan shipped as
+   written; only this step has no counterpart in the code.
 5. **Config**: `mesh: { reconnect?: boolean | { initialDelayMs?, maxDelayMs? }, onManifestChange?: 'refuse' }`.
    Reconnect defaults **on**. Validate at boot like the other mesh options.
 6. **Tests.** Reconnect after the teapot returns; refuse when a token disappears, with the message

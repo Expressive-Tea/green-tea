@@ -42,19 +42,9 @@ const HANDSHAKE_TIMEOUT_MS = 10_000;
  */
 const MAX_FRAME_CHARS = 4_000_000;
 
-/** Assemble a {@link Manifest} from exported provider/step tokens and buffered routes. */
-export function buildManifest(args: {
-  providers: string[]; // exported provider tokens (app-scope)
-  steps: string[]; // exported step tokens (request-scope)
-  routes: RouteEntry[]; // exported buffered routes
-}): Manifest {
-  return {
-    scopes: [
-      ...args.providers.map((token) => ({ token, scope: 'app' as const })),
-      ...args.steps.map((token) => ({ token, scope: 'request' as const })),
-    ],
-    routes: args.routes,
-  };
+/** Assemble a {@link Manifest} from exported step tokens and buffered routes. */
+export function buildManifest(args: { steps: string[]; routes: RouteEntry[] }): Manifest {
+  return { steps: [...args.steps], routes: args.routes };
 }
 
 function safeEqual(left: string, right: string): boolean {
@@ -115,7 +105,7 @@ function handleHandshake(socket: WsSocket, frame: Frame, deps: MeshControlDeps):
     encode({
       type: 'manifest',
       v: MESH_PROTOCOL_VERSION,
-      scopes: deps.manifest.scopes,
+      steps: deps.manifest.steps,
       routes: deps.manifest.routes,
     }),
   );
@@ -244,7 +234,7 @@ export function createMeshControl(deps: MeshControlDeps): {
   path: string;
   handle: (socket: WsSocket) => Promise<void>;
 } {
-  const exportedScopes = new Set(deps.manifest.scopes.map((scope) => scope.token));
+  const exportedScopes = new Set(deps.manifest.steps);
   const exportedRoutes = new Set(deps.manifest.routes.map((route) => `${route.method} ${route.pattern}`));
 
   return {

@@ -43,18 +43,17 @@ const fakeSocket = () => {
 };
 
 describe('buildManifest', () => {
-  it('maps providers to app scope and steps to request scope', () => {
-    const m = buildManifest({ providers: ['config'], steps: ['auth'], routes: [{ method: 'GET', pattern: '/u/:id' }] });
-    expect(m.scopes).toContainEqual({ token: 'config', scope: 'app' });
-    expect(m.scopes).toContainEqual({ token: 'auth', scope: 'request' });
-    expect(m.routes).toEqual([{ method: 'GET', pattern: '/u/:id' }]);
+  it('builds a manifest from step tokens and routes', () => {
+    expect(buildManifest({ steps: ['auth'], routes: [{ method: 'GET', pattern: '/u/:id' }] })).toEqual({
+      steps: ['auth'],
+      routes: [{ method: 'GET', pattern: '/u/:id' }],
+    });
   });
 });
 
 describe('createMeshControl', () => {
   const manifest = buildManifest({
-    providers: ['config'],
-    steps: ['auth'],
+    steps: ['config', 'auth'],
     routes: [{ method: 'GET', pattern: '/u/:id' }],
   });
   const make = (over: Partial<Parameters<typeof createMeshControl>[0]> = {}) =>
@@ -82,7 +81,7 @@ describe('createMeshControl', () => {
     const t = fakeSocket();
     make().handle(t.socket);
     await t.deliver({ type: 'hello', v: V, secret: 'good' });
-    expect(t.sent[0]).toMatchObject({ type: 'manifest', v: V, scopes: manifest.scopes });
+    expect(t.sent[0]).toMatchObject({ type: 'manifest', v: V, steps: manifest.steps });
   });
 
   it('rejects a version-skewed peer before checking its secret, naming both versions', async () => {

@@ -64,6 +64,13 @@ instead of a boot manifest.
 (`invalidateRemoteBindings`). If that seam turns out not to fit, that is a signal the seam was
 wrong, not a reason to write a second one.
 
+**Note, 2026-09-06: that seam is gone.** `invalidateRemoteBindings`, the `rebind` array and the
+`onReconnect` callback were removed along with the remote app-scope binding when the mesh stopped
+exporting providers — with nothing cached between requests, there is nothing left to invalidate.
+This does not block D6, and it is not the "seam was wrong" case either: a degraded token swaps the
+*runner* behind a step node, which is a graph mutation, not a container rebind. It never needed the
+seam. Whatever the swap is written on, it is still one mechanism, decided when the work starts.
+
 ## Tasks
 
 1. `expects` and `onUnreachable` on the teapot entry; `createApp` throws for `'degrade'` without

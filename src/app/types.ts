@@ -136,12 +136,18 @@ export interface MeshConfig {
    * so 30s). Attempts use the same backoff as reconnection.
    *
    * A teapot that is merely slow to start — a container scheduled a moment later, a network that
-   * has not settled — should not fail a deploy, and this is the grace for that. A teapot that is
-   * genuinely absent still fails the boot when the deadline passes, because a provider the graph
-   * depends on is not optional: booting without it would only move the failure to the first
-   * request, where it is somebody else's 503 instead of your deploy's error.
+   * has not settled — should not fail a deploy, and this is the grace for that. When the deadline
+   * passes the teacup warns and starts anyway: every export is a step or a proxied route, so
+   * nothing needed that link resolved by boot.
    *
-   * `0` restores the old behaviour of a single attempt.
+   * Starting is not degrading, though. A teapot that never connected sent no manifest, so none of
+   * its steps or routes are registered: its routes 404 rather than 503, and a local node that needs
+   * one of its tokens still fails the boot, naming it. A permanent refusal — a wrong secret, a
+   * protocol mismatch — fails at once without spending the grace.
+   *
+   * `0` means one attempt and no grace. That is the attempt count boot used to have, and nothing
+   * more: exhausting it no longer fails the boot, so a single unreachable teapot still warns and
+   * starts. To make a teapot's absence fatal, have something local `@needs` one of its tokens.
    */
   bootTimeoutMs?: number;
 }

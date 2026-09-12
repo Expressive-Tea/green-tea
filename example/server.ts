@@ -75,9 +75,9 @@ if (require.main === module) {
 
 // ── Mesh Demo (teapot / teacup) ───────────────────────────────────────────
 
-@Provider({ provides: 'config', export: true })
-class ConfigProvider {
-  provide() {
+@Step({ provides: 'config', needs: [], export: true })
+class ConfigStep {
+  run() {
     return { config: { env: 'demo' } };
   }
 }
@@ -98,7 +98,7 @@ class PingController {
   }
 }
 
-@Module({ mountpoint: '/mesh', providers: [ConfigProvider], steps: [AuthStep], controllers: [PingController] })
+@Module({ mountpoint: '/mesh', steps: [ConfigStep, AuthStep], controllers: [PingController] })
 class TeapotModule {}
 
 export const teapotApp = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: 'demo-secret' } });

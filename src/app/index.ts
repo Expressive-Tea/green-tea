@@ -59,7 +59,6 @@ interface Registry {
    */
   providerInstances: Map<string, { dispose?: () => void | Promise<void> }>;
   routePlans: RoutePlan[];
-  exportedProviders: string[];
   exportedSteps: string[];
   exportedRoutes: RouteEntry[];
   setRunner(name: string, runner: Runner, framework?: boolean): void;
@@ -222,8 +221,8 @@ export function createApp(opts: {
   let remoteRoutes: RouteDef[] = [];
   const meshLinks: Link[] = [];
 
-  const finalize = (): void => {
-    ({ orderedProviders, orderedSteps } = finalizeGraph(registry, logger, opts.warnGraphDepth));
+  const finalize = (missingNote?: string): void => {
+    ({ orderedProviders, orderedSteps } = finalizeGraph(registry, logger, opts.warnGraphDepth, missingNote));
     booted = true;
   };
 
@@ -239,10 +238,15 @@ export function createApp(opts: {
   // can only be built here, after finalize(), and never at construction time.
   const prepareGraph = async (): Promise<void> => {
     if (opts.mesh && !booted) {
-      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry, logger, container);
+      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry, logger);
       remoteRoutes = spliced.remoteRoutes;
       meshLinks.push(...spliced.meshLinks);
-      finalize();
+      // Without this the error is `missing dependency: auth needed by getUser` and says nothing
+      // about the teapot that was away — which is the actual cause every time it is the cause.
+      const meshNote = spliced.absent.length
+        ? ` — these teapots did not connect, so their exports are absent: ${spliced.absent.join(', ')}`
+        : undefined;
+      finalize(meshNote);
     }
 
     meshControl = buildMeshControl(opts.mesh, registry, {
@@ -424,7 +428,6 @@ function emptyRegistry(): Registry {
     providerMeta: new Map(),
     providerInstances: new Map(),
     routePlans: [],
-    exportedProviders: [],
     exportedSteps: [],
     exportedRoutes: [],
     setRunner,
@@ -437,7 +440,16 @@ function collectProviders(providers: Ctor[], origin: string, registry: Registry)
     const meta = getProviderMeta(ProviderClass)!;
     registry.providerNodes.push({ name: meta.provides, needs: meta.needs, provides: [meta.provides], origin });
     registry.providerMeta.set(meta.provides, { optional: meta.optional });
-    if (meta.export) registry.exportedProviders.push(meta.provides);
+    // A provider's value IS the object it builds — a pool, a client, a `db`. That cannot cross a
+    // wire, and the half of it that could (plain data) arrived as an app-scope binding the teacup
+    // resolved once and cached for the life of the process. A step is the shape that travels:
+    // it runs per request, on the teapot, and only its result comes back.
+    if (meta.export)
+      throw new Error(
+        `mesh: provider '${meta.provides}' cannot be exported — a provider is a factory whose value ` +
+          'is the object itself, and the mesh transports data, not objects. ' +
+          'Export a @Step instead, which runs on the teapot per request and returns its result.',
+      );
     const instance: any = new ProviderClass();
     registry.providerInstances.set(meta.provides, instance);
     registry.setRunner(meta.provides, (ctx) => instance.provide(ctx));
@@ -655,9 +667,10 @@ function finalizeGraph(
   registry: Registry,
   logger: Logger,
   warnDepth: number | false = DEEP_GRAPH_WARN,
+  missingNote?: string,
 ): { orderedProviders: GraphNode[]; orderedSteps: GraphNode[] } {
   const { providerNodes, stepNodes, routePlans } = registry;
-  const ordered = topoSort([...providerNodes, ...stepNodes], ['req', 'params']);
+  const ordered = topoSort([...providerNodes, ...stepNodes], ['req', 'params'], missingNote);
   const orderedProviders = ordered.filter((node) => providerNodes.includes(node));
   const orderedSteps = ordered.filter((node) => stepNodes.includes(node));
   const alwaysSteps = stepNodes.filter((node) => node.provides.length === 0); // side-effect/observer steps (plugins)
@@ -682,12 +695,24 @@ function finalizeGraph(
     }
   }
 
-  assertNeedsSatisfiable(routePlans, providerNodes, stepNodes);
+  assertNeedsSatisfiable(routePlans, providerNodes, stepNodes, missingNote);
   return { orderedProviders, orderedSteps };
 }
 
-/** Throws if any route needs a key that nothing (local or mesh) provides, suggesting the nearest match. */
-function assertNeedsSatisfiable(routePlans: RoutePlan[], providerNodes: GraphNode[], stepNodes: GraphNode[]): void {
+/**
+ * Throws if any route needs a key that nothing provides, suggesting the nearest match.
+ *
+ * `missingNote` arrives only from a mesh boot, and only when a teapot did not connect. It changes
+ * what the message can honestly claim: "local or connected mesh" instead of "local or mesh", since
+ * the exports of an absent teapot were never searched — and it appends which teapots those were,
+ * which is the actual cause every time it is the cause.
+ */
+function assertNeedsSatisfiable(
+  routePlans: RoutePlan[],
+  providerNodes: GraphNode[],
+  stepNodes: GraphNode[],
+  missingNote?: string,
+): void {
   const producedKeys = new Set<string>([
     ...providerNodes.flatMap((node) => node.provides),
     ...stepNodes.flatMap((node) => node.provides),
@@ -713,8 +738,13 @@ function assertNeedsSatisfiable(routePlans: RoutePlan[], providerNodes: GraphNod
       }
 
       const hint = nearest(need, allowed);
+      // "local or mesh" claims the mesh was consulted and came up empty — true only when every
+      // teapot connected. When one didn't, say "connected mesh" instead so the message doesn't
+      // assert a search that never happened, and let missingNote name which teapots were away.
+      const scope = missingNote ? 'local or connected mesh' : 'local or mesh';
       throw new Error(
-        `handler '${plan.handlerName}' needs '${need}' but nothing (local or mesh) provides it${hint ? ` — did you mean '${hint}'?` : ''}`,
+        `handler '${plan.handlerName}' needs '${need}' but nothing (${scope}) provides it` +
+          `${hint ? ` — did you mean '${hint}'?` : ''}${missingNote ?? ''}`,
       );
     }
   }
@@ -725,20 +755,29 @@ function assertNeedsSatisfiable(routePlans: RoutePlan[], providerNodes: GraphNod
  *
  * The grace exists because "the container is thirty seconds behind" and "the teapot does not
  * exist" look identical for the first thirty seconds, and only one of them should stop a deploy.
- * When the deadline passes it still throws: a provider the graph depends on is not optional, and
- * booting without it would only move the failure to the first request, where it becomes a caller's
- * 503 instead of the deploy's error.
  *
  * Each failed attempt is both logged and emitted as `mesh:boot:retry` — logged so an operator
  * watching a deploy sees why it is taking so long, emitted so the wait is visible to whatever
  * collects lifecycle events rather than only to whoever is reading a terminal.
+ *
+ * Exhausting the budget returns `undefined` rather than throwing (D4 keeps the one exception: a
+ * permanent refusal still does). Every export a teapot makes is lazy now — a request-scope step or
+ * a proxied route — so nothing needed this link resolved by boot, and a teacup that refuses to
+ * start takes down the half of itself that never needed the teapot.
+ *
+ * Returning `undefined` is not the same as degrading it. The caller registers nothing for a link it
+ * never got, because a teapot that did not connect sent no manifest and so nobody knows what it
+ * would have exported. Its routes 404 like any unregistered path, and a local node that needs one
+ * of its tokens still fails the boot in finalize(), named. Serving 503 for those tokens instead
+ * needs an `expects` declaration — see docs/plans/2026-08-18-mesh-degrade-plan.md, still planned.
  */
 async function connectUntilDeadline(
   mesh: MeshConfig,
   bus: Bus,
   logger: Logger,
+  url: string,
   attempt: () => Promise<Link>,
-): Promise<Link> {
+): Promise<Link | undefined> {
   const budgetMs = mesh.bootTimeoutMs ?? mesh.timeoutMs ?? 30_000;
   const deadline = Date.now() + budgetMs;
   let delay = 500;
@@ -755,20 +794,29 @@ async function connectUntilDeadline(
       // thirty seconds. Retrying a wrong secret only spends the deploy's patience to reach the
       // identical error, so it fails now.
       if (isPermanentRefusal(error)) {
-        logger.error(`mesh: the teapot refused this peer, which retrying cannot fix — ${(error as Error).message}`);
+        logger.error(`mesh: teapot ${url} refused this peer, which retrying cannot fix — ${(error as Error).message}`);
         throw error;
       }
 
-      // Rethrown as-is rather than wrapped: connectLink already says whether this was a refused
-      // handshake, a version mismatch or a timeout, and each sends you somewhere different.
+      // The budget is a grace for a co-deploy, not a requirement. Every export is a lazy step or a
+      // proxied route now, so nothing needed this link resolved by boot, and a teacup that refuses
+      // to start takes down the half of itself that never needed the teapot. What starting does NOT
+      // do is degrade the dependency: an absent teapot sent no manifest, so it contributes no nodes
+      // at all — its routes 404 and a local `needs` on its tokens still fails in finalize().
       if (remaining <= 0) {
-        logger.error(`mesh: giving up after ${attempts} attempt(s) over ${budgetMs}ms — ${(error as Error).message}`);
-        throw error;
+        logger.warn(
+          `mesh: teapot ${url} unreachable after ${attempts} attempt(s) over ${budgetMs}ms ` +
+            `(${(error as Error).message}) — starting without it. No manifest was ever exchanged, ` +
+            `so none of its steps or routes are in this graph: its routes 404 like any path that ` +
+            `was never registered, and the boot still fails if anything local needs one of its ` +
+            `tokens. This line is what a later 404 on one of its routes points back to.`,
+        );
+        return undefined;
       }
 
       bus.emit('mesh:boot:retry', { name: `attempt ${attempts}`, error });
       logger.warn(
-        `mesh: teapot unreachable (${(error as Error).message}) — retrying, ${remaining}ms of boot budget left`,
+        `mesh: teapot ${url} unreachable (${(error as Error).message}) — retrying, ${remaining}ms of boot budget left`,
       );
       await new Promise((resolve) => setTimeout(resolve, Math.min(delay, Math.max(0, remaining))));
       delay = Math.min(delay * 2, 5_000);
@@ -796,38 +844,22 @@ function warnIfCleartext(url: string, logger: Logger): void {
   );
 }
 
-/**
- * Re-register a link's app-scope bindings after it reconnects, so their next resolve re-runs the RPC.
- *
- * Named and separate rather than inlined in the reconnect handler: this is the seam a future
- * `onManifestChange: 'reconcile'` reuses, and burying it would mean writing it twice.
- *
- * Lazy on purpose — the RPC runs on the next resolve, not here. Re-resolving eagerly would put a
- * network call on the reconnect path, where a failure has nowhere to go but a swallowed rejection.
- */
-function invalidateRemoteBindings(rebind: Array<() => void>): void {
-  for (const bind of rebind) bind();
-}
-
-/** Connects the configured teapots, splices their remote providers/steps into the registry, and returns their routes. */
+/** Connects the configured teapots, splices their remote steps into the registry, and returns their routes. */
 async function spliceRemoteScopes(
   mesh: MeshConfig,
   bus: Bus,
   registry: Registry,
   logger: Logger,
-  container: Container,
-): Promise<{ remoteRoutes: RouteDef[]; meshLinks: Link[] }> {
+): Promise<{ remoteRoutes: RouteDef[]; meshLinks: Link[]; absent: string[] }> {
   const remoteRoutes: RouteDef[] = [];
   const meshLinks: Link[] = [];
+  const absent: string[] = []; // urls of teapots that never connected within the boot budget
   const routeOwners = new Map<string, { url: string; pattern: string }>(); // "METHOD effective-shape" -> owner
 
   try {
     for (const teapot of mesh.teapots ?? []) {
       warnIfCleartext(teapot.url, logger);
-      // Deferred so the reconnect callback can name this link's provider tokens, which are only
-      // known once its manifest arrives — the callback is registered before the link can drop.
-      const rebind: Array<() => void> = [];
-      const link = await connectUntilDeadline(mesh, bus, logger, () =>
+      const link = await connectUntilDeadline(mesh, bus, logger, teapot.url, () =>
         connectLink({
           url: teapot.url,
           secret: teapot.secret,
@@ -835,24 +867,19 @@ async function spliceRemoteScopes(
           heartbeatMs: mesh.heartbeatMs,
           reconnect: mesh.reconnect,
           onManifestChange: mesh.onManifestChange,
-          onReconnect: () => invalidateRemoteBindings(rebind),
           logger,
           bus,
         }),
       );
-      meshLinks.push(link);
-      const { providers, steps, routes } = buildRemote(link);
-      const origin = `mesh:${teapot.url}`;
 
-      for (const provider of providers) {
-        registry.providerNodes.push({ name: provider.name, needs: [], provides: [provider.name], origin });
-        registry.providerMeta.set(provider.name, { optional: false });
-        registry.setRunner(provider.name, provider.run);
-        // A remote app-scope value is resolved once at boot and frozen into the container, so it
-        // would keep answering from a cache the teapot no longer stands behind. Re-registering
-        // gives the binding a factory that re-runs the RPC, and `register` drops the memo with it.
-        rebind.push(() => container.register(provider.name, 'app', () => provider.run({})));
+      if (!link) {
+        absent.push(teapot.url);
+        continue;
       }
+
+      meshLinks.push(link);
+      const { steps, routes } = buildRemote(link);
+      const origin = `mesh:${teapot.url}`;
 
       for (const step of steps) {
         registry.stepNodes.push({ name: step.name, needs: [], provides: [step.name], origin });
@@ -922,7 +949,7 @@ async function spliceRemoteScopes(
     throw err;
   }
 
-  return { remoteRoutes, meshLinks };
+  return { remoteRoutes, meshLinks, absent };
 }
 
 /** Swaps provider/step runners by token — a value replaces the runner, a function becomes it. */
@@ -1075,8 +1102,8 @@ function buildMeshControl(
   registry: Registry,
   deps: { container: Container; orderedProviders: GraphNode[]; orderedSteps: GraphNode[]; deps: PipelineDeps },
 ): MeshControl | undefined {
-  const { exportedProviders, exportedSteps, exportedRoutes, routePlans, runners } = registry;
-  const hasExports = exportedProviders.length || exportedSteps.length || exportedRoutes.length;
+  const { exportedSteps, exportedRoutes, routePlans, runners } = registry;
+  const hasExports = exportedSteps.length || exportedRoutes.length;
 
   if (hasExports && !mesh?.secret) {
     throw new Error('mesh: exports declared (export: true) but no mesh.secret configured to gate the control channel');
@@ -1085,7 +1112,7 @@ function buildMeshControl(
   if (!mesh?.secret || !hasExports) return undefined;
   const { container, orderedProviders, orderedSteps } = deps;
   const { bus, providedSeed, planSteps, onError, logger } = deps.deps;
-  const manifest = buildManifest({ providers: exportedProviders, steps: exportedSteps, routes: exportedRoutes });
+  const manifest = buildManifest({ steps: exportedSteps, routes: exportedRoutes });
 
   const resolveScope = async (name: string, env: RequestEnvelope): Promise<unknown> => {
     // context is intentionally `any`: providers and steps merge arbitrary keys into it

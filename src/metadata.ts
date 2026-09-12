@@ -15,6 +15,12 @@ export interface ProviderMeta {
   provides: string;
   needs: string[];
   optional: boolean;
+  /**
+   * Always refused. `@Provider`'s options no longer declare `export`, so TypeScript rejects it at
+   * the decorator and this can only be true for a JavaScript caller. It is still recorded so that
+   * caller reaches `collectProviders`' boot error, which names the provider and the replacement,
+   * rather than having the option silently ignored.
+   */
   export: boolean;
 }
 /** Metadata attached by `@Step`: what it provides, what it needs, and its visibility. */
@@ -58,18 +64,16 @@ const K = {
 };
 
 /** Marks a class as a provider: a lazily-built dependency addressable by its `provides` key. */
-export function Provider(opts: {
-  provides: string;
-  needs?: string[];
-  optional?: boolean;
-  export?: boolean;
-}): ClassDecorator {
+export function Provider(opts: { provides: string; needs?: string[]; optional?: boolean }): ClassDecorator {
   return (target) => {
     const meta: ProviderMeta = {
       provides: opts.provides,
       needs: opts.needs ?? [],
       optional: opts.optional ?? false,
-      export: opts.export ?? false,
+      // Read through a cast because the options type deliberately does not offer `export`: only a
+      // `@Step` or a route is exportable, and the option's only behaviour was to throw at boot.
+      // A JavaScript caller can still pass it, and recording it is what routes them to that error.
+      export: (opts as { export?: boolean }).export ?? false,
     };
     Reflect.defineMetadata(K.provider, meta, target);
   };

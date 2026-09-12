@@ -7,14 +7,14 @@
 // Run with: npm run test:deno
 import 'npm:reflect-metadata';
 import { assertEquals } from 'jsr:@std/assert';
-import { createApp, Provider, Step, Route, Get, Module, needs } from '../../src/index.ts';
+import { createApp, Step, Route, Get, Module, needs } from '../../src/index.ts';
 import { serveDeno } from '../../src/deno.ts';
 
 const SECRET = 's3cr3t';
 
-@Provider({ provides: 'config', export: true })
+@Step({ provides: 'config', needs: [], export: true })
 class Config {
-  provide() {
+  run() {
     return { config: { runtime: 'deno' } };
   }
 }
@@ -24,7 +24,7 @@ class Auth {
     return { auth: { token: ctx.headers?.['x-token'] ?? 'anon' } };
   }
 }
-@Module({ mountpoint: '/api', providers: [Config], steps: [Auth] })
+@Module({ mountpoint: '/api', steps: [Config, Auth] })
 class TeapotModule {}
 
 @Route('/local')
