@@ -10,9 +10,12 @@ test('plugin can observe via bus.on and add to its own scope', () => {
   const added: string[] = [];
   const scope: ScopeApi = { add: (n) => added.push(n.name) };
 
-  const logger: Plugin = (api) => {
-    api.bus.on('request:step:enter', () => {});
-    api.scope.add({ kind: 'step', name: 'log', needs: [], provides: [], run: () => ({}) });
+  const logger: Plugin = {
+    name: 'logger',
+    mount(api) {
+      api.bus.on('request:step:enter', () => {});
+      api.scope.add({ kind: 'step', name: 'log', needs: [], provides: [], run: () => ({}) });
+    },
   };
 
   const mounted = vi.fn();
@@ -26,8 +29,11 @@ test('plugin can observe via bus.on and add to its own scope', () => {
 test('plugin api does NOT expose bus.emit', () => {
   const bus = new Bus();
   const scope: ScopeApi = { add: () => {} };
-  const plugin: Plugin = (api) => {
-    expect((api.bus as any).emit).toBeUndefined();
+  const plugin: Plugin = {
+    name: 'emit-probe',
+    mount(api) {
+      expect((api.bus as any).emit).toBeUndefined();
+    },
   };
   mountPlugin(plugin, bus, scope, noTeardown());
 });
@@ -35,8 +41,11 @@ test('plugin api does NOT expose bus.emit', () => {
 test('plugin can register a teardown, and it reaches the registry', () => {
   const bus = new Bus();
   const registered: TeardownFn[] = [];
-  const plugin: Plugin = (api) => {
-    api.onShutdown(() => {});
+  const plugin: Plugin = {
+    name: 'teardown-registrar',
+    mount(api) {
+      api.onShutdown(() => {});
+    },
   };
 
   mountPlugin(plugin, bus, { add: () => {} }, (fn) => registered.push(fn));
@@ -44,22 +53,26 @@ test('plugin can register a teardown, and it reaches the registry', () => {
   expect(registered).toHaveLength(1);
 });
 
-// D3's no-break guarantee, asserted rather than assumed: `Plugin`'s signature did not change, so a
-// plugin written before this capability existed must mount and behave exactly as it did.
-test('a plugin that never calls onShutdown behaves exactly as before', () => {
+// A plugin that opens nothing registers nothing: `onShutdown` is opt-in, and the teardown registry
+// stays empty rather than collecting no-ops. (The shape guarantee this test used to assert went
+// away with the move to `{ name, mount }` — see CHANGELOG, Breaking.)
+test('a plugin that never calls onShutdown registers no teardown', () => {
   const bus = new Bus();
   const added: string[] = [];
   const registered: TeardownFn[] = [];
-  const legacy: Plugin = (api) => {
-    api.bus.on('stream:open', () => {});
-    api.scope.add({ kind: 'provider', name: 'thing', needs: [], provides: ['thing'], run: () => ({}) });
+  const quiet: Plugin = {
+    name: 'quiet',
+    mount(api) {
+      api.bus.on('stream:open', () => {});
+      api.scope.add({ kind: 'provider', name: 'thing', needs: [], provides: ['thing'], run: () => ({}) });
+    },
   };
 
   const mounted = vi.fn();
   bus.on('plugin:mounted', mounted);
-  mountPlugin(legacy, bus, { add: (n) => added.push(n.name) }, (fn) => registered.push(fn));
+  mountPlugin(quiet, bus, { add: (n) => added.push(n.name) }, (fn) => registered.push(fn));
 
   expect(added).toEqual(['thing']);
-  expect(mounted).toHaveBeenCalled();
+  expect(mounted).toHaveBeenCalledWith(expect.objectContaining({ name: 'quiet' }));
   expect(registered).toHaveLength(0);
 });

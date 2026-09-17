@@ -17,11 +17,14 @@ class Ctl {
 describe('shutdown teardown', () => {
   it('awaits a plugin onShutdown before close() resolves', async () => {
     const order: string[] = [];
-    const plugin: Plugin = (api) => {
-      api.onShutdown(async () => {
-        await new Promise((r) => setTimeout(r, 20));
-        order.push('plugin torn down');
-      });
+    const plugin: Plugin = {
+      name: 'slow-teardown',
+      mount(api) {
+        api.onShutdown(async () => {
+          await new Promise((r) => setTimeout(r, 20));
+          order.push('plugin torn down');
+        });
+      },
     };
 
     @Module({ mountpoint: '/', controllers: [Ctl] })
@@ -135,11 +138,14 @@ describe('shutdown teardown', () => {
   it('logs a failing teardown, runs the rest, and still resolves', async () => {
     const logger = silentLogger();
     const closed: string[] = [];
-    const plugin: Plugin = (api) => {
-      api.onShutdown(() => {
-        throw new Error('teardown boom');
-      });
-      api.onShutdown(() => void closed.push('survivor'));
+    const plugin: Plugin = {
+      name: 'failing-teardown',
+      mount(api) {
+        api.onShutdown(() => {
+          throw new Error('teardown boom');
+        });
+        api.onShutdown(() => void closed.push('survivor'));
+      },
     };
 
     @Module({ mountpoint: '/', controllers: [Ctl] })
@@ -153,8 +159,11 @@ describe('shutdown teardown', () => {
   });
 
   it('does not let a hanging teardown push close() past its deadline', async () => {
-    const plugin: Plugin = (api) => {
-      api.onShutdown(() => new Promise<void>(() => {})); // never settles
+    const plugin: Plugin = {
+      name: 'hanging-teardown',
+      mount(api) {
+        api.onShutdown(() => new Promise<void>(() => {})); // never settles
+      },
     };
 
     @Module({ mountpoint: '/', controllers: [Ctl] })
@@ -199,8 +208,11 @@ describe('shutdown teardown', () => {
 
   it('drains only once when close() is called twice', async () => {
     let runs = 0;
-    const plugin: Plugin = (api) => {
-      api.onShutdown(() => void runs++);
+    const plugin: Plugin = {
+      name: 'counting-teardown',
+      mount(api) {
+        api.onShutdown(() => void runs++);
+      },
     };
 
     @Module({ mountpoint: '/', controllers: [Ctl] })

@@ -56,7 +56,10 @@ test('ready() is a no-op on a non-mesh app, so one protocol works for both', asy
 
 test('a logger plugin observes step:enter without mutating the chain', async () => {
   const seen: string[] = [];
-  const logger = (api: any) => api.bus.on('request:step:enter', (p: any) => seen.push(p.name));
+  const logger = {
+    name: 'step-logger',
+    mount: (api: any) => api.bus.on('request:step:enter', (p: any) => seen.push(p.name)),
+  };
   const app = createApp({ modules: [ApiModule], plugins: [logger] });
   const server = await app.listen(0);
   const port = (server.address() as any).port;
@@ -256,17 +259,20 @@ describe('per-route subgraph slicing', () => {
   it('a side-effect step (provides: []) added by a plugin runs unconditionally', async () => {
     // NB: @Step always provides exactly one token (always sliceable). provides:[] only arises via a plugin's scope.add.
     const ran: string[] = [];
-    const observer = (api: any) =>
-      api.scope.add({
-        kind: 'step',
-        name: 'obs',
-        needs: [],
-        provides: [],
-        run: () => {
-          ran.push('obs');
-          return {};
-        },
-      });
+    const observer = {
+      name: 'side-effect-observer',
+      mount: (api: any) =>
+        api.scope.add({
+          kind: 'step',
+          name: 'obs',
+          needs: [],
+          provides: [],
+          run: () => {
+            ran.push('obs');
+            return {};
+          },
+        }),
+    };
     @Route('/')
     class Ctl {
       @Get('/free') free() {
@@ -285,17 +291,20 @@ describe('per-route subgraph slicing', () => {
 
   it('an always-run observer step receives its declared needs even when the route does not need them', async () => {
     let seen: any;
-    const observer = (api: any) =>
-      api.scope.add({
-        kind: 'step',
-        name: 'audit',
-        needs: ['user'],
-        provides: [],
-        run: (ctx: any) => {
-          seen = ctx.user;
-          return {};
-        },
-      });
+    const observer = {
+      name: 'audit-observer',
+      mount: (api: any) =>
+        api.scope.add({
+          kind: 'step',
+          name: 'audit',
+          needs: ['user'],
+          provides: [],
+          run: (ctx: any) => {
+            seen = ctx.user;
+            return {};
+          },
+        }),
+    };
     @Step({ provides: 'user', needs: [] })
     class Auth {
       run() {

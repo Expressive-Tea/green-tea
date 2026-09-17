@@ -26,8 +26,8 @@ const prometheusText: TransformerFn = (value) => ({
   body: String(value),
 });
 
-// A plugin split into named functions rather than one inline arrow: `Plugin` alone types the
-// arrow, and nothing typed its argument.
+// A plugin split into named functions rather than one inline `mount`: `Plugin` types the object,
+// and `PluginApi`/`ScopeApi`/`ScopeNode` type what the pieces receive.
 function subscribe(api: PluginApi): void {
   api.bus.on('request:end', () => {});
   api.onShutdown(flush);
@@ -40,9 +40,12 @@ function contribute(scope: ScopeApi): void {
   scope.add(node);
 }
 
-const metricsPlugin: Plugin = (api) => {
-  subscribe(api);
-  contribute(api.scope);
+const metricsPlugin: Plugin = {
+  name: 'metrics',
+  mount(api) {
+    subscribe(api);
+    contribute(api.scope);
+  },
 };
 
 // createApp({ hooks }) — declared as a value, which is the point of the option.
@@ -59,7 +62,8 @@ const encoder: StreamEncoder = {
 
 test('every extension point is typeable from the package barrel', () => {
   expect(prometheusText('x').body).toBe('x');
-  expect(typeof metricsPlugin).toBe('function');
+  expect(typeof metricsPlugin.mount).toBe('function');
+  expect(metricsPlugin.name).toBe('metrics');
   expect(hooks).toHaveLength(1);
   expect(renderError(new Error('boom'), {} as never)?.status).toBe(500);
   expect(encoder.encode(1)).toBe('1');
