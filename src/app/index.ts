@@ -392,6 +392,7 @@ export function createApp(opts: {
     close,
     handleSignals,
     ready,
+    boot: bootApp,
     fetch: fetchFn,
     upgrade: upgradeFn,
     inspect,

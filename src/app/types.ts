@@ -59,6 +59,21 @@ export interface App {
    * shares this same memoized step — calling both never resolves the graph twice.
    */
   ready(): Promise<void>;
+  /**
+   * Boots the providers now, instead of on the first request.
+   *
+   * `listen()` already does this before it accepts a connection. Every other path — `app.fetch`,
+   * `app.upgrade`, `serveDeno`, `serveBun`, `edgeHandler` — boots lazily on the first request, and a
+   * provider that throws there fails *every* request, answered by the runtime with a 500 that never
+   * reaches `onError`. Calling this first turns that into a startup failure, which is where a bad
+   * key or an unreachable database belongs.
+   *
+   * Idempotent, and shares its memo with `listen()` and `fetch()`: calling both boots once. Unlike
+   * `ready()`, it does run provider factories.
+   *
+   * On workerd there is no startup outside a request, so calling it moves nothing.
+   */
+  boot(): Promise<void>;
   /** Web-Standards handler: run a Fetch API Request through the graph and return a Response (Node/Deno/Bun/edge). WS not included. */
   fetch(request: Request): Promise<Response>;
   /** Run a WebSocket upgrade through the graph using an adapter-provided socket (Deno/Bun/edge). Node uses its own listener path. */
