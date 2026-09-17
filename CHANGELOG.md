@@ -8,7 +8,24 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ## [Unreleased]
 
-### Changed
+### Breaking
+
+- **A plugin is a named object.** `Plugin` is now `{ name, mount(api) }`; it was `(api) => void`.
+  The name that `plugin:mounted` reports came from `fn.name`, which is `""` for an arrow returned
+  straight from a factory, `"plugin"` for a `const`, and whatever a minifier leaves behind — so the
+  event that exists to report which plugins mounted reported none of them by name. The name is now
+  the author's word, a failed `mount` is reported as `plugin "<name>" failed to mount: …` with the
+  original error as its `cause`, and two plugins sharing a name fail `createApp`.
+
+  Migration is mechanical:
+
+  ```diff
+  - const jwt = (options) => ({ scope }) => { scope.add(node); };
+  + const jwt = (options) => ({
+  +   name: options.provides ?? 'jwt',
+  +   mount({ scope }) { scope.add(node); },
+  + });
+  ```
 
 - **Mesh (alpha): only steps and routes can be exported.** `@Provider({ export: true })` now fails
   the boot, with an error naming the provider and the replacement. A provider is a factory whose
@@ -27,6 +44,33 @@ npm treats versions as semver and semver forbids leading zeros.
 
   **A teapot that boots today can stop booting**, and the replacement is mechanical: the exported
   `@Provider` becomes a `@Step` that returns what the provider's value carried.
+
+- **Mesh (alpha): the manifest carries step names.** `{ scopes: [{ token, scope }], routes }` is now
+  `{ steps: string[], routes }`. Every export is request-scope after the change above, so the
+  lifetime field had one possible value left and told a reader nothing. A manifest step that is not
+  a string is now rejected on arrival, rather than trusted because a peer sent it.
+
+  `MESH_PROTOCOL_VERSION` deliberately stays at `1`. Mesh is alpha behind `experimental: true`, both
+  peers ship from this repository, and there is no deployed pair of versions for a bump to protect —
+  it would spend the number on nobody. A stable wire would not get that option; alpha is exactly
+  what the word buys, and this is the last comfortable moment to use it.
+
+### Added
+
+- **`app.boot()`** runs the provider factories now instead of on the first request. `listen()`
+  always did this; `app.fetch`, `serveDeno`, `serveBun` and `edgeHandler` boot lazily, and the boot
+  memo keeps a rejection — so a bad key answered 500 on *every* request, from the runtime, without
+  reaching `onError`. `await app.boot()` before `Deno.serve`/`Bun.serve` turns that into a startup
+  failure. On workerd there is no startup outside a request, so calling it moves nothing.
+- **Errors are recognised by brand.** `HttpError` and `ValidationError` now carry
+  `Symbol.for('green-tea.http-error')` and `Symbol.for('green-tea.validation-error')`, and
+  `isHttpError` checks the brand instead of `instanceof`. An error thrown by code holding a
+  different copy of core — a plugin package, an app that installed from npm and JSR both — now
+  renders with its own status instead of a 500. The exported `HttpErrorLike` type and the
+  `isValidationError` guard come with it. The string is the public protocol: code that imports only
+  types writes `Symbol.for('green-tea.http-error')` itself.
+
+### Changed
 
 - **Mesh (alpha): an unreachable teapot no longer stops a teacup from booting.** Blocking was never
   caution, it was arithmetic: an app-scope value has to resolve *at boot*, because there is no later
@@ -54,16 +98,6 @@ npm treats versions as semver and semver forbids leading zeros.
   be the same decision in thirty seconds; and the missing-token error, which now says "local or
   connected mesh" rather than "local or mesh", the old wording having claimed a search that never
   happened.
-
-- **Mesh (alpha): the manifest carries step names.** `{ scopes: [{ token, scope }], routes }` is now
-  `{ steps: string[], routes }`. Every export is request-scope after the change above, so the
-  lifetime field had one possible value left and told a reader nothing. A manifest step that is not
-  a string is now rejected on arrival, rather than trusted because a peer sent it.
-
-  `MESH_PROTOCOL_VERSION` deliberately stays at `1`. Mesh is alpha behind `experimental: true`, both
-  peers ship from this repository, and there is no deployed pair of versions for a bump to protect —
-  it would spend the number on nobody. A stable wire would not get that option; alpha is exactly
-  what the word buys, and this is the last comfortable moment to use it.
 
 ## [26.9.0-beta.1] - 2026-09-04
 
