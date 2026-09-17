@@ -72,10 +72,13 @@ Deno.test('serveDeno close() runs registered teardown', async () => {
   const app = createApp({
     modules: [M],
     hooks: [{ onShutdown: () => void closed.push('hook') }],
-    plugins: [(api) => api.onShutdown(async () => {
-      await new Promise((r) => setTimeout(r, 10));
-      closed.push('plugin');
-    })],
+    plugins: [{
+      name: 'teardown-probe',
+      mount: (api) => api.onShutdown(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+        closed.push('plugin');
+      }),
+    }],
   });
   const server = serveDeno(app, { port: 0 });
 

@@ -31,8 +31,11 @@ class UserController {
 @Module({ mountpoint: '/api', providers: [Database], steps: [Authenticate], controllers: [UserController] })
 class ApiModule {}
 
-const logger: Plugin = (api) => {
-  api.bus.on('request:step:enter', (p) => console.log(`-> ${p.name}`));
+const logger: Plugin = {
+  name: 'step-logger',
+  mount(api) {
+    api.bus.on('request:step:enter', (p) => console.log(`-> ${p.name}`));
+  },
 };
 
 export const app = createApp({ modules: [ApiModule], plugins: [logger] });

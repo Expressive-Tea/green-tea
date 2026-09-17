@@ -37,8 +37,18 @@ export interface PluginApi {
    */
   onShutdown(fn: TeardownFn): void;
 }
-/** A plugin: a function that wires itself up through the provided PluginApi. */
-export type Plugin = (api: PluginApi) => void;
+/**
+ * A plugin: a named object that wires itself up through the provided PluginApi.
+ *
+ * The name is a field rather than `fn.name` because `fn.name` cannot be relied on: an arrow
+ * returned straight from a factory has `""`, `const plugin = …` reports `"plugin"`, and a minifier
+ * rewrites both. The name is what `plugin:mounted` reports and what a failed mount is blamed on, so
+ * it has to be the author's word, not the bundler's.
+ */
+export interface Plugin {
+  readonly name: string;
+  mount(api: PluginApi): void;
+}
 
 /** Runs a plugin against a restricted API, then emits `plugin:mounted`. */
 export function mountPlugin(plugin: Plugin, bus: Bus, scope: ScopeApi, onShutdown: (fn: TeardownFn) => void): void {
@@ -53,6 +63,14 @@ export function mountPlugin(plugin: Plugin, bus: Bus, scope: ScopeApi, onShutdow
   // before could delay the process. It cannot delay it without bound — `close()`'s deadline still
   // caps the whole shutdown.
   const api: PluginApi = { bus: { on: bus.on.bind(bus) }, scope, onShutdown };
-  plugin(api);
-  bus.emit('plugin:mounted', { name: plugin.name || 'anonymous' });
+
+  try {
+    plugin.mount(api);
+  } catch (error) {
+    // Without the name this surfaces as somebody else's stack trace: mounting happens inside
+    // createApp, so the application sees a throw from a line it never wrote.
+    throw new Error(`plugin "${plugin.name}" failed to mount: ${(error as Error).message}`, { cause: error });
+  }
+
+  bus.emit('plugin:mounted', { name: plugin.name });
 }

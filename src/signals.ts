@@ -1,11 +1,36 @@
 import type { StandardIssue } from './standard-schema';
 
 /**
+ * Brands, so an error is recognised across two copies of core — an app that installed one from npm
+ * and a plugin that brought another from JSR, or two npm versions npm could not dedupe.
+ * `instanceof` cannot do that: each copy has its own class identity.
+ *
+ * `Symbol.for` is registry-wide, so both copies resolve the same symbol. The *string* is the public
+ * protocol (`.specs/2026-09-15-plugin-ecosystem-design.md`, 1.2): a plugin that imports only types
+ * cannot import this constant, so it writes `Symbol.for('green-tea.http-error')` itself.
+ *
+ * `unique symbol` is required by TypeScript for a computed class field, and `Symbol.for` on a `const`
+ * satisfies it.
+ */
+export const HTTP_ERROR: unique symbol = Symbol.for('green-tea.http-error');
+export const VALIDATION_ERROR: unique symbol = Symbol.for('green-tea.validation-error');
+
+/** The shape core reads off a branded error. Anything carrying the brand should satisfy it. */
+export interface HttpErrorLike {
+  status: number;
+  message: string;
+  body?: unknown;
+  headers?: Record<string, string>;
+}
+
+/**
  * Error carrying an HTTP status code and optional response body. Base of all signals.
  * A subclass needing response headers (e.g. `location`, `retry-after`) sets `headers`
  * rather than requiring a special case in the error renderer.
  */
 export class HttpError extends Error {
+  readonly [HTTP_ERROR] = true;
+
   constructor(
     readonly status: number,
     message?: string,
@@ -47,6 +72,8 @@ export class Redirect extends HttpError {
 
 /** 422 raised when request input fails Standard Schema validation. */
 export class ValidationError extends HttpError {
+  readonly [VALIDATION_ERROR] = true;
+
   constructor(
     public issues: StandardIssue[],
     public source: string,
@@ -68,7 +95,12 @@ export class TransportMismatchError extends HttpError {
   }
 }
 
-/** Type guard: true if `error` is an {@link HttpError}. */
-export function isHttpError(error: unknown): error is HttpError {
-  return error instanceof HttpError;
+/** Type guard: true if `error` carries the HTTP-error brand — this copy's or another's. */
+export function isHttpError(error: unknown): error is HttpErrorLike {
+  return typeof error === 'object' && error !== null && HTTP_ERROR in error;
+}
+
+/** Type guard: true if `error` carries the validation brand. */
+export function isValidationError(error: unknown): error is ValidationError {
+  return typeof error === 'object' && error !== null && VALIDATION_ERROR in error;
 }

@@ -66,9 +66,12 @@ describe('app.upgrade', () => {
 
   it('emits request:step:enter/leave for ws steps, like HTTP routes do', async () => {
     const seen: string[] = [];
-    const logger = (api: any) => {
-      api.bus.on('request:step:enter', (p: any) => seen.push(`enter:${p.name}`));
-      api.bus.on('request:step:leave', (p: any) => seen.push(`leave:${p.name}`));
+    const logger = {
+      name: 'ws-step-logger',
+      mount: (api: any) => {
+        api.bus.on('request:step:enter', (p: any) => seen.push(`enter:${p.name}`));
+        api.bus.on('request:step:leave', (p: any) => seen.push(`leave:${p.name}`));
+      },
     };
     const wsApp = createApp({ modules: [Tagged], plugins: [logger] });
     const { socket, inbound, sent } = fakeSocket();

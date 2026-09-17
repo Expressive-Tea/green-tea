@@ -22,8 +22,11 @@ describe('reaching the bus', () => {
     const fromOutside: string[] = [];
     const fromPlugin: string[] = [];
 
-    const observer: Plugin = (api) => {
-      api.bus.on('request:end', (e) => fromPlugin.push(e.route ?? ''));
+    const observer: Plugin = {
+      name: 'bus-observer',
+      mount(api) {
+        api.bus.on('request:end', (e) => fromPlugin.push(e.route ?? ''));
+      },
     };
 
     @Module({ mountpoint: '/', controllers: [Ctl] })
