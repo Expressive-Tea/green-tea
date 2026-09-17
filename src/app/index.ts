@@ -600,8 +600,19 @@ function buildTeardownRegistry(
 function mountPlugins(plugins: Plugin[] | undefined, bus: Bus, registry: Registry, teardown: TeardownRegistry): void {
   const extraSteps: ScopeNode[] = [];
   const scope: ScopeApi = { add: (node) => extraSteps.push(node) };
+  // The name is the plugin's identity in `plugin:mounted` and in a mount failure, so two of them
+  // make both ambiguous. Two instances of one plugin are legitimate — they differ by `provides`,
+  // and the convention derives the name from it (.specs/2026-09-15, rule 2).
+  const seen = new Set<string>();
 
-  for (const plugin of plugins ?? []) mountPlugin(plugin, bus, scope, (fn) => teardown.add(fn));
+  for (const plugin of plugins ?? []) {
+    if (seen.has(plugin.name)) {
+      throw new Error(`two plugins are named "${plugin.name}" — pass a different \`provides\` to one of them`);
+    }
+
+    seen.add(plugin.name);
+    mountPlugin(plugin, bus, scope, (fn) => teardown.add(fn));
+  }
 
   for (const scopeNode of extraSteps) {
     const node = { name: scopeNode.name, needs: scopeNode.needs, provides: scopeNode.provides, origin: 'plugin' };
