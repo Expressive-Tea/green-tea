@@ -56,7 +56,12 @@ export {
   NotModified,
   ValidationError,
   TransportMismatchError,
+  HTTP_ERROR,
+  VALIDATION_ERROR,
+  isHttpError,
+  isValidationError,
 } from './signals';
+export type { HttpErrorLike } from './signals';
 
 // Bus & flow
 export { Bus } from './bus';

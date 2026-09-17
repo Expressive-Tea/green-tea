@@ -1,4 +1,4 @@
-import { isHttpError, ValidationError } from './signals';
+import { isHttpError, isValidationError } from './signals';
 import type { TransformerFn } from './metadata';
 import { flattenPath } from './standard-schema';
 import type { Logger } from './logger';
@@ -35,7 +35,7 @@ export const JsonTransformer: TransformerFn = (value) => ({
  * An `HttpError` carrying a `body` renders that payload instead of the default `{ error: message }`.
  */
 export function errorToResponse(error: unknown): ErrorResponse {
-  if (error instanceof ValidationError) {
+  if (isValidationError(error)) {
     return {
       status: 422,
       headers: { 'content-type': 'application/json' },
