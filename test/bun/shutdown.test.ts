@@ -57,10 +57,13 @@ test('serveBun close() runs registered teardown', async () => {
   const app = createApp({
     modules: [M],
     hooks: [{ onShutdown: () => void closed.push('hook') }],
-    plugins: [(api) => api.onShutdown(async () => {
-      await Bun.sleep(10);
-      closed.push('plugin');
-    })],
+    plugins: [{
+      name: 'teardown-probe',
+      mount: (api) => api.onShutdown(async () => {
+        await Bun.sleep(10);
+        closed.push('plugin');
+      }),
+    }],
   });
   const server = serveBun(app, { port: 0 });
 
