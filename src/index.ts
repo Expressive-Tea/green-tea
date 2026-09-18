@@ -5,8 +5,16 @@
  */
 import 'reflect-metadata';
 
-/** Package version, replaced at publish time. */
-export const VERSION = '26.8.0-beta.0';
+/**
+ * Package version. Kept in step with `package.json` and `deno.json` by hand, and pinned to them by
+ * `test/package-metadata.test.ts`.
+ *
+ * It used to say it was "replaced at publish time", which nothing ever did — not `tsup`, not
+ * `stage.yml`, not `release.yml`, which only ever *reads* the version out of `package.json`. So the
+ * constant drifted two releases behind while the comment explained why it could not, and the only
+ * test touching it checked the CalVer shape, which a stale version satisfies perfectly.
+ */
+export const VERSION = '26.9.0-beta.2';
 
 // Application
 export { createApp } from './app';
