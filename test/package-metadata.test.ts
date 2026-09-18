@@ -3,6 +3,8 @@ import { resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { VERSION } from '../src/index';
+
 interface PackageMetadata {
   readonly repository?: {
     readonly type?: string;
@@ -73,5 +75,19 @@ describe('JSR manifest agrees with package.json', () => {
   it('offers the same entry points npm does', () => {
     const npmEntries = Object.keys(JSON.parse(read('package.json')).exports as Record<string, unknown>);
     expect(Object.keys(denoJson.exports ?? {})).toEqual(npmEntries);
+  });
+});
+
+// The third place the version is written, and the one nothing was watching. `VERSION` is what a
+// consumer reads at runtime — a bug report, a health endpoint, a support thread all quote it — so a
+// stale one sends someone to the changelog of a release they are not running.
+//
+// It carried a comment promising it was "replaced at publish time", and no such step existed: not in
+// `tsup.config.ts`, not in `stage.yml`, not in `release.yml`, which only reads the version out of
+// `package.json`. Two releases of drift went unnoticed because `smoke.test.ts` asserts the CalVer
+// *shape*, which any stale version still matches. Shape was never the question.
+describe('the exported VERSION agrees with package.json', () => {
+  it('is the version this package publishes under', () => {
+    expect(VERSION).toBe(packageJson.version);
   });
 });

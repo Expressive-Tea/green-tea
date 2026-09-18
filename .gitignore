@@ -1,6 +1,13 @@
 # Local specs & plans — not committed
 .specs/
 
+# Per-developer agent state: local settings and tool locks, one directory per assistant. Nothing
+# here is shared configuration — `.serena/` even ships its own .gitignore. A repository-wide
+# `.claude/settings.json` is a real convention and would need a `!` line here to be committable;
+# none exists today, so this stays a blanket ignore rather than a rule for a file nobody wrote.
+.claude/
+.serena/
+
 # Node
 node_modules/
 dist/
