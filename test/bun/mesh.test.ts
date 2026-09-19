@@ -42,14 +42,14 @@ const controlUrl = (port: number) => `ws://127.0.0.1:${port}/__mesh__/control`;
 
 test('mesh on Bun: teacup resolves a Bun teapot through the graph', async () => {
   const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
-  const tServer = serveBun(teapot, { port: 0 });
+  const tServer = await serveBun(teapot, { port: 0 });
 
   const teacup = createApp({
     modules: [TeacupModule],
     experimental: true,
     mesh: { teapots: [{ url: controlUrl(tServer.port), secret: SECRET }] },
   });
-  const cServer = serveBun(teacup, { port: 0 });
+  const cServer = await serveBun(teacup, { port: 0 });
 
   try {
     const res = await fetch(`http://127.0.0.1:${cServer.port}/api/local/who`, { headers: { 'x-token': 'abc' } });
@@ -67,7 +67,7 @@ test('mesh on Bun: teacup resolves a Bun teapot through the graph', async () => 
 
 test('mesh on Bun: a teapot refuses a bad secret over its control channel', async () => {
   const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
-  const tServer = serveBun(teapot, { port: 0 });
+  const tServer = await serveBun(teapot, { port: 0 });
 
   const teacup = createApp({
     modules: [TeacupModule],

@@ -62,11 +62,12 @@ export interface App {
   /**
    * Boots the providers now, instead of on the first request.
    *
-   * `listen()` already does this before it accepts a connection. Every other path — `app.fetch`,
-   * `app.upgrade`, `serveDeno`, `serveBun`, `edgeHandler` — boots lazily on the first request, and a
-   * provider that throws there fails *every* request, answered by the runtime with a 500 that never
-   * reaches `onError`. Calling this first turns that into a startup failure, which is where a bad
-   * key or an unreachable database belongs.
+   * The three serving helpers call it for you: `listen()` before it accepts a connection,
+   * `serveDeno()` and `serveBun()` before they bind. Calling it by hand is for the paths that have
+   * no startup of their own — `app.fetch` and `app.upgrade` driven by your own server, where a
+   * provider that throws fails *every* request, answered by the runtime with a 500 that never
+   * reaches `onError`, because the boot memo keeps the rejection. Calling this first turns that into
+   * a startup failure, which is where a bad key or an unreachable database belongs.
    *
    * Idempotent, and shares its memo with `listen()` and `fetch()`: calling both boots once. Unlike
    * `ready()`, it does run provider factories.

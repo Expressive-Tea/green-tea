@@ -51,8 +51,20 @@ declare const Deno: {
  * WebSocket messages flow through app.upgrade over the shared neutral core.
  * Deno.serve exposes no equivalent to Node's server.maxConnections; enforce connection caps at
  * the deployment platform or reverse proxy.
+ *
+ * **Boots before it binds**, which is why it is async — see the `await app.boot()` below.
  */
-export function serveDeno(app: App, options?: DenoServeOptions): DenoServer {
+export async function serveDeno(app: App, options?: DenoServeOptions): Promise<DenoServer> {
+  // The same gate `listen()` runs before it binds a socket, and for the same reason: resolve the
+  // graph and run the provider factories here, so a missing key or an unreachable pool is a startup
+  // failure rather than a 500 on every request.
+  //
+  // Leaving it to `app.fetch` is not the lazier equivalent. The boot memo keeps a *rejection*, so
+  // the first request would fix the failure in place and the runtime would answer from it forever,
+  // without ever reaching `onError`. This was documented as something the caller should remember to
+  // do, which made the correct use of a core helper depend on reading a README.
+  await app.boot();
+
   // Deno's only force-close lever is the abort signal it was served with, so the adapter has to
   // own one to offer a deadline at all. A caller-supplied signal still works and still aborts the
   // server — it is chained into ours rather than replaced, so neither party loses its control.

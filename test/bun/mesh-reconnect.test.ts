@@ -48,9 +48,9 @@ function freePort(): number {
 }
 
 /** Boot a teapot on a fixed port; the handle kills it and leaves the port free again. */
-function startTeapot(port: number) {
+async function startTeapot(port: number) {
   const app = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
-  const server = serveBun(app, { port });
+  const server = await serveBun(app, { port });
 
   return {
     stop: async () => {
@@ -64,7 +64,7 @@ const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 test('mesh on Bun: a teacup reconnects to a teapot that came back', async () => {
   const port = freePort();
-  let teapot = startTeapot(port);
+  let teapot = await startTeapot(port);
 
   const teacup = createApp({
     modules: [TeacupModule],
@@ -88,7 +88,7 @@ test('mesh on Bun: a teacup reconnects to a teapot that came back', async () => 
     const down = await teacup.fetch(new Request('http://x/api/local/who'));
     expect(down.status).toBe(503);
 
-    teapot = startTeapot(port);
+    teapot = await startTeapot(port);
     await settle(400);
 
     const after = await teacup.fetch(new Request('http://x/api/local/who', { headers: { 'x-token': 'xyz' } }));

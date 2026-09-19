@@ -10,6 +10,28 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Breaking
 
+- **`serveDeno()` and `serveBun()` are async**, returning `Promise<DenoServer>` and
+  `Promise<BunServeResult>`. They now boot the app before they bind, which is what `listen()` has
+  always done.
+
+  They did not, and the documented fix was to remember to `await app.boot()` first. That made the
+  correct use of a core helper depend on reading a README, in a framework whose argument is that
+  order should not be something you have to get right. Forget it and a missing signing key is not a
+  failed deploy: the boot memo keeps the rejection, so the port binds, every request gets a 500 from
+  the runtime, and none of them reach `onError`. The server looks healthy to anything that only
+  checks whether it is listening.
+
+  Migration is one keyword, and the value is unchanged:
+
+  ```diff
+  - const server = serveDeno(app, { port });
+  + const server = await serveDeno(app, { port });
+  ```
+
+  Both runtimes support top-level `await`, so a module that serves at import time needs nothing
+  else. `edgeHandler` is deliberately untouched: on workerd there is no startup outside a request,
+  so there is no earlier moment to move the failure to.
+
 - **A plugin is a named object.** `Plugin` is now `{ name, mount(api) }`; it was `(api) => void`.
   The name that `plugin:mounted` reports came from `fn.name`, which is `""` for an arrow returned
   straight from a factory, `"plugin"` for a `const`, and whatever a minifier leaves behind — so the
@@ -57,11 +79,11 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Added
 
-- **`app.boot()`** runs the provider factories now instead of on the first request. `listen()`
-  always did this; `app.fetch`, `serveDeno`, `serveBun` and `edgeHandler` boot lazily, and the boot
-  memo keeps a rejection — so a bad key answered 500 on *every* request, from the runtime, without
-  reaching `onError`. `await app.boot()` before `Deno.serve`/`Bun.serve` turns that into a startup
-  failure. On workerd there is no startup outside a request, so calling it moves nothing.
+- **`app.boot()`** runs the provider factories now instead of on the first request. `listen()`,
+  `serveDeno()` and `serveBun()` all call it for you (see Breaking, below). Call it by hand when you
+  drive `app.fetch` / `app.upgrade` from your own server: those boot lazily, and the boot memo keeps
+  a rejection, so a bad key answers 500 on *every* request, from the runtime, without reaching
+  `onError`. On workerd there is no startup outside a request, so calling it moves nothing.
 - **Errors are recognised by brand.** `HttpError` and `ValidationError` now carry
   `Symbol.for('green-tea.http-error')` and `Symbol.for('green-tea.validation-error')`, and
   `isHttpError` checks the brand instead of `instanceof`. An error thrown by code holding a

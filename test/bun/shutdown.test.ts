@@ -6,7 +6,7 @@
 // Run with: npm run test:bun  (or: bun test test/bun/)
 import 'reflect-metadata';
 import { test, expect } from 'bun:test';
-import { createApp, Route, Get, Module } from '../../src/index.ts';
+import { createApp, Route, Get, Module, Provider, needs } from '../../src/index.ts';
 import { serveBun } from '../../src/bun.ts';
 
 @Route('/')
@@ -25,7 +25,7 @@ class Ctl {
 class M {}
 
 test('serveBun close({ timeoutMs }) gives up on a stuck handler and resolves', async () => {
-  const server = serveBun(createApp({ modules: [M] }), { port: 0 });
+  const server = await serveBun(createApp({ modules: [M] }), { port: 0 });
 
   fetch(`http://127.0.0.1:${server.port}/hang`).catch(() => {});
   await Bun.sleep(50); // let the request actually reach the handler
@@ -40,7 +40,7 @@ test('serveBun close({ timeoutMs }) gives up on a stuck handler and resolves', a
 });
 
 test('serveBun close() drains an in-flight request rather than cutting it', async () => {
-  const server = serveBun(createApp({ modules: [M] }), { port: 0 });
+  const server = await serveBun(createApp({ modules: [M] }), { port: 0 });
 
   const inFlight = fetch(`http://127.0.0.1:${server.port}/slow`).then((r) => r.json());
   await Bun.sleep(50); // the request must be *in* the handler before we close, or it never got in
@@ -65,10 +65,35 @@ test('serveBun close() runs registered teardown', async () => {
       }),
     }],
   });
-  const server = serveBun(app, { port: 0 });
+  const server = await serveBun(app, { port: 0 });
 
   await server.close({ timeoutMs: 2000 });
 
   // Reverse registration order: the plugin registered after the hook, so it tears down first.
   expect(closed).toEqual(['plugin', 'hook']);
+});
+
+// The boot gate, which is why serveBun is async. Before it, a provider that threw was memoized as a
+// rejection and answered 500 to every request from the runtime, never reaching onError — so the
+// failure looked like a runtime fault at 3am instead of a deploy that refused to start.
+@Provider({ provides: 'key' })
+class BadKey {
+  provide(): never {
+    throw new Error('no such key file');
+  }
+}
+@Route('/')
+class NeedsKey {
+  @Get('/signed')
+  signed(@needs('key') key: string) {
+    return { key };
+  }
+}
+@Module({ mountpoint: '/', providers: [BadKey], controllers: [NeedsKey] })
+class KeyModule {}
+
+test('serveBun rejects when a provider fails, instead of binding a port that 500s', async () => {
+  const app = createApp({ modules: [KeyModule] });
+
+  await expect(serveBun(app, { port: 0 })).rejects.toThrow(/no such key file/);
 });

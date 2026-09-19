@@ -74,8 +74,20 @@ function bunSocket(ws: BunServerWebSocket): WsSocket {
  * (inbound channel, abort, WsRequest) is stashed on ws.data during the upgrade.
  * Bun.serve exposes no equivalent to Node's server.maxConnections; enforce connection caps at
  * the deployment platform or reverse proxy.
+ *
+ * **Boots before it binds**, which is why it is async — see the `await app.boot()` below.
  */
-export function serveBun(app: App, options?: BunServeShortOptions): BunServeResult {
+export async function serveBun(app: App, options?: BunServeShortOptions): Promise<BunServeResult> {
+  // The same gate `listen()` runs before it binds a socket, and for the same reason: resolve the
+  // graph and run the provider factories here, so a missing key or an unreachable pool is a startup
+  // failure rather than a 500 on every request.
+  //
+  // Leaving it to `app.fetch` is not the lazier equivalent. The boot memo keeps a *rejection*, so
+  // the first request would fix the failure in place and the runtime would answer from it forever,
+  // without ever reaching `onError`. This was documented as something the caller should remember to
+  // do, which made the correct use of a core helper depend on reading a README.
+  await app.boot();
+
   const server = Bun.serve({
     ...options,
     fetch(request, server) {

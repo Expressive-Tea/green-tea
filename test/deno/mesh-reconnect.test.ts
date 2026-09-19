@@ -49,7 +49,7 @@ function freePort(): number {
 /** Boot a teapot on a fixed port; the returned handle can kill it and leave the port free again. */
 async function startTeapot(port: number) {
   const app = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
-  const server = serveDeno(app, { port });
+  const server = await serveDeno(app, { port });
   await new Promise((r) => setTimeout(r, 50));
 
   return {

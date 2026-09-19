@@ -30,5 +30,5 @@ class Bench {
 class BenchModule {}
 
 const app = createApp({ modules: [BenchModule], security: false });
-const server = serveBun(app, { port: 0, hostname: '0.0.0.0' });
+const server = await serveBun(app, { port: 0, hostname: '0.0.0.0' });
 console.log(`READY ${server.port}`);

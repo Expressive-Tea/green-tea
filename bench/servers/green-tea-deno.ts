@@ -30,4 +30,4 @@ class Bench {
 class BenchModule {}
 
 const app = createApp({ modules: [BenchModule], security: false });
-serveDeno(app, { port: 0, hostname: '0.0.0.0', onListen: (a: { port: number }) => console.log(`READY ${a.port}`) });
+await serveDeno(app, { port: 0, hostname: '0.0.0.0', onListen: (a: { port: number }) => console.log(`READY ${a.port}`) });

@@ -23,7 +23,7 @@ const app = createApp({
 // `ready` is printed after `serveDeno` returns, not from `onListen` — Deno calls `onListen`
 // synchronously from inside `Deno.serve`, so a parent that signals on that line races the handler
 // registration that happens a few statements later and wins.
-const server = serveDeno(app, { port: 0, onListen: () => {} });
+const server = await serveDeno(app, { port: 0, onListen: () => {} });
 
 console.log(JSON.stringify({ ready: true }));
 void server;
