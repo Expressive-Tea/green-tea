@@ -5,7 +5,7 @@
 //
 // Run with: npm run test:deno
 import 'reflect-metadata';
-import { createApp, Route, Get, Module } from '../../src/index.ts';
+import { createApp, Route, Get, Module, Provider, needs } from '../../src/index.ts';
 import { serveDeno } from '../../src/deno.ts';
 
 @Route('/')
@@ -30,7 +30,7 @@ const portOf = (server: { addr?: { port: number } }): number => server.addr!.por
 // the uncaught BadResource that aborting a draining server produces. The test runner fails on
 // that error even when the assertions pass, so a green run here is the real assertion.
 Deno.test('serveDeno close({ timeoutMs }) returns on a stuck handler without forcing', async () => {
-  const server = serveDeno(createApp({ modules: [M] }), { port: 0, onListen: () => {} });
+  const server = await serveDeno(createApp({ modules: [M] }), { port: 0, onListen: () => {} });
 
   fetch(`http://127.0.0.1:${portOf(server)}/hang`).catch(() => {});
   await new Promise((r) => setTimeout(r, 50)); // let the request actually reach the handler
@@ -45,7 +45,7 @@ Deno.test('serveDeno close({ timeoutMs }) returns on a stuck handler without for
 });
 
 Deno.test('serveDeno close() drains an in-flight request rather than cutting it', async () => {
-  const server = serveDeno(createApp({ modules: [M] }), { port: 0, onListen: () => {} });
+  const server = await serveDeno(createApp({ modules: [M] }), { port: 0, onListen: () => {} });
 
   const inFlight = fetch(`http://127.0.0.1:${portOf(server)}/slow`).then((r) => r.json());
   await new Promise((r) => setTimeout(r, 50)); // must be *in* the handler before we close
@@ -58,7 +58,7 @@ Deno.test('serveDeno close() drains an in-flight request rather than cutting it'
 
 Deno.test('a caller-supplied signal still aborts the server', async () => {
   const ac = new AbortController();
-  const server = serveDeno(createApp({ modules: [M] }), { port: 0, signal: ac.signal, onListen: () => {} });
+  const server = await serveDeno(createApp({ modules: [M] }), { port: 0, signal: ac.signal, onListen: () => {} });
 
   ac.abort();
   await server.finished; // hangs here if chaining the caller's signal into ours dropped it
@@ -80,10 +80,44 @@ Deno.test('serveDeno close() runs registered teardown', async () => {
       }),
     }],
   });
-  const server = serveDeno(app, { port: 0 });
+  const server = await serveDeno(app, { port: 0 });
 
   await server.close({ timeoutMs: 2000 });
 
   // Reverse registration order: the plugin registered after the hook, so it tears down first.
   if (closed.join(',') !== 'plugin,hook') throw new Error(`expected plugin,hook — got ${closed.join(',')}`);
+});
+
+// The boot gate, which is why serveDeno is async. Before it, a provider that threw was memoized as
+// a rejection and answered 500 to every request from the runtime, never reaching onError — so the
+// failure looked like a runtime fault at 3am instead of a deploy that refused to start.
+@Provider({ provides: 'key' })
+class BadKey {
+  provide(): never {
+    throw new Error('no such key file');
+  }
+}
+@Route('/')
+class NeedsKey {
+  @Get('/signed')
+  signed(@needs('key') key: string) {
+    return { key };
+  }
+}
+@Module({ mountpoint: '/', providers: [BadKey], controllers: [NeedsKey] })
+class KeyModule {}
+
+Deno.test('serveDeno rejects when a provider fails, instead of binding a port that 500s', async () => {
+  const app = createApp({ modules: [KeyModule] });
+  let message = '';
+
+  try {
+    await serveDeno(app, { port: 0, onListen: () => {} });
+  } catch (error) {
+    message = (error as Error).message;
+  }
+
+  if (!message.includes('no such key file')) {
+    throw new Error(`expected serveDeno to reject with the provider's error, got: ${message || '<resolved>'}`);
+  }
 });

@@ -32,7 +32,10 @@ it('snapshots connection metadata before Deno invalidates the upgraded request',
   // `handleSignals` is a pass-through here: this test is about upgrade metadata, and the identity
   // it returns is exactly what `createApp` returns when `handleSignals` is left off.
   const handleSignals = <T,>(closer: T): T => closer;
-  serveDeno({ upgrade, handleSignals } as unknown as App);
+  // `serveDeno` boots before it binds, so the stub needs the gate even though this test never
+  // exercises it.
+  const boot = vi.fn().mockResolvedValue(undefined);
+  await serveDeno({ upgrade, handleSignals, boot } as unknown as App);
   const info = {
     get remoteAddr() {
       if (upgraded) throw new TypeError('Request closed');

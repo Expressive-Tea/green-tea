@@ -26,7 +26,7 @@ class M {}
 
 test('serveBun: HTTP + WebSocket round-trip', async () => {
   const app = createApp({ modules: [M] });
-  const server = serveBun(app, { port: 0 });
+  const server = await serveBun(app, { port: 0 });
   const port = server.port;
   try {
     const httpRes = await fetch(`http://127.0.0.1:${port}/rt/hello`);

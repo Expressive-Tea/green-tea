@@ -22,7 +22,7 @@ class TeapotModule {}
 async function startTeapot() {
   const app = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: 'good' } });
   let port = 0;
-  const server = serveDeno(app, { port: 0, onListen: (addr) => (port = addr.port) });
+  const server = await serveDeno(app, { port: 0, onListen: (addr) => (port = addr.port) });
   await new Promise((r) => setTimeout(r, 50));
 
   return { port: () => port, stop: async () => { await server.shutdown(); await app.close(); } };

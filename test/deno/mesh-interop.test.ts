@@ -127,7 +127,7 @@ Deno.test('interop: a Node teacup consumes a Deno teapot', async () => {
   const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
   let port = 0;
   const { serveDeno } = await import('../../src/deno.ts');
-  const server = serveDeno(teapot, {
+  const server = await serveDeno(teapot, {
     port: 0,
     onListen: (addr) => {
       port = addr.port;

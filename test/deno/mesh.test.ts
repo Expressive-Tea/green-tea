@@ -46,7 +46,7 @@ class TeacupModule {}
 /** Starts an app on Deno and resolves once its port is known. */
 async function serve(app: ReturnType<typeof createApp>) {
   let port = 0;
-  const server = serveDeno(app, {
+  const server = await serveDeno(app, {
     port: 0,
     onListen: (addr) => {
       port = addr.port;

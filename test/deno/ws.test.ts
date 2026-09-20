@@ -37,7 +37,7 @@ Deno.test('serveDeno: HTTP + WebSocket round-trip through the graph', async () =
   const app = createApp({ modules: [M] });
 
   let port = 0;
-  const server = serveDeno(app, {
+  const server = await serveDeno(app, {
     port: 0,
     onListen: (addr) => {
       port = addr.port;
