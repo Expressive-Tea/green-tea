@@ -136,6 +136,48 @@ was benchmarked as it landed — the numbers are still in the code, cited below 
 file between `26.7` and `26.9`, so nothing added them up. That is the gap this section and
 `npm run bench:compare` exist to close.
 
+### The release gate: `26.9.0-beta.1` → `26.9.0-beta.2`
+
+Ten cases, both trees on one box in one sitting, alternating which side ran first each round, sharing
+one `node_modules` — the two revisions differ by a version string and nothing else in `package.json`,
+so the only thing that moved between the sides is green-tea. Medians of three rounds:
+
+| Scenario | 26.9.0-beta.1 | 26.9.0-beta.2 | Δ | |
+| --- | --- | --- | --- | --- |
+| hello | 90,615 | 89,853 | −0.8% | overlaps |
+| param | 86,956 | 87,572 | +0.7% | overlaps |
+| pipeline (3 steps) | 80,061 | 81,504 | +1.8% | overlaps |
+| steps5 | 75,436 | 75,238 | −0.3% | overlaps |
+| validate (POST) | 70,240 | 73,568 | +4.7% | overlaps |
+| hello + security | 83,738 | 84,890 | +1.4% | overlaps |
+| hello + cors predicate | 82,237 | 82,528 | +0.4% | overlaps |
+| preflight + cors predicate | 111,223 | 114,220 | +2.7% | overlaps |
+| param, 50 routes | 83,505 | 87,078 | +4.3% | **flagged** |
+| param, 200 routes | 73,289 | 73,335 | +0.1% | overlaps |
+
+Nine rows overlap and therefore say nothing, which is the result this gate exists to produce. The
+release is a breaking one — `Plugin` became `{ name, mount }`, `serveDeno()` and `serveBun()` became
+async, `@Provider({ export: true })` stopped being a thing a teapot can do, and an `HttpError` is now
+recognised by a brand rather than by `instanceof` — but all of that is boot-time or error-path work.
+None of it sits on the per-request path these cases walk, and the table agrees.
+
+The tenth row is why "flagged" is not a synonym for "found something". `param, 50 routes` came out
++4.3% with separated ranges, in green-tea's favour, and it did not survive being asked twice: re-run
+alone at seven rounds it is **+0.5% and overlapping**, with both sides swinging between 80,794 and
+88,259 req/s. The reason to doubt it before re-running was that it had no mechanism — the matcher
+work that could produce it would have to show at 200 routes too, and that row had already said
++0.1%. Treat a flagged row as an instruction to measure again, whichever direction it points; a win
+nobody can explain is a measurement problem more often than it is a win.
+
+The cross-framework tables above were **not** regenerated for this release, and their date says so.
+Two attempts produced numbers this box cannot stand behind: each framework's delta against the
+previous run tracked its position in the run order rather than anything in its code — the framework
+measured second lost 7%, the ones measured last gained — and a browser and the window server were
+taking around 60% of the machine throughout. Reporting that as "green-tea overtook Fastify" would
+have been the most flattering available reading of a broken measurement, which is exactly the kind
+this file exists to refuse. The gate table above survives the same contention, because both sides
+pay it and the order alternates; an absolute cross-framework number does not, and needs a quiet box.
+
 ### The release gate: `26.8.0-beta.1` → `26.9.0-beta.1`
 
 Both trees measured on one box in one sitting, alternating which side ran first each round, sharing
