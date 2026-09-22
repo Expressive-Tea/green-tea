@@ -55,6 +55,14 @@ feature/* → develop → main → [promote.yml] → GitHub main
 
 **Only `hotfix/*` can still cause real drift**, since it branches from and returns to `main`. That case genuinely needs a back-merge; nothing else does.
 
+**Delete the branch when the work lands.** Both sides, as the last step of merging rather than a chore left for later:
+
+```bash
+git branch -d <branch> && git push origin --delete <branch>
+```
+
+On 2026-09-22 this repository carried 36 branches on Gitea and 29 locally, every one but a single stale docs branch already merged into `develop`, some of them since July. At that size the branch list stops describing the work in flight and becomes something a release has to audit commit by commit — which is both when it costs the most and when nobody has the patience for it. `git branch -r --merged origin/develop` is the check. A branch whose commits were rebased on the way in will not appear there even though its content did land, so confirm that case by content (`git diff <branch> develop -- <file>`) rather than by the flag. Never `develop`, `main`, or a `release/*` that has not shipped yet.
+
 **Diagnosing "this branch is ahead of main".** Usually it is pre-rebase duplication, not unmerged work: the same content under different SHAs, because contributions are rebased on their way into `develop`. Confirm before acting:
 
 ```bash
