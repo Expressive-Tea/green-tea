@@ -212,7 +212,10 @@ async function main(): Promise<void> {
   const commit = execSync('git rev-parse --short HEAD').toString().trim();
   const data: RenderData = {
     env: {
-      date: new Date().toISOString().slice(0, 10),
+      // Project time, not the runner's. A benchmark is often driven over ssh against a box that
+      // keeps UTC, and a run made on the evening of the 22nd then dates itself the 23rd — which
+      // reads as a day of drift against the commit and the changelog entry beside it.
+      date: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' }),
       commit,
       node: process.version,
       os: os.platform(),

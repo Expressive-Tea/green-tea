@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 green-tea uses calendar versioning: `YY.M.PATCH` — the month is not zero-padded, since
 npm treats versions as semver and semver forbids leading zeros.
 
-## [Unreleased]
+## [26.9.0-beta.2] - 2026-09-22
 
 ### Breaking
 
@@ -642,6 +642,7 @@ change before the stable release.
 - **Benchmarks** — reproducible `npm run bench` harness vs Express 5, Fastify 5,
   NestJS, and raw `http`; results in [BENCHMARKS.md](./BENCHMARKS.md).
 
+[26.9.0-beta.2]: https://github.com/Expressive-Tea/green-tea/compare/v26.9.0-beta.1...v26.9.0-beta.2
 [26.9.0-beta.1]: https://github.com/Expressive-Tea/green-tea/compare/v26.8.0-beta.1...v26.9.0-beta.1
 [26.8.0-beta.1]: https://github.com/Expressive-Tea/green-tea/compare/v26.8.0-beta.0...v26.8.0-beta.1
 [26.8.0-beta.0]: https://github.com/Expressive-Tea/green-tea/compare/v26.7.0-beta.0...v26.8.0-beta.0
