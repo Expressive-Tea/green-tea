@@ -150,7 +150,7 @@
     "express": "^5.2.1",
     "fastify": "^5.11.0",
     "graphql": "^16.9.0",
-    "miniflare": "^4.20260730.0",
+    "miniflare": "^5.20260921.0-alpha",
     "prettier": "^3.9.6",
     "rxjs": "^7.8.2",
     "tsup": "^8.5.1",
