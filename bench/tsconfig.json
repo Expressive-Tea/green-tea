@@ -1,5 +1,14 @@
 {
   "extends": "../tsconfig.json",
-  "compilerOptions": { "experimentalDecorators": true, "emitDecoratorMetadata": true, "noEmit": true },
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "noEmit": true,
+    // The bench servers are ES modules, run by tsx, Deno and Bun rather than by the CommonJS build
+    // the root config describes. `serveDeno`/`serveBun` became async in 26.9.0-beta.2, so two of
+    // them now open with a top-level `await`, which `module: commonjs` rejects outright.
+    "module": "es2022",
+    "moduleResolution": "bundler"
+  },
   "include": ["."]
 }
