@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, test, vi } from 'vitest';
-import { Provider, Step, Route, Get, Post, Module, Transformer } from '../src/metadata';
+import { Provider, Step, Route, Get, Post, Module, Transformer, getModuleMeta } from '../src/metadata';
 import { JsonTransformer } from '../src/transformers';
 import { Unauthorized } from '../src/signals';
 import { createApp } from '../src/app';
@@ -38,6 +38,24 @@ test('inspect lists the ordered chain with origins', () => {
   const app = createApp({ modules: [ApiModule] });
   const lines = app.inspect('/api/users/:id');
   expect(lines.map((l) => `${l.kind}:${l.name}`)).toEqual(['provider:db', 'step:user', 'handler:getUser']);
+});
+
+test('runtime module metadata without mountpoint names module and missing field', () => {
+  @Route('/broken')
+  class BrokenCtl {
+    @Get('/')
+    get() {
+      return { ok: true };
+    }
+  }
+
+  @Module({ mountpoint: '/broken', controllers: [BrokenCtl] })
+  class BrokenModule {}
+  const metadata = getModuleMeta(BrokenModule);
+  if (!metadata) throw new Error('test setup failed');
+  Object.defineProperty(metadata, 'mountpoint', { value: undefined });
+
+  expect(() => createApp({ modules: [BrokenModule] })).toThrow(/BrokenModule.*mountpoint/);
 });
 
 test('ready() is a no-op on a non-mesh app, so one protocol works for both', async () => {
