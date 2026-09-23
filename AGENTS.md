@@ -60,8 +60,12 @@ feature/* → develop → main → [promote.yml] → GitHub main
 ```bash
 curl -X POST -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
   -d '{"Do":"fast-forward-only"}' \
-  https://git.svc.zoit.services/api/v1/repos/Green-Tea/core/pulls/<n>/merge
+  "$GITEA_URL/api/v1/repos/$REPO/pulls/<n>/merge"
 ```
+
+`$GITEA_URL` and `$REPO` are yours to fill in — this file is mirrored to a public repository, and
+the address of a private forge is not something to publish. `fast-forward-only` is the part that
+matters and is the part the CLI does not offer.
 
 A `405 Not all required status checks successful` means the pull request's own CI has not finished — `main` is protected, and a promotion runs its own checks rather than inheriting `develop`'s. Wait for them; the call is the same afterwards.
 
