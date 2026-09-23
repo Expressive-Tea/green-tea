@@ -55,6 +55,16 @@ feature/* → develop → main → [promote.yml] → GitHub main
 
 **Only `hotfix/*` can still cause real drift**, since it branches from and returns to `main`. That case genuinely needs a back-merge; nothing else does.
 
+**`tea pr merge` cannot do the promotion.** The CLI offers `merge`, `rebase`, `squash` and `rebase-merge`, and every one of them births a commit on `main` — the drift this section exists to prevent. Gitea's API has the style the CLI lacks, so promote through it:
+
+```bash
+curl -X POST -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"Do":"fast-forward-only"}' \
+  https://git.svc.zoit.services/api/v1/repos/Green-Tea/core/pulls/<n>/merge
+```
+
+A `405 Not all required status checks successful` means the pull request's own CI has not finished — `main` is protected, and a promotion runs its own checks rather than inheriting `develop`'s. Wait for them; the call is the same afterwards.
+
 **Delete the branch when the work lands.** Both sides, as the last step of merging rather than a chore left for later:
 
 ```bash
