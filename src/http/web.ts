@@ -11,6 +11,7 @@ import {
   type Preflight,
 } from './core';
 import { mergeInjectedHeaders } from './headers';
+import { peerOf } from './peer';
 import { declaresOverLimit, type BodyFailure, type BodyReader, type MaybePromise } from './body';
 import { HttpError } from '../signals';
 import { renderError, type ErrorRequest } from '../transformers';
@@ -218,6 +219,15 @@ function outcomeToResponse(result: HandleResult, bus?: Bus, correlation: Correla
   return new Response(body, { status: result.outcome.status, headers });
 }
 
+/** The first `x-forwarded-for` hop when the proxy is trusted, else `''`. */
+function forwardedFor(headers: Record<string, string>, opts: HttpOptions | undefined): string {
+  if (!opts?.trustProxy) return '';
+
+  return String(headers['x-forwarded-for'] ?? '')
+    .split(',')[0]
+    .trim();
+}
+
 /**
  * Builds a Web-Standards `fetch(request)` handler over the same route table the Node adapter uses:
  * describes the request for the runtime-neutral {@link handle}, supplies the {@link BodyReader} it
@@ -286,14 +296,10 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
           source: request,
           secure,
           // Mirrors Node's `deriveIp` (src/http/request.ts): only trust `x-forwarded-for` when the
-          // proxy is trusted, and take its first hop — an untrusted XFF is client-spoofable, and
-          // there's no socket peer address to fall back to on the fetch path, so the untrusted case
-          // is simply ''.
-          ip: opts?.trustProxy
-            ? String(headers['x-forwarded-for'] ?? '')
-                .split(',')[0]
-                .trim()
-            : '',
+          // proxy is trusted, and take its first hop — an untrusted XFF is client-spoofable.
+          // Otherwise the socket peer, which only the Deno and Bun adapters can supply; a bare
+          // `app.fetch` has none, so there the answer is still ''.
+          ip: forwardedFor(headers, opts) || peerOf(request),
         },
         // Already computed above for the shed-503 path; handing it down keeps `cors.origins` to
         // one call per request.

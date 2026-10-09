@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createApp, Provider, Route, Get, Post, Module, needs, body, ctx } from '../src/index';
 import { countingStream } from './helpers/counting-stream';
+import { setPeer } from '../src/http/peer';
 
 @Provider({ provides: 'store' })
 class Store {
@@ -107,6 +108,57 @@ describe('app.fetch trustProxy gates x-forwarded-for', () => {
     const res = await untrustingApp.fetch(
       new Request('http://x/ip/whoami', { headers: { 'x-forwarded-for': '9.9.9.9, 1.1.1.1' } }),
     );
+    expect(await res.json()).toEqual({ ip: '' });
+  });
+
+  // #116: the Deno and Bun adapters now hand `buildFetch` the socket peer. A bare `app.fetch` from
+  // user code has none to hand, so it must keep answering exactly what it did before.
+  it('T7: bare app.fetch without peer metadata is unchanged', async () => {
+    const untrusting = createApp({ modules: [IpModule] });
+    const trusting = createApp({ modules: [IpModule], trustProxy: true });
+
+    expect(await (await untrusting.fetch(new Request('http://x/ip/whoami'))).json()).toEqual({ ip: '' });
+    expect(await (await trusting.fetch(new Request('http://x/ip/whoami'))).json()).toEqual({ ip: '' });
+    expect(
+      await (
+        await trusting.fetch(new Request('http://x/ip/whoami', { headers: { 'x-forwarded-for': '9.9.9.9' } }))
+      ).json(),
+    ).toEqual({ ip: '9.9.9.9' });
+  });
+
+  it('the peer an adapter recorded reaches ctx.ip, and trustProxy without XFF falls back to it', async () => {
+    const untrusting = createApp({ modules: [IpModule] });
+    const trusting = createApp({ modules: [IpModule], trustProxy: true });
+    const spoofed = new Request('http://x/ip/whoami', { headers: { 'x-forwarded-for': '1.2.3.4' } });
+    const plain = new Request('http://x/ip/whoami');
+    setPeer(spoofed, '127.0.0.1');
+    setPeer(plain, '::1');
+
+    expect(await (await untrusting.fetch(spoofed)).json()).toEqual({ ip: '127.0.0.1' });
+    expect(await (await trusting.fetch(plain)).json()).toEqual({ ip: '::1' });
+  });
+
+  // The published CommonJS build bundles `index`, `deno` and `bun` as separate files, each with its
+  // own copy of every module they share, so `serveBun` from `@green-tea/core/bun` and `app.fetch`
+  // from `@green-tea/core` do not run the same `peer.ts`. A store private to the module would be two
+  // stores, and the peer recorded by one would never be found by the other.
+  it('a second copy of the peer module sees the peer the first one recorded', async () => {
+    const request = new Request('http://x/');
+    setPeer(request, '192.0.2.1'); // through the copy this file imported
+
+    vi.resetModules();
+    const copy = await import('../src/http/peer');
+
+    expect(copy.setPeer).not.toBe(setPeer); // really a second instance of the module
+    expect(copy.peerOf(request)).toBe('192.0.2.1');
+  });
+
+  it('T8: only the adapter\'s own Request carries the peer — a copy of it does not', async () => {
+    const original = new Request('http://x/ip/whoami');
+    setPeer(original, '127.0.0.1');
+
+    const res = await createApp({ modules: [IpModule] }).fetch(new Request(original));
+
     expect(await res.json()).toEqual({ ip: '' });
   });
 });

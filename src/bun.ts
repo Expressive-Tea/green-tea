@@ -4,6 +4,7 @@ import type { App } from './app/types';
 import { WS_MAX_MESSAGE_BYTES, DEFAULT_MAX_WS_MESSAGE_BYTES, type WsSocket, type WsRequest } from './http/ws-core';
 import { decodeMessage, neutralSocket, toWsRequest, upgradeSafely } from './http/ws-adapter';
 import { closeWithDeadline } from './http/shutdown';
+import { setPeer } from './http/peer';
 
 // Minimal ambient for the Bun globals we use — avoids a @types/bun devDep.
 // Mirrors the real Bun.serve / server.upgrade / ServerWebSocket signatures we call.
@@ -101,6 +102,8 @@ export async function serveBun(app: App, options?: BunServeShortOptions): Promis
         return new Response('WebSocket upgrade failed', { status: 400 });
       }
 
+      // The same object goes to `app.fetch`, which is what lets it find the peer again.
+      setPeer(request, server.requestIP(request)?.address ?? '');
       return app.fetch(request);
     },
     websocket: {

@@ -49,7 +49,7 @@ npm treats versions as semver and semver forbids leading zeros.
   while the app runs needs a restart** to take effect. A link swapped inside the root between the
   check and the read can still escape; exploiting that needs write access to the served directory.
 
-- **A request that fails past the error renderer no longer takes the Node process down.** The Node
+- **A request that fails past the error renderer no longer takes the Node process down** (#108). The Node
   request listener was an `async` function, and `http.createServer` ignores the promise it returns,
   so anything that rejected outside the region where errors convert to a response — a custom static
   resolver, a handler header value Node refuses to write, a stream that fails before its first frame
@@ -70,8 +70,6 @@ npm treats versions as semver and semver forbids leading zeros.
   with `1008 invalid request path` rather than `1011 internal error`, and on Deno a `1008` sent before
   the socket finished opening now reaches the client instead of leaving it hanging.
 
-### Fixed
-
 - **Deno, Bun and the edge enforce `maxBodyBytes` while reading the body, not after** (#105). The
   fetch adapter read every request through `request.arrayBuffer()` and compared the length once the
   whole body was in memory, so a 10 GB upload was buffered in full before it was refused. It now
@@ -84,6 +82,22 @@ npm treats versions as semver and semver forbids leading zeros.
 
   workerd may drop `content-length` from a chunked upload, so there an oversized body is refused by
   the count rather than up front. The status is the same; only how early it comes differs.
+
+- **`serveDeno()` and `serveBun()` populate `ctx.ip` with the client's address** (#116). The fetch
+  path had no way to learn the socket peer, so every HTTP request on Deno and Bun saw `ctx.ip` as
+  `''`, and anything keyed on it put every client in one bucket — the rate-limit plugin, where one
+  client could exhaust the limit for everyone, above all. Both adapters now hand the peer to
+  `app.fetch`, and `ctx.ip` follows the same rule as Node's `listen()`: the first
+  `x-forwarded-for` hop when `trustProxy` is on and the header is present, the socket peer
+  otherwise. That includes `trustProxy` with no `x-forwarded-for`, which used to answer `''` on
+  the fetch path and now falls back to the peer, as Node always has.
+
+  Addresses are passed through as each runtime reports them, so the IPv6 loopback is `::1` on all
+  three but Node may report an IPv4 client as `::ffff:127.0.0.1`. A bare `app.fetch(request)` from
+  your own code has no socket to report and still answers `''` (or the forwarded hop), and so does
+  a `Request` copied from the one the adapter received. No signature changed. The edge adapter is
+  unchanged: trusting `cf-connecting-ip` is only correct behind Cloudflare, and needs its own
+  decision.
 
 ## [26.9.0-beta.2] - 2026-09-22
 
