@@ -20,6 +20,13 @@ class Rt {
       for await (const msg of inbound) yield `echo:${msg}`;
     })();
   }
+
+  @Ws('/room/:name')
+  room(@ctx() { inbound }: any) {
+    return (async function* () {
+      for await (const msg of inbound) yield `room:${msg}`;
+    })();
+  }
 }
 @Module({ mountpoint: '/', controllers: [Rt] })
 class M {}
@@ -43,6 +50,25 @@ test('serveBun: HTTP + WebSocket round-trip', async () => {
       ws.onerror = () => reject(new Error('ws error'));
     });
     expect(got).toBe('echo:hi');
+  } finally {
+    server.stop(true);
+  }
+});
+
+// #104: a malformed escape in a param segment used to reject out of the matcher and close 1011.
+test('serveBun: a malformed upgrade path closes 1008 and the server keeps serving', async () => {
+  const app = createApp({ modules: [M] });
+  const server = await serveBun(app, { port: 0 });
+  const port = server.port;
+  try {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/rt/room/%E0%A4%A`);
+    const closed = await new Promise<{ code: number; reason: string }>((resolve) => {
+      ws.onclose = (e) => resolve({ code: e.code, reason: e.reason });
+    });
+    expect(closed).toEqual({ code: 1008, reason: 'invalid request path' });
+
+    const httpRes = await fetch(`http://127.0.0.1:${port}/rt/hello`);
+    expect(httpRes.status).toBe(200);
   } finally {
     server.stop(true);
   }

@@ -12,7 +12,16 @@ class Rt {
     })();
   }
 }
-@Module({ mountpoint: '/', controllers: [Rt] })
+@Route('/room')
+class Room {
+  @Ws('/:name')
+  join(@ctx() { inbound }: any) {
+    return (async function* () {
+      for await (const msg of inbound) yield `room:${msg}`;
+    })();
+  }
+}
+@Module({ mountpoint: '/', controllers: [Rt, Room] })
 class M {}
 const app = createApp({ modules: [M] });
 
@@ -96,4 +105,18 @@ describe('app.upgrade', () => {
     await app.upgrade(req, socket);
     expect(closedCode).toBe(1008);
   });
+
+  it.each(['/rt/%E0%A4%A', '/room/%E0%A4%A', '//rt//echo'])(
+    'closes 1008 on the malformed path %s instead of rejecting (#104)',
+    async (url) => {
+      const { socket } = fakeSocket();
+      let closed: [number | undefined, string | undefined] | undefined;
+      socket.close = (c, r) => {
+        closed = [c, r];
+      };
+      const req: WsRequest = { url, headers: {}, protocol: 'http', ip: '' };
+      await app.upgrade(req, socket);
+      expect(closed).toEqual([1008, 'invalid request path']);
+    },
+  );
 });

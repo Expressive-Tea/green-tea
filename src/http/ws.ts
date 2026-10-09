@@ -3,6 +3,7 @@ import { channel } from '../channel';
 import type { Bus } from '../bus';
 import { runWsConnection, matchWsRoute, trackUntil, type WsSocket, type WsRequest } from './ws-core';
 import type { WsRouteDef, MeshControl } from './types';
+import { normalizeRequestPath } from './router';
 import { nodeRequire } from '../node-require';
 
 /** Lazily loads the optional `ws` peer dependency's `WebSocketServer`, or null when it is not installed. */
@@ -16,9 +17,9 @@ function loadWss(): any | null {
   }
 }
 
-/** Writes a 501 Not Implemented status to the raw socket and destroys it. */
-function reject501(socket: any): void {
-  socket.write('HTTP/1.1 501 Not Implemented\r\n\r\n');
+/** Writes a bodyless HTTP status to the raw socket and destroys it. */
+function rejectUpgrade(socket: any, status: number, text: string): void {
+  socket.write(`HTTP/1.1 ${status} ${text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
   socket.destroy();
 }
 
@@ -35,7 +36,7 @@ function handleMeshUpgrade(
   if (path !== meshControl.path) return false;
 
   if (!wss) {
-    reject501(socket);
+    rejectUpgrade(socket, 501, 'Not Implemented');
     return true;
   }
 
@@ -102,24 +103,58 @@ export function attachWs(
   const WebSocketServer = loadWss();
   const wss = WebSocketServer ? new WebSocketServer({ noServer: true }) : null;
   server.on('upgrade', (req, socket, head) => {
-    const path = (req.url ?? '/').split('?')[0];
+    // A peer that resets mid-rejection must not raise an unhandled 'error' on a socket nobody
+    // else is listening to yet: that is as fatal as a throw.
+    socket.on('error', () => {});
 
-    if (meshControl && handleMeshUpgrade(wss, meshControl, path, req, socket, head, streams)) return;
-
-    const route = matchWsRoute(wsRoutes, path);
-
-    if (!route) {
-      socket.destroy();
-      return;
+    // Nothing thrown in here may escape. This is a raw EventEmitter listener, so a throw is an
+    // uncaught exception that takes the whole process down, not a 500 for one client.
+    try {
+      routeUpgrade(wss, wsRoutes, req, socket, head, bus, meshControl, streams);
+    } catch {
+      if (socket.writable) rejectUpgrade(socket, 500, 'Internal Server Error');
+      else socket.destroy();
     }
+  });
+}
 
-    if (!wss) {
-      reject501(socket);
-      return;
-    }
+/** Routes one upgrade: validates the path the way HTTP does, then mesh control, then the ws route table. */
+function routeUpgrade(
+  wss: any,
+  wsRoutes: WsRouteDef[],
+  req: http.IncomingMessage,
+  socket: any,
+  head: Buffer,
+  bus?: Bus,
+  meshControl?: MeshControl,
+  streams?: Set<() => void>,
+): void {
+  let path: string;
 
-    wss.handleUpgrade(req, socket, head, (ws: any) => {
-      void runWsConnection(nodeSocket(ws), nodeWsRequest(req), route, bus, streams);
-    });
+  // The same normalization the HTTP path runs (`dispatch` in core.ts). Without it a malformed
+  // escape reaches `decodeURIComponent` in the matcher and throws, and `//` silently matches.
+  try {
+    path = normalizeRequestPath((req.url ?? '/').split('?')[0]);
+  } catch {
+    rejectUpgrade(socket, 400, 'Bad Request');
+    return;
+  }
+
+  if (meshControl && handleMeshUpgrade(wss, meshControl, path, req, socket, head, streams)) return;
+
+  const route = matchWsRoute(wsRoutes, path);
+
+  if (!route) {
+    rejectUpgrade(socket, 404, 'Not Found');
+    return;
+  }
+
+  if (!wss) {
+    rejectUpgrade(socket, 501, 'Not Implemented');
+    return;
+  }
+
+  wss.handleUpgrade(req, socket, head, (ws: any) => {
+    void runWsConnection(nodeSocket(ws), nodeWsRequest(req), route, bus, streams);
   });
 }

@@ -17,6 +17,13 @@ class Rt {
       for await (const msg of inbound) yield `echo:${msg}`;
     })();
   }
+
+  @Ws('/room/:name')
+  room(@ctx() { inbound }: any) {
+    return (async function* () {
+      for await (const msg of inbound) yield `room:${msg}`;
+    })();
+  }
 }
 
 @Module({ mountpoint: '/', controllers: [Rt] })

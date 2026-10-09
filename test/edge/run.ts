@@ -84,6 +84,19 @@ async function main() {
     });
     assert.equal(got, 'echo:hi');
 
+    // #104: a malformed escape in a param segment closes 1008 instead of 1011, and HTTP still serves.
+    const badRes = await mf.dispatchFetch('http://localhost/rt/room/%E0%A4%A', {
+      headers: { Upgrade: 'websocket' },
+    });
+    const bad = badRes.webSocket;
+    assert.ok(bad, 'expected a client webSocket on the 101 response');
+    const closed = new Promise<{ code: number; reason: string }>((resolve) =>
+      bad.addEventListener('close', (e: { code: number; reason: string }) => resolve({ code: e.code, reason: e.reason })),
+    );
+    bad.accept();
+    assert.deepEqual(await closed, { code: 1008, reason: 'invalid request path' });
+    assert.equal((await mf.dispatchFetch('http://localhost/rt/hello')).status, 200);
+
     console.log('edge (workerd via miniflare): HTTP 200 + WS echo:hi — PASS');
   } finally {
     await mf.dispose();

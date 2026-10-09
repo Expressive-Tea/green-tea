@@ -36,6 +36,16 @@ npm treats versions as semver and semver forbids leading zeros.
   emitted for these requests. Deno, Bun and the edge were not affected: they receive `app.fetch`'s
   promise, and the runtime answers a rejection with a 500 itself.
 
+- **A malformed WebSocket upgrade no longer takes a Node server down** (#104). The upgrade path never
+  ran the request-path normalization HTTP runs, so a bad percent escape in a param segment
+  (`/room/%E0%A4%A`) threw out of the `'upgrade'` listener as an uncaught exception, and one request
+  was enough to end the process. Upgrades now go through the same normalization: a malformed escape
+  or a repeated slash gets a `400`, an unknown route a written `404` instead of a silent disconnect,
+  and anything else that throws in the listener a `500`. `//rt//echo` used to match `/rt/echo` on
+  upgrade while HTTP refused it; both refuse it now. On Deno, Bun and the edge the same paths close
+  with `1008 invalid request path` rather than `1011 internal error`, and on Deno a `1008` sent before
+  the socket finished opening now reaches the client instead of leaving it hanging.
+
 ## [26.9.0-beta.2] - 2026-09-22
 
 ### Breaking

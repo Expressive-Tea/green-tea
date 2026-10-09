@@ -28,6 +28,13 @@ class Rt {
       for await (const msg of inbound) yield `echo:${msg}`;
     })();
   }
+
+  @Ws('/room/:name')
+  room(@ctx() { inbound }: any) {
+    return (async function* () {
+      for await (const msg of inbound) yield `room:${msg}`;
+    })();
+  }
 }
 
 @Module({ mountpoint: '/', controllers: [Rt] })
@@ -65,6 +72,35 @@ Deno.test('serveDeno: HTTP + WebSocket round-trip through the graph', async () =
       // Give the close frame a moment to complete the handshake so no socket is leaked.
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
+  } finally {
+    await server.shutdown();
+  }
+});
+
+// #104: a malformed escape in a param segment used to reject out of the matcher and close 1011.
+Deno.test('serveDeno: a malformed upgrade path closes 1008 and the server keeps serving', async () => {
+  const app = createApp({ modules: [M] });
+
+  let port = 0;
+  const server = await serveDeno(app, {
+    port: 0,
+    onListen: (addr) => {
+      port = addr.port;
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  try {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/rt/room/%E0%A4%A`);
+    const closed = await new Promise<{ code: number; reason: string }>((resolve) => {
+      ws.onclose = (e) => resolve({ code: e.code, reason: e.reason });
+    });
+    assertEquals(closed, { code: 1008, reason: 'invalid request path' });
+
+    const httpRes = await fetch(`http://127.0.0.1:${port}/rt/hello`);
+    assertEquals(httpRes.status, 200);
+    await httpRes.body?.cancel();
   } finally {
     await server.shutdown();
   }

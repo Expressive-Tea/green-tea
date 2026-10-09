@@ -10,6 +10,7 @@ import { nodeRequire } from '../node-require';
  */
 
 const decoder = new TextDecoder();
+const CONNECTING = 0; // WebSocket.CONNECTING
 const OPEN = 1; // WebSocket.OPEN — same constant in every runtime; avoids a per-runtime ambient
 
 /** Decodes a host `message` payload to the string the core expects (parity with Node's Buffer.toString()). */
@@ -69,7 +70,18 @@ export function eventSocket(host: EventfulSocket): WsSocket {
     ac.abort();
   });
 
-  return neutralSocket(host, inbound, ac);
+  const socket = neutralSocket(host, inbound, ac);
+  const closeNow = socket.close;
+
+  // Deno hands the socket over still CONNECTING: its 101 has not gone out yet, and a close in
+  // that state is a no-op, so a route that refuses straight away (1008) left the peer hanging.
+  // Deferring to 'open' is what lets that close reach the client at all.
+  return Object.assign(socket, {
+    close: (code?: number, reason?: string) => {
+      if (host.readyState === CONNECTING) host.addEventListener('open', () => closeNow(code, reason));
+      else closeNow(code, reason);
+    },
+  });
 }
 
 /**

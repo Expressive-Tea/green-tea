@@ -39,7 +39,7 @@ import type { MeshControl } from '../http';
 import type { RequestEnvelope, RouteEntry } from '../mesh/protocol';
 import type { App, InspectLine, Explain, RoutePlan, MeshConfig } from './types';
 import { inspectRoute, buildGraphView, explainRoute } from './introspect';
-import { compilePattern } from '../http/router';
+import { compilePattern, normalizeRequestPath } from '../http/router';
 
 export type { App, InspectLine, ExplainNode, Explain, MeshConfig, Hooks } from './types';
 
@@ -1290,7 +1290,17 @@ function buildAppUpgrade(
 
     await ensureBooted(); // idempotent: no-op once any of fetch/upgrade/listen has booted
 
-    const path = request.url.split('?')[0];
+    let path: string;
+
+    // The same normalization HTTP and the Node upgrade listener run. A malformed escape would
+    // otherwise reject out of the matcher and close with 1011, a server-error code for a client error.
+    try {
+      path = normalizeRequestPath(request.url.split('?')[0]);
+    } catch {
+      ready.close(1008, 'invalid request path');
+      return;
+    }
+
     const meshControl = getMeshControl();
 
     // The reserved mesh path, checked before route matching: this is what lets a teapot export
