@@ -25,6 +25,17 @@ npm treats versions as semver and semver forbids leading zeros.
   while the app runs needs a restart** to take effect. A link swapped inside the root between the
   check and the read can still escape; exploiting that needs write access to the served directory.
 
+- **A request that fails past the error renderer no longer takes the Node process down.** The Node
+  request listener was an `async` function, and `http.createServer` ignores the promise it returns,
+  so anything that rejected outside the region where errors convert to a response — a custom static
+  resolver, a handler header value Node refuses to write, a stream that fails before its first frame
+  — became an unhandled rejection, which Node's default mode turns into an exit. The listener now
+  catches it. While the response is still writable the client gets a fixed 500 with
+  `connection: close`, written without calling `onError` again; once output has started the socket
+  is destroyed instead. Either way the failure is logged through `logger.error`. No `request:end` is
+  emitted for these requests. Deno, Bun and the edge were not affected: they receive `app.fetch`'s
+  promise, and the runtime answers a rejection with a 500 itself.
+
 ## [26.9.0-beta.2] - 2026-09-22
 
 ### Breaking
