@@ -6,6 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 green-tea uses calendar versioning: `YY.M.PATCH` — the month is not zero-padded, since
 npm treats versions as semver and semver forbids leading zeros.
 
+## [Unreleased]
+
+### Fixed
+
+- **`static` no longer serves files outside its root through a symlink** (#106). The traversal guard
+  compared paths lexically, and the file read then followed symlinks, so `public/leak -> /etc/hosts`
+  was served. Containment now compares real paths: the requested file, and a directory's
+  `index.html`, must resolve beneath the root's real path. Links that stay inside the root, and a
+  root that is itself a symlink, keep working.
+
+  A link that resolves outside the root, or a dangling link, is a **404** — the same miss as a file
+  that does not exist, rendered through `onError` like any other, and `405`/`204` where the path has
+  routes. It is deliberately not a `403`, so a probe cannot tell "exists outside the root" from
+  "does not exist". The content-type still follows the requested name, not the link target.
+
+  The root's real path is resolved on the first request and cached, so **re-pointing a root symlink
+  while the app runs needs a restart** to take effect. A link swapped inside the root between the
+  check and the read can still escape; exploiting that needs write access to the served directory.
+
 ## [26.9.0-beta.2] - 2026-09-22
 
 ### Breaking

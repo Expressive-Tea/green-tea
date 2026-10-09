@@ -74,3 +74,40 @@ Deno.test('multipart resolves the busboy peer dependency instead of reporting it
   assertEquals(await res.json(), { name: 'joe', filename: 'p.png' });
   await app.close();
 });
+
+// #106 on Deno, which reaches `realpath` through its `node:fs` compat. Committed symlinks rather than
+// a temp tree, for the same `--allow-write` reason as above; `secret.txt` sits beside the root.
+const linked = 'test/fixtures/static';
+
+Deno.test('static: a link to a file outside the root is a miss', async () => {
+  const app = createApp({ modules: [], static: `${linked}/root` });
+  const res = await app.fetch(new Request('http://x/out-link'));
+  assertEquals(res.status, 404);
+  assertEquals((await res.text()).includes('TOP SECRET'), false);
+  await app.close();
+});
+
+Deno.test('static: a link to a file inside the root is served', async () => {
+  const app = createApp({ modules: [], static: `${linked}/root` });
+  const res = await app.fetch(new Request('http://x/in-link'));
+  assertEquals(res.status, 200);
+  assertEquals(await res.text(), 'in root');
+  await app.close();
+});
+
+Deno.test('static: a dangling link is a 404, not a rejection', async () => {
+  const app = createApp({ modules: [], static: `${linked}/root` });
+  assertEquals((await app.fetch(new Request('http://x/dangling'))).status, 404);
+  await app.close();
+});
+
+Deno.test('static: a root that is itself a symlink still serves its files', async () => {
+  const app = createApp({ modules: [], static: `${linked}/root-alias` });
+  const a = await app.fetch(new Request('http://x/a.txt'));
+  assertEquals(a.status, 200);
+  assertEquals(await a.text(), 'in root');
+  const sub = await app.fetch(new Request('http://x/sub/'));
+  assertEquals(sub.status, 200);
+  assertEquals(await sub.text(), '<h1>Sub</h1>');
+  await app.close();
+});
