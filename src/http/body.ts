@@ -22,12 +22,11 @@ function isPromise<T>(value: MaybePromise<T>): value is Promise<T> {
 /**
  * Reads the raw request body, enforcing `limit`.
  *
- * The adapter owns this and nothing else about the body, because enforcement is the one place the
- * runtimes legitimately differ: Node checks the running total as chunks arrive and can abort a
- * 10 GB upload after 1 MB, while a fetch runtime has only `request.arrayBuffer()` and can check
- * `byteLength` after the fact. Passing the limit *in*, rather than measuring the returned buffer
- * here, is what keeps Node's incremental abort — measuring afterwards would force it to buffer
- * without bound first.
+ * The adapter owns this and nothing else about the body, because getting the bytes is the one place
+ * the runtimes legitimately differ: Node iterates the socket, a fetch runtime reads `request.body`.
+ * Both check the running total as chunks arrive and abort a 10 GB upload after 1 MB. Passing the
+ * limit *in*, rather than measuring the returned buffer here, is what makes that incremental abort
+ * possible — measuring afterwards would force the reader to buffer without bound first.
  *
  * The failure branch is opaque on purpose: Node answers an over-limit request with
  * `connection: close`, so the rest of the upload does not keep arriving on a kept-alive socket.
@@ -40,6 +39,15 @@ function isPromise<T>(value: MaybePromise<T>): value is Promise<T> {
  * more than the duplicate route resolution this whole indirection removes.
  */
 export type BodyReader = (source: unknown, limit: number) => MaybePromise<{ bytes: Buffer | undefined } | BodyFailure>;
+
+/**
+ * True when a `content-length` header declares more than `limit` bytes — the one case a reader can
+ * refuse before consuming anything. A malformed or absent header answers false: it proves nothing,
+ * and the running total still enforces the limit on whatever actually arrives.
+ */
+export function declaresOverLimit(contentLength: string | null | undefined, limit: number): boolean {
+  return contentLength != null && /^\d+$/.test(contentLength) && Number(contentLength) > limit;
+}
 
 /** Parse outcome: the decoded body, or an error message plus the status to send (400 unless set). */
 type ParseResult = { body: unknown } | { error: string; status?: number };

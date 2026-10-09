@@ -1,8 +1,13 @@
 import type http from 'http';
 import { HttpError } from '../signals';
+import { declaresOverLimit } from './body';
 
 /** Reads the full request body, enforcing the max-bytes ceiling (throws 413 if exceeded). */
 export async function readBody(req: http.IncomingMessage, maxBodyBytes: number): Promise<Buffer | undefined> {
+  // A declared length over the limit is refused without waiting for the first chunk, which could
+  // otherwise sit until the request timeout. The fetch adapter makes the same check.
+  if (declaresOverLimit(req.headers['content-length'], maxBodyBytes)) throw new HttpError(413, 'Payload Too Large');
+
   const chunks: Buffer[] = [];
   let total = 0;
 

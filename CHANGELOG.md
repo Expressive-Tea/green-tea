@@ -70,6 +70,21 @@ npm treats versions as semver and semver forbids leading zeros.
   with `1008 invalid request path` rather than `1011 internal error`, and on Deno a `1008` sent before
   the socket finished opening now reaches the client instead of leaving it hanging.
 
+### Fixed
+
+- **Deno, Bun and the edge enforce `maxBodyBytes` while reading the body, not after** (#105). The
+  fetch adapter read every request through `request.arrayBuffer()` and compared the length once the
+  whole body was in memory, so a 10 GB upload was buffered in full before it was refused. It now
+  reads `request.body` chunk by chunk, stops at the chunk that crosses the limit and cancels the
+  stream, so nothing further is pulled. A `content-length` that already declares more than the limit
+  is refused before any of the body is read, on Node too, where the request used to wait for its
+  first chunk. A malformed or absent `content-length` proves nothing and is ignored; the running
+  count enforces the limit either way. The response is unchanged: the same `413 Payload Too Large`,
+  through `onError`, with the same route-over-server precedence for `maxBodyBytes` and `maxParts`.
+
+  workerd may drop `content-length` from a chunked upload, so there an oversized body is refused by
+  the count rather than up front. The status is the same; only how early it comes differs.
+
 ## [26.9.0-beta.2] - 2026-09-22
 
 ### Breaking

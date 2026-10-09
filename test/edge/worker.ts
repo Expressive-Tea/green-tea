@@ -1,7 +1,7 @@
 // Worker entry for the real workerd (Miniflare) integration test.
 // Mirrors test/deno/ws.test.ts's graph so HTTP + WebSocket behavior is proven
 // identically across runtimes. Run via `npm run test:edge` (see test/edge/run.ts).
-import { createApp, Route, Get, Ws, ctx, Module } from '../../src/index';
+import { createApp, Route, Get, Post, Ws, body, ctx, Module } from '../../src/index';
 import { edgeHandler } from '../../src/edge';
 
 @Route('/rt')
@@ -9,6 +9,14 @@ class Rt {
   @Get('/hello')
   hello() {
     return { ok: true };
+  }
+
+  // #105: the body limit, read from workerd's own request stream. Small, so every refused body still
+  // fits in the socket buffer: a client that is mid-upload when the 413 lands can see ECONNRESET
+  // instead, which is the transport racing the answer rather than a different answer.
+  @Post('/body', { maxBodyBytes: 1000 })
+  body(@body() b: unknown) {
+    return { length: String(b).length };
   }
 
   @Ws('/echo')

@@ -1,5 +1,19 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createApp, Route, Post, Module, body } from '../src';
+
+// Counts calls into the multipart parser while still running the real one, so a test can prove
+// busboy was never reached rather than inferring it from the status code.
+const parsed = vi.hoisted(() => ({ calls: 0 }));
+vi.mock('../src/multipart', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../src/multipart')>();
+  return {
+    ...real,
+    parseMultipart: (...args: Parameters<typeof real.parseMultipart>) => {
+      parsed.calls++;
+      return real.parseMultipart(...args);
+    },
+  };
+});
 
 let app: any;
 afterEach(async () => { await app?.close(); });
@@ -86,5 +100,65 @@ describe('bodyDuplicates', () => {
       method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'x=1&x=2' }).then((r) => r.json());
     expect(await post('/a')).toEqual({ x: '2' });
     expect(await post('/b')).toEqual({ x: ['1', '2'] });
+  });
+});
+
+// #105: multipart is parsed from the bytes the bounded reader returns, so the byte limit has to stop
+// a request before busboy ever sees it, and `maxParts` has to keep working on what gets through.
+describe('multipart limits on app.fetch (#105)', () => {
+  const form = (fields: number, size = 1) => {
+    const fd = new FormData();
+    for (let i = 0; i < fields; i++) fd.set(`f${i}`, 'x'.repeat(size));
+    return fd;
+  };
+
+  it('T6: a multipart body over maxBodyBytes is 413 and never reaches the parser', async () => {
+    @Route('/') class C { @Post('/u', { maxBodyBytes: 1000 }) u(@body() b: any) { return b; } }
+    @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
+    app = createApp({ modules: [CMod] });
+    parsed.calls = 0;
+
+    const r = await app.fetch(new Request('http://x/u', { method: 'POST', body: form(1, 5000) }));
+
+    expect(r.status).toBe(413);
+    expect(parsed.calls).toBe(0);
+  });
+
+  it('T6: the same holds when the multipart body arrives without a content-length', async () => {
+    @Route('/') class C { @Post('/u', { maxBodyBytes: 1000 }) u(@body() b: any) { return b; } }
+    @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
+    app = createApp({ modules: [CMod] });
+    parsed.calls = 0;
+    const encoded = new Request('http://x', { method: 'POST', body: form(1, 5000) });
+
+    const r = await app.fetch(new Request('http://x/u', {
+      method: 'POST',
+      headers: { 'content-type': encoded.headers.get('content-type')! },
+      body: encoded.body,
+      duplex: 'half',
+    } as RequestInit));
+
+    expect(r.status).toBe(413);
+    expect(parsed.calls).toBe(0);
+  });
+
+  it('T7: under the byte limit but over maxParts is 400 Invalid multipart body', async () => {
+    @Route('/') class C { @Post('/u', { maxParts: 2 }) u(@body() b: any) { return b; } }
+    @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
+    app = createApp({ modules: [CMod] });
+
+    const r = await app.fetch(new Request('http://x/u', { method: 'POST', body: form(3) }));
+
+    expect(r.status).toBe(400);
+    expect(await r.text()).toContain('Invalid multipart body');
+  });
+
+  it('T7: the server-level maxParts applies when the route sets none', async () => {
+    @Route('/') class C { @Post('/u') u(@body() b: any) { return b; } }
+    @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
+    app = createApp({ modules: [CMod], limits: { maxParts: 2 } });
+
+    expect((await app.fetch(new Request('http://x/u', { method: 'POST', body: form(1) }))).status).toBe(200);
+    expect((await app.fetch(new Request('http://x/u', { method: 'POST', body: form(3) }))).status).toBe(400);
   });
 });
