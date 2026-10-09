@@ -79,7 +79,7 @@ export function createHttpServer(
   server.requestTimeout = opts?.limits?.requestTimeoutMs ?? 30_000;
   server.headersTimeout = opts?.limits?.headersTimeoutMs ?? 10_000;
   server.keepAliveTimeout = opts?.limits?.keepAliveTimeoutMs ?? 5_000;
-  attachWs(server, wsRoutes, bus, meshControl, opts?.streams);
+  attachWs(server, wsRoutes, bus, meshControl, opts?.streams, opts?.limits);
   return server;
 }
 

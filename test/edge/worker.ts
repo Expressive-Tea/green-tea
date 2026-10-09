@@ -18,6 +18,15 @@ class Rt {
     })();
   }
 
+  // Never reads `inbound`, so every frame the client sends stays queued (#107).
+  @Ws('/stall')
+  stall() {
+    return (async function* () {
+      await new Promise<never>(() => {});
+      yield '';
+    })();
+  }
+
   @Ws('/room/:name')
   room(@ctx() { inbound }: any) {
     return (async function* () {
@@ -30,5 +39,11 @@ class Rt {
 class M {}
 
 const app = createApp({ modules: [M] });
+// #107: the same graph with tight ws limits, reached through the `limited` host.
+const limited = createApp({ modules: [M], limits: { maxWsMessageBytes: 1024, maxWsQueue: 4 } });
+const handlers = { default: edgeHandler(app), limited: edgeHandler(limited) };
 
-export default { fetch: edgeHandler(app) };
+export default {
+  fetch: (request: Request, env?: unknown, ctx?: Parameters<typeof handlers.default>[2]) =>
+    (new URL(request.url).hostname === 'limited' ? handlers.limited : handlers.default)(request, env, ctx),
+};

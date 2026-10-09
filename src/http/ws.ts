@@ -1,8 +1,16 @@
 import type http from 'http';
 import { channel } from '../channel';
 import type { Bus } from '../bus';
-import { runWsConnection, matchWsRoute, trackUntil, type WsSocket, type WsRequest } from './ws-core';
-import type { WsRouteDef, MeshControl } from './types';
+import {
+  runWsConnection,
+  matchWsRoute,
+  trackUntil,
+  boundInbound,
+  wsMessageBytes,
+  type WsSocket,
+  type WsRequest,
+} from './ws-core';
+import type { WsRouteDef, MeshControl, RequestLimits } from './types';
 import { normalizeRequestPath } from './router';
 import { nodeRequire } from '../node-require';
 
@@ -32,6 +40,7 @@ function handleMeshUpgrade(
   socket: any,
   head: Buffer,
   streams?: Set<() => void>,
+  limits?: RequestLimits,
 ): boolean {
   if (path !== meshControl.path) return false;
 
@@ -46,7 +55,7 @@ function handleMeshUpgrade(
   // an untracked control channel leaves the teapot's server.close() waiting on it forever.
   // serveFrames swallows its own failures, so the floating promise cannot reject.
   wss.handleUpgrade(req, socket, head, (ws: any) => {
-    const neutral = nodeSocket(ws);
+    const neutral = boundInbound(nodeSocket(ws), limits);
 
     void trackUntil(neutral, meshControl.handle(neutral), streams);
   });
@@ -98,10 +107,14 @@ export function attachWs(
   bus?: Bus,
   meshControl?: MeshControl,
   streams?: Set<() => void>,
+  limits?: RequestLimits,
 ): void {
   if (wsRoutes.length === 0 && !meshControl) return;
   const WebSocketServer = loadWss();
-  const wss = WebSocketServer ? new WebSocketServer({ noServer: true }) : null;
+  // `maxPayload` is the pre-buffer half of `maxWsMessageBytes`: `ws` refuses an oversized frame,
+  // fragmented or not, before it is assembled, and closes 1009 itself. `boundInbound` repeats the
+  // check on the decoded text, which is the only half Deno and the edge have.
+  const wss = WebSocketServer ? new WebSocketServer({ noServer: true, maxPayload: wsMessageBytes(limits) }) : null;
   server.on('upgrade', (req, socket, head) => {
     // A peer that resets mid-rejection must not raise an unhandled 'error' on a socket nobody
     // else is listening to yet: that is as fatal as a throw.
@@ -110,7 +123,7 @@ export function attachWs(
     // Nothing thrown in here may escape. This is a raw EventEmitter listener, so a throw is an
     // uncaught exception that takes the whole process down, not a 500 for one client.
     try {
-      routeUpgrade(wss, wsRoutes, req, socket, head, bus, meshControl, streams);
+      routeUpgrade({ wss, wsRoutes, bus, meshControl, streams, limits }, req, socket, head);
     } catch {
       if (socket.writable) rejectUpgrade(socket, 500, 'Internal Server Error');
       else socket.destroy();
@@ -118,17 +131,19 @@ export function attachWs(
   });
 }
 
+/** What every upgrade on one server shares. */
+interface UpgradeEnv {
+  wss: any;
+  wsRoutes: WsRouteDef[];
+  bus?: Bus;
+  meshControl?: MeshControl;
+  streams?: Set<() => void>;
+  limits?: RequestLimits;
+}
+
 /** Routes one upgrade: validates the path the way HTTP does, then mesh control, then the ws route table. */
-function routeUpgrade(
-  wss: any,
-  wsRoutes: WsRouteDef[],
-  req: http.IncomingMessage,
-  socket: any,
-  head: Buffer,
-  bus?: Bus,
-  meshControl?: MeshControl,
-  streams?: Set<() => void>,
-): void {
+function routeUpgrade(env: UpgradeEnv, req: http.IncomingMessage, socket: any, head: Buffer): void {
+  const { wss, wsRoutes, bus, meshControl, streams, limits } = env;
   let path: string;
 
   // The same normalization the HTTP path runs (`dispatch` in core.ts). Without it a malformed
@@ -140,7 +155,7 @@ function routeUpgrade(
     return;
   }
 
-  if (meshControl && handleMeshUpgrade(wss, meshControl, path, req, socket, head, streams)) return;
+  if (meshControl && handleMeshUpgrade(wss, meshControl, path, req, socket, head, streams, limits)) return;
 
   const route = matchWsRoute(wsRoutes, path);
 
@@ -155,6 +170,6 @@ function routeUpgrade(
   }
 
   wss.handleUpgrade(req, socket, head, (ws: any) => {
-    void runWsConnection(nodeSocket(ws), nodeWsRequest(req), route, bus, streams);
+    void runWsConnection(boundInbound(nodeSocket(ws), limits), nodeWsRequest(req), route, bus, streams);
   });
 }

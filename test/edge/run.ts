@@ -97,10 +97,44 @@ async function main() {
     assert.deepEqual(await closed, { code: 1008, reason: 'invalid request path' });
     assert.equal((await mf.dispatchFetch('http://localhost/rt/hello')).status, 200);
 
-    console.log('edge (workerd via miniflare): HTTP 200 + WS echo:hi — PASS');
+    // #107: workerd delivers the whole message before user code sees it, so the size bound is
+    // checked after receipt; the close codes match Node and Deno.
+    const limitedEcho = async (frames: string[]) => exchange(mf, 'http://limited/rt/echo', frames);
+    assert.deepEqual((await limitedEcho(['a'.repeat(1024)])).replies, [`echo:${'a'.repeat(1024)}`]);
+    assert.deepEqual((await limitedEcho(['a'.repeat(1025)])).close, { code: 1009, reason: 'message too large' });
+    assert.deepEqual((await exchange(mf, 'http://limited/rt/stall', ['1', '2', '3', '4', '5'])).close, {
+      code: 1013,
+      reason: 'inbound queue full',
+    });
+    assert.equal((await exchange(mf, 'http://localhost/rt/echo', ['a'.repeat(1_048_576)])).replies.length, 1);
+    assert.equal((await exchange(mf, 'http://localhost/rt/echo', ['a'.repeat(1_048_577)])).close?.code, 1009);
+
+    console.log('edge (workerd via miniflare): HTTP 200 + WS echo:hi + ws limits — PASS');
   } finally {
     await mf.dispose();
   }
+}
+
+/** Opens a ws on `url`, sends `frames`, and resolves with the replies and the close (or none within `ms`). */
+async function exchange(mf: Miniflare, url: string, frames: string[], ms = 1000) {
+  const res = await mf.dispatchFetch(url, { headers: { Upgrade: 'websocket' } });
+  const ws = res.webSocket;
+  assert.ok(ws, `expected a client webSocket on the 101 response for ${url}`);
+  const replies: string[] = [];
+  const result = new Promise<{ replies: string[]; close?: { code: number; reason: string } }>((resolve) => {
+    const timer = setTimeout(() => {
+      ws.close();
+      resolve({ replies });
+    }, ms);
+    ws.addEventListener('message', (e: { data: unknown }) => replies.push(String(e.data)));
+    ws.addEventListener('close', (e: { code: number; reason: string }) => {
+      clearTimeout(timer);
+      resolve({ replies, close: { code: e.code, reason: e.reason } });
+    });
+  });
+  ws.accept();
+  for (const frame of frames) ws.send(frame);
+  return result;
 }
 
 main().catch((err) => {

@@ -8,6 +8,30 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ## [Unreleased]
 
+### Breaking
+
+- **Inbound WebSocket messages are capped at 1 MiB by default** (#107). Node used `ws`'s own
+  default of 100 MiB, and Deno, Bun and the edge applied no cap of their own, so one client could
+  make the server hold a message of any size the runtime would accept. A larger message now closes
+  the connection with `1009` (`message too large`). Raise it with `limits.maxWsMessageBytes`.
+
+- **A connection with 16 unread inbound messages is closed on the 17th** (#107), with `1013`
+  (`inbound queue full`). The queue behind `inbound` was unbounded on every runtime, so a handler
+  that read slowly — or never — let a client grow it without limit. This also reaches a `@Ws`
+  handler that never reads `inbound` at all: on Node those frames used to be discarded, and they
+  now count. Raise the bound with `limits.maxWsQueue`.
+
+### Added
+
+- **`limits.maxWsMessageBytes` and `limits.maxWsQueue`** (#107): per-connection bounds on inbound
+  WebSocket messages, in bytes and in unread messages, server-wide on every runtime. `createApp`
+  throws a `TypeError` for anything but a positive integer. Node and Bun refuse an oversized message
+  before buffering it; Bun does so by dropping the connection, so its peer sees `1006` rather than
+  `1009`. Deno and workerd expose no such option, so there the message is received in full and then
+  refused, and its memory is bounded by the platform's own cap. Worst-case buffered inbound memory is
+  about `maxConnections × maxWsQueue × maxWsMessageBytes`, ≈ 15.6 GiB at the Node defaults; Deno and
+  Bun have no connection cap, so set one at the platform or proxy there.
+
 ### Fixed
 
 - **`static` no longer serves files outside its root through a symlink** (#106). The traversal guard
