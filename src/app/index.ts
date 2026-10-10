@@ -8,7 +8,17 @@ import { runPipeline, runSteps, PipelineStep } from '../pipeline';
 import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from '../http';
 import type { HttpOptions } from '../http';
 import { buildFetch } from '../http/web';
-import { matchWsRoute, runWsConnection, trackUntil, type WsRequest, type WsSocket } from '../http/ws-core';
+import {
+  boundInbound,
+  validateWsLimits,
+  WS_MAX_MESSAGE_BYTES,
+  wsMessageBytes,
+  matchWsRoute,
+  runWsConnection,
+  trackUntil,
+  type WsRequest,
+  type WsSocket,
+} from '../http/ws-core';
 import { isAsyncIterable } from '../channel';
 import { JsonTransformer, type ErrorRenderer } from '../transformers';
 import { mountPlugin, Plugin, ScopeApi, ScopeNode } from '../plugin';
@@ -39,7 +49,7 @@ import type { MeshControl } from '../http';
 import type { RequestEnvelope, RouteEntry } from '../mesh/protocol';
 import type { App, InspectLine, Explain, RoutePlan, MeshConfig } from './types';
 import { inspectRoute, buildGraphView, explainRoute } from './introspect';
-import { compilePattern } from '../http/router';
+import { compilePattern, normalizeRequestPath } from '../http/router';
 
 export type { App, InspectLine, ExplainNode, Explain, MeshConfig, Hooks } from './types';
 
@@ -195,6 +205,8 @@ export function createApp(opts: {
     );
   }
 
+  validateWsLimits(opts.limits);
+
   const bus = new Bus();
   const logger = opts.logger ?? createDefaultLogger();
   if (opts.logRequests) logRequests(bus, logger);
@@ -318,7 +330,7 @@ export function createApp(opts: {
     devRoutes,
     () => remoteRoutes,
   );
-  const upgradeFn = buildAppUpgrade(routePlans, pipelineDeps, streams, bootApp, () => meshControl);
+  const upgradeFn = buildAppUpgrade(routePlans, pipelineDeps, streams, bootApp, () => meshControl, opts.limits);
 
   const listen = async (port: number): Promise<http.Server> => {
     const deps = pipelineDeps;
@@ -387,7 +399,7 @@ export function createApp(opts: {
     return wrapped;
   };
 
-  return {
+  const app: App = {
     listen,
     close,
     handleSignals,
@@ -405,6 +417,10 @@ export function createApp(opts: {
     bus,
     logger,
   };
+
+  return Object.assign(app, {
+    [WS_MAX_MESSAGE_BYTES]: wsMessageBytes(opts.limits),
+  });
 }
 
 /** Creates an empty {@link Registry} whose `setRunner` enforces globally-unique provider/step names. */
@@ -1275,22 +1291,30 @@ function buildAppUpgrade(
   streams: Set<() => void>,
   ensureBooted: () => Promise<void>,
   getMeshControl: () => MeshControl | undefined,
+  limits?: RequestLimits,
 ): (request: WsRequest, socket: WsSocket) => Promise<void> {
   let wsRoutes: WsRouteDef[] | undefined;
 
   return async (request: WsRequest, socket: WsSocket): Promise<void> => {
-    // Subscribe to inbound BEFORE awaiting the boot. `channel` is fan-out: a frame pushed with no
-    // subscriber is dropped, so anything the peer sends while providers are still booting would be
-    // lost. For the mesh control channel that is the `hello` itself — the handshake would hang
-    // until timeout against a teapot whose providers happened to boot slowly.
-    const frames = socket.inbound[Symbol.asyncIterator]();
-    const ready: WsSocket = Object.create(socket, {
-      inbound: { value: { [Symbol.asyncIterator]: () => frames } },
-    }) as WsSocket;
+    // Bound and subscribe to inbound BEFORE awaiting the boot. `channel` is fan-out: a frame pushed
+    // with no subscriber is dropped, so anything the peer sends while providers are still booting
+    // would be lost. For the mesh control channel that is the `hello` itself — the handshake would
+    // hang until timeout against a teapot whose providers happened to boot slowly.
+    const ready = boundInbound(socket, limits);
 
     await ensureBooted(); // idempotent: no-op once any of fetch/upgrade/listen has booted
 
-    const path = request.url.split('?')[0];
+    let path: string;
+
+    // The same normalization HTTP and the Node upgrade listener run. A malformed escape would
+    // otherwise reject out of the matcher and close with 1011, a server-error code for a client error.
+    try {
+      path = normalizeRequestPath(request.url.split('?')[0]);
+    } catch {
+      ready.close(1008, 'invalid request path');
+      return;
+    }
+
     const meshControl = getMeshControl();
 
     // The reserved mesh path, checked before route matching: this is what lets a teapot export

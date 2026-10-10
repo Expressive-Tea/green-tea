@@ -18,6 +18,7 @@ import {
 } from './core';
 import type { BodyFailure, BodyReader } from './body';
 import type { RouteDef, WsRouteDef, MeshControl, HttpOptions } from './types';
+import type { Logger } from '../logger';
 import { nodeRequire } from '../node-require';
 
 interface HandlerConfig {
@@ -78,7 +79,7 @@ export function createHttpServer(
   server.requestTimeout = opts?.limits?.requestTimeoutMs ?? 30_000;
   server.headersTimeout = opts?.limits?.headersTimeoutMs ?? 10_000;
   server.keepAliveTimeout = opts?.limits?.keepAliveTimeoutMs ?? 5_000;
-  attachWs(server, wsRoutes, bus, meshControl, opts?.streams);
+  attachWs(server, wsRoutes, bus, meshControl, opts?.streams, opts?.limits);
   return server;
 }
 
@@ -96,7 +97,14 @@ function createRequestHandler(cfg: HandlerConfig) {
   const readBody: BodyReader = (source, limit) => readRequestBytes(source, limit, opts);
   const gate = createRequestGate(opts?.limits?.maxConcurrentRequests);
 
-  return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
+  // `http.createServer` ignores the promise a listener returns, so a rejection that escapes `serve`
+  // would be an `unhandledRejection` — and under Node's default mode, the end of the process.
+  // Caught here, at the one place every request passes through (#108).
+  return (req: http.IncomingMessage, res: http.ServerResponse): void => {
+    serve(req, res).catch((err: unknown) => failSafe(res, err, opts?.logger));
+  };
+
+  async function serve(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     // Install the security-header patch BEFORE any routing/response so every path
     // (200, 404, error, stream) writes headers through the same patched writeHead.
     const secure = deriveSecure(req, trustProxy);
@@ -192,7 +200,39 @@ function createRequestHandler(cfg: HandlerConfig) {
 
     res.writeHead(result.outcome.status, result.outcome.headers);
     res.end(result.outcome.body);
-  };
+  }
+}
+
+/**
+ * The last resort for a request whose handling rejected. Deliberately does not call `onError`: this
+ * runs because something already failed past the point where errors convert to a response, and user
+ * code that may be the thing failing is the wrong place to send it. Must never throw — nothing
+ * catches it.
+ *
+ * Writable: a fixed 500 with `connection: close`, still through the patched `writeHead`, so the
+ * security headers land. Output already started, or the client gone: there is no honest response
+ * left to send, so the socket is destroyed and the client sees a truncated reply rather than a
+ * complete-looking one. No `request:end` is emitted — observers do not alter the response, and the
+ * core never completed this request.
+ */
+function failSafe(res: http.ServerResponse, err: unknown, logger: Logger | undefined): void {
+  try {
+    logger?.error('request listener failed', { err: err instanceof Error ? err.message : String(err) });
+  } catch {
+    /* a broken logger must not stop the response below */
+  }
+
+  if (res.headersSent || res.destroyed || !res.writable) {
+    res.destroy();
+    return;
+  }
+
+  try {
+    res.writeHead(500, { 'content-type': 'application/json', connection: 'close' });
+    res.end('{"error":"Internal Server Error"}');
+  } catch {
+    res.destroy();
+  }
 }
 
 /**

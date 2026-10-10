@@ -86,9 +86,40 @@ export interface StaticHit {
 /** Resolves a URL path to a static file under a fixed root, or `undefined` for a miss. */
 export type StaticResolver = (urlPath: string) => Promise<StaticHit | undefined>;
 
+/** The real path of `path` when it is `root` or lies beneath it, else `undefined`. Rejects on ENOENT.
+ * The separator suffix keeps a sibling such as `root-evil` out of `root`. */
+async function confine(fs: typeof import('node:fs'), sep: string, root: string, path: string) {
+  const real = await fs.promises.realpath(path);
+  return real === root || real.startsWith(root + sep) ? real : undefined;
+}
+
+/** Reads `full` (or its `index.html` when a directory) if its real path stays inside the real `root`. */
+async function readConfined(
+  fs: typeof import('node:fs'),
+  nodePath: typeof import('node:path'),
+  root: string,
+  full: string,
+): Promise<StaticHit | undefined> {
+  let real = await confine(fs, nodePath.sep, root, full);
+  if (!real) return undefined;
+  const isDir = (await fs.promises.stat(real)).isDirectory();
+  // `index.html` is a second resolution and can itself be a link, so it is confined on its own.
+  if (isDir) real = await confine(fs, nodePath.sep, root, nodePath.join(real, 'index.html'));
+  if (!real) return undefined;
+  // ponytail: a link swapped between `realpath` and `readFile` can still escape. Exploiting it needs
+  // write access inside the served root, which already owns the app; closing it needs `O_NOFOLLOW`
+  // on every path component, which Node, Deno and Bun do not offer portably.
+  const body = await fs.promises.readFile(real);
+  // The content-type follows the requested name, not the link target (`app.js -> app.3f2a.js`).
+  const target = isDir ? nodePath.join(full, 'index.html') : full;
+  return { body, contentType: contentTypeFor(nodePath.extname(target)) };
+}
+
 /**
  * Builds a static-file resolver rooted at `root` (`true` → `./public`). Requires a filesystem: throws at
- * boot on a runtime without one (edge). Path-traversal-safe — a resolved path outside the root is a miss.
+ * boot on a runtime without one (edge). Path-traversal-safe — a resolved path outside the root is a miss,
+ * and so is a symlink whose real target lies outside the root's real path (#106). Escapes are misses
+ * (404), not 403, so a probe cannot tell "exists outside the root" from "does not exist".
  */
 export function buildStaticResolver(root: string | true): StaticResolver {
   let fs: typeof import('node:fs');
@@ -105,6 +136,18 @@ export function buildStaticResolver(root: string | true): StaticResolver {
 
   const abs = nodePath.resolve(process.cwd(), root === true ? 'public' : root);
 
+  // The root's real path, resolved once on the first request rather than at build time, so a missing
+  // `public/` at boot is still not fatal — it just makes every request a miss, as before. Containment
+  // compares real paths, so the root must be real too: a symlinked `public/` would otherwise fail every
+  // check. Cached for the life of the app: re-pointing a root symlink at runtime needs a restart. A failed
+  // lookup is not cached, so a root created after boot starts serving, as it did before.
+  let realRoot: Promise<string | undefined> | undefined;
+  const resolveRoot = () =>
+    (realRoot ??= fs.promises.realpath(abs).catch(() => {
+      realRoot = undefined;
+      return undefined;
+    }));
+
   return async (urlPath) => {
     let rel: string;
 
@@ -118,13 +161,13 @@ export function buildStaticResolver(root: string | true): StaticResolver {
     const full = nodePath.resolve(abs, '.' + (rel.startsWith('/') ? rel : '/' + rel));
     if (full !== abs && !full.startsWith(abs + nodePath.sep)) return undefined; // traversal guard
 
+    const rootReal = await resolveRoot();
+    if (!rootReal) return undefined;
+
     try {
-      const stat = await fs.promises.stat(full);
-      const target = stat.isDirectory() ? nodePath.join(full, 'index.html') : full;
-      const body = await fs.promises.readFile(target);
-      return { body, contentType: contentTypeFor(nodePath.extname(target)) };
+      return await readConfined(fs, nodePath, rootReal, full);
     } catch {
-      return undefined;
+      return undefined; // includes ENOENT from `realpath` on a dangling link: a miss, never a rejection
     }
   };
 }

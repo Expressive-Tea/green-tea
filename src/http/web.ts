@@ -11,7 +11,8 @@ import {
   type Preflight,
 } from './core';
 import { mergeInjectedHeaders } from './headers';
-import type { BodyFailure, BodyReader, MaybePromise } from './body';
+import { peerOf } from './peer';
+import { declaresOverLimit, type BodyFailure, type BodyReader, type MaybePromise } from './body';
 import { HttpError } from '../signals';
 import { renderError, type ErrorRequest } from '../transformers';
 import type { RouteDef, HttpOptions } from './types';
@@ -97,9 +98,9 @@ function headersToRecord(headers: Headers): Record<string, string> {
 /**
  * The fetch half of body acquisition: bytes out of the `Request`, and the over-limit answer.
  *
- * Unlike Node, there is no incremental read to abort — `arrayBuffer()` resolves with the whole body
- * or not at all, so the limit can only be checked once the bytes are already in memory. That
- * difference is exactly why the limit is passed in rather than applied by the shared core.
+ * Read from `request.body` chunk by chunk rather than through `arrayBuffer()`, which resolves with
+ * the whole body or not at all and so could only check the limit once every byte was in memory.
+ * Deno, Bun, workerd and Node all expose `request.body` as a stream, so no runtime needs a branch.
  */
 function readFetchBytes(
   source: unknown,
@@ -110,21 +111,63 @@ function readFetchBytes(
   // Not `async`: a bodiless request answers without allocating a promise at all.
   if (!request.body) return { bytes: undefined };
 
-  return request.arrayBuffer().then((arrayBuffer) => {
-    if (arrayBuffer.byteLength > limit) {
-      // Rebuilt here rather than captured per request: only an over-limit body ever needs it, and
-      // a `url`/`headers` pair captured up-front cost more than the work it saved.
-      const url = new URL(request.url);
-      const errReq: ErrorRequest = {
-        method: request.method,
-        url: url.pathname + url.search,
-        headers: headersToRecord(request.headers),
-      };
-      return { fail: renderError(new HttpError(413, 'Payload Too Large'), errReq, opts?.onError, opts?.logger) };
+  // A declared length over the limit is refused before a single chunk is pulled. Cancelling is best
+  // effort: it tells the runtime to stop the upload, and a refusal changes nothing about the answer.
+  if (declaresOverLimit(request.headers.get('content-length'), limit)) {
+    request.body.cancel().catch(() => {});
+    return tooLarge(request, opts);
+  }
+
+  // ponytail: one reader loop; a TransformStream byte-counter only if another consumer needs it
+  return readBounded(request.body.getReader(), limit).then((bytes) =>
+    bytes === null ? tooLarge(request, opts) : { bytes },
+  );
+}
+
+/**
+ * Reads until the stream ends, or until the running total crosses `limit` — then cancels the reader,
+ * so no further chunk is pulled, and answers null. A rejected `read()` (the client went away)
+ * propagates exactly as a rejected `arrayBuffer()` used to.
+ *
+ * workerd may strip `content-length` from a chunked upload, so there this count is the only check.
+ * The answer is the same 413 either way; only how early it comes differs.
+ */
+async function readBounded(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  limit: number,
+): Promise<Buffer | undefined | null> {
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    total += value.byteLength;
+
+    if (total > limit) {
+      reader.cancel().catch(() => {});
+
+      return null;
     }
 
-    return { bytes: arrayBuffer.byteLength === 0 ? undefined : Buffer.from(arrayBuffer) };
-  });
+    chunks.push(value);
+  }
+
+  return total === 0 ? undefined : Buffer.concat(chunks, total);
+}
+
+/** The over-limit answer, shared by the declared-length check and the stream count. */
+function tooLarge(request: Request, opts: HttpOptions | undefined): BodyFailure {
+  // Rebuilt here rather than captured per request: only an over-limit body ever needs it, and
+  // a `url`/`headers` pair captured up-front cost more than the work it saved.
+  const url = new URL(request.url);
+  const errReq: ErrorRequest = {
+    method: request.method,
+    url: url.pathname + url.search,
+    headers: headersToRecord(request.headers),
+  };
+  return { fail: renderError(new HttpError(413, 'Payload Too Large'), errReq, opts?.onError, opts?.logger) };
 }
 
 /**
@@ -174,6 +217,15 @@ function outcomeToResponse(result: HandleResult, bus?: Bus, correlation: Correla
 
   const body = [204, 205, 304].includes(result.outcome.status) ? null : toBodyInit(result.outcome.body);
   return new Response(body, { status: result.outcome.status, headers });
+}
+
+/** The first `x-forwarded-for` hop when the proxy is trusted, else `''`. */
+function forwardedFor(headers: Record<string, string>, opts: HttpOptions | undefined): string {
+  if (!opts?.trustProxy) return '';
+
+  return String(headers['x-forwarded-for'] ?? '')
+    .split(',')[0]
+    .trim();
 }
 
 /**
@@ -244,14 +296,10 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
           source: request,
           secure,
           // Mirrors Node's `deriveIp` (src/http/request.ts): only trust `x-forwarded-for` when the
-          // proxy is trusted, and take its first hop — an untrusted XFF is client-spoofable, and
-          // there's no socket peer address to fall back to on the fetch path, so the untrusted case
-          // is simply ''.
-          ip: opts?.trustProxy
-            ? String(headers['x-forwarded-for'] ?? '')
-                .split(',')[0]
-                .trim()
-            : '',
+          // proxy is trusted, and take its first hop — an untrusted XFF is client-spoofable.
+          // Otherwise the socket peer, which only the Deno and Bun adapters can supply; a bare
+          // `app.fetch` has none, so there the answer is still ''.
+          ip: forwardedFor(headers, opts) || peerOf(request),
         },
         // Already computed above for the shed-503 path; handing it down keeps `cors.origins` to
         // one call per request.

@@ -16,6 +16,31 @@ export interface RequestLimits {
   headersTimeoutMs?: number; // default 10_000
   keepAliveTimeoutMs?: number; // default 5_000
   maxParts?: number; // default 1000
+  /**
+   * Largest inbound WebSocket message, in bytes (UTF-8 bytes for text), per connection. Default
+   * `1_048_576` (1 MiB). A larger message closes the connection with `1009` (`message too large`);
+   * a fragmented message counts as a whole. Must be a positive integer, or `createApp` throws.
+   *
+   * Node and Bun refuse an oversized frame before buffering it (`ws`'s `maxPayload`, Bun's
+   * `maxPayloadLength`). Bun then drops the connection without a close frame, so on Bun the peer
+   * sees `1006` instead of `1009`. Deno and the edge offer no such option: there the runtime
+   * receives the whole message first, so its memory is bounded by the platform's own cap, and this
+   * limit is checked after receipt — the connection still closes `1009`.
+   *
+   * Server-level only; there is no per-route override.
+   */
+  maxWsMessageBytes?: number;
+  /**
+   * Inbound WebSocket messages a connection may hold that the handler has not read yet. Default
+   * `16`. One more closes the connection with `1013` (`inbound queue full`) rather than dropping
+   * anything, so a handler that never reads `inbound` is closed once its peer sends 17 messages.
+   * Must be a positive integer, or `createApp` throws. Applies on every runtime.
+   *
+   * Worst-case buffered inbound memory is about `maxConnections × maxWsQueue × maxWsMessageBytes`:
+   * ≈ 15.6 GiB at the defaults on Node. Deno and Bun have no connection cap, so cap connections at
+   * the platform or proxy there. Server-level only; there is no per-route override.
+   */
+  maxWsQueue?: number;
 }
 
 /** Options controlling server construction: limits, TLS, proxy trust, security headers, CORS, and body parsing. */

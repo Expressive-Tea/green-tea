@@ -6,6 +6,99 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 green-tea uses calendar versioning: `YY.M.PATCH` — the month is not zero-padded, since
 npm treats versions as semver and semver forbids leading zeros.
 
+## [Unreleased]
+
+### Breaking
+
+- **Inbound WebSocket messages are capped at 1 MiB by default** (#107). Node used `ws`'s own
+  default of 100 MiB, and Deno, Bun and the edge applied no cap of their own, so one client could
+  make the server hold a message of any size the runtime would accept. A larger message now closes
+  the connection with `1009` (`message too large`). Raise it with `limits.maxWsMessageBytes`.
+
+- **A connection with 16 unread inbound messages is closed on the 17th** (#107), with `1013`
+  (`inbound queue full`). The queue behind `inbound` was unbounded on every runtime, so a handler
+  that read slowly — or never — let a client grow it without limit. This also reaches a `@Ws`
+  handler that never reads `inbound` at all: on Node those frames used to be discarded, and they
+  now count. Raise the bound with `limits.maxWsQueue`.
+
+### Added
+
+- **`limits.maxWsMessageBytes` and `limits.maxWsQueue`** (#107): per-connection bounds on inbound
+  WebSocket messages, in bytes and in unread messages, server-wide on every runtime. `createApp`
+  throws a `TypeError` for anything but a positive integer. Node and Bun refuse an oversized message
+  before buffering it; Bun does so by dropping the connection, so its peer sees `1006` rather than
+  `1009`. Deno and workerd expose no such option, so there the message is received in full and then
+  refused, and its memory is bounded by the platform's own cap. Worst-case buffered inbound memory is
+  about `maxConnections × maxWsQueue × maxWsMessageBytes`, ≈ 15.6 GiB at the Node defaults; Deno and
+  Bun have no connection cap, so set one at the platform or proxy there.
+
+### Fixed
+
+- **`static` no longer serves files outside its root through a symlink** (#106). The traversal guard
+  compared paths lexically, and the file read then followed symlinks, so `public/leak -> /etc/hosts`
+  was served. Containment now compares real paths: the requested file, and a directory's
+  `index.html`, must resolve beneath the root's real path. Links that stay inside the root, and a
+  root that is itself a symlink, keep working.
+
+  A link that resolves outside the root, or a dangling link, is a **404** — the same miss as a file
+  that does not exist, rendered through `onError` like any other, and `405`/`204` where the path has
+  routes. It is deliberately not a `403`, so a probe cannot tell "exists outside the root" from
+  "does not exist". The content-type still follows the requested name, not the link target.
+
+  The root's real path is resolved on the first request and cached, so **re-pointing a root symlink
+  while the app runs needs a restart** to take effect. A link swapped inside the root between the
+  check and the read can still escape; exploiting that needs write access to the served directory.
+
+- **A request that fails past the error renderer no longer takes the Node process down** (#108). The Node
+  request listener was an `async` function, and `http.createServer` ignores the promise it returns,
+  so anything that rejected outside the region where errors convert to a response — a custom static
+  resolver, a handler header value Node refuses to write, a stream that fails before its first frame
+  — became an unhandled rejection, which Node's default mode turns into an exit. The listener now
+  catches it. While the response is still writable the client gets a fixed 500 with
+  `connection: close`, written without calling `onError` again; once output has started the socket
+  is destroyed instead. Either way the failure is logged through `logger.error`. No `request:end` is
+  emitted for these requests. Deno, Bun and the edge were not affected: they receive `app.fetch`'s
+  promise, and the runtime answers a rejection with a 500 itself.
+
+- **A malformed WebSocket upgrade no longer takes a Node server down** (#104). The upgrade path never
+  ran the request-path normalization HTTP runs, so a bad percent escape in a param segment
+  (`/room/%E0%A4%A`) threw out of the `'upgrade'` listener as an uncaught exception, and one request
+  was enough to end the process. Upgrades now go through the same normalization: a malformed escape
+  or a repeated slash gets a `400`, an unknown route a written `404` instead of a silent disconnect,
+  and anything else that throws in the listener a `500`. `//rt//echo` used to match `/rt/echo` on
+  upgrade while HTTP refused it; both refuse it now. On Deno, Bun and the edge the same paths close
+  with `1008 invalid request path` rather than `1011 internal error`, and on Deno a `1008` sent before
+  the socket finished opening now reaches the client instead of leaving it hanging.
+
+- **Deno, Bun and the edge enforce `maxBodyBytes` while reading the body, not after** (#105). The
+  fetch adapter read every request through `request.arrayBuffer()` and compared the length once the
+  whole body was in memory, so a 10 GB upload was buffered in full before it was refused. It now
+  reads `request.body` chunk by chunk, stops at the chunk that crosses the limit and cancels the
+  stream, so nothing further is pulled. A `content-length` that already declares more than the limit
+  is refused before any of the body is read, on Node too, where the request used to wait for its
+  first chunk. A malformed or absent `content-length` proves nothing and is ignored; the running
+  count enforces the limit either way. The response is unchanged: the same `413 Payload Too Large`,
+  through `onError`, with the same route-over-server precedence for `maxBodyBytes` and `maxParts`.
+
+  workerd may drop `content-length` from a chunked upload, so there an oversized body is refused by
+  the count rather than up front. The status is the same; only how early it comes differs.
+
+- **`serveDeno()` and `serveBun()` populate `ctx.ip` with the client's address** (#116). The fetch
+  path had no way to learn the socket peer, so every HTTP request on Deno and Bun saw `ctx.ip` as
+  `''`, and anything keyed on it put every client in one bucket — the rate-limit plugin, where one
+  client could exhaust the limit for everyone, above all. Both adapters now hand the peer to
+  `app.fetch`, and `ctx.ip` follows the same rule as Node's `listen()`: the first
+  `x-forwarded-for` hop when `trustProxy` is on and the header is present, the socket peer
+  otherwise. That includes `trustProxy` with no `x-forwarded-for`, which used to answer `''` on
+  the fetch path and now falls back to the peer, as Node always has.
+
+  Addresses are passed through as each runtime reports them, so the IPv6 loopback is `::1` on all
+  three but Node may report an IPv4 client as `::ffff:127.0.0.1`. A bare `app.fetch(request)` from
+  your own code has no socket to report and still answers `''` (or the forwarded hop), and so does
+  a `Request` copied from the one the adapter received. No signature changed. The edge adapter is
+  unchanged: trusting `cf-connecting-ip` is only correct behind Cloudflare, and needs its own
+  decision.
+
 ## [26.9.0-beta.2] - 2026-09-22
 
 ### Breaking

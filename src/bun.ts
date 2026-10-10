@@ -1,9 +1,10 @@
 import { channel } from './channel';
 import type { Channel } from './channel';
 import type { App } from './app/types';
-import type { WsSocket, WsRequest } from './http/ws-core';
+import { WS_MAX_MESSAGE_BYTES, DEFAULT_MAX_WS_MESSAGE_BYTES, type WsSocket, type WsRequest } from './http/ws-core';
 import { decodeMessage, neutralSocket, toWsRequest, upgradeSafely } from './http/ws-adapter';
 import { closeWithDeadline } from './http/shutdown';
+import { setPeer } from './http/peer';
 
 // Minimal ambient for the Bun globals we use — avoids a @types/bun devDep.
 // Mirrors the real Bun.serve / server.upgrade / ServerWebSocket signatures we call.
@@ -15,6 +16,7 @@ interface BunServerWebSocket {
   terminate?(): void;
 }
 interface BunWebSocketHandler {
+  maxPayloadLength?: number;
   open?(ws: BunServerWebSocket): void;
   message(ws: BunServerWebSocket, message: string | Uint8Array): void;
   close?(ws: BunServerWebSocket, code: number, reason: string): void;
@@ -100,9 +102,17 @@ export async function serveBun(app: App, options?: BunServeShortOptions): Promis
         return new Response('WebSocket upgrade failed', { status: 400 });
       }
 
+      // The same object goes to `app.fetch`, which is what lets it find the peer again.
+      setPeer(request, server.requestIP(request)?.address ?? '');
       return app.fetch(request);
     },
     websocket: {
+      // The pre-buffer half of `limits.maxWsMessageBytes`: Bun refuses an oversized frame before
+      // assembling it. It drops the connection without a close frame, so the peer sees 1006 rather
+      // than 1009 — verified on Bun 1.3, and the price of not buffering the message at all.
+      // `app.upgrade` checks the same bound again on the decoded text.
+      maxPayloadLength:
+        (app as { [WS_MAX_MESSAGE_BYTES]?: number })[WS_MAX_MESSAGE_BYTES] ?? DEFAULT_MAX_WS_MESSAGE_BYTES,
       open(ws) {
         const { wsReq } = ws.data as BunConnData;
 

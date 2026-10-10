@@ -28,6 +28,22 @@ class Rt {
       for await (const msg of inbound) yield `echo:${msg}`;
     })();
   }
+
+  // Never reads `inbound`, so every frame the client sends stays queued (#107).
+  @Ws('/stall')
+  stall() {
+    return (async function* () {
+      await new Promise<never>(() => {});
+      yield '';
+    })();
+  }
+
+  @Ws('/room/:name')
+  room(@ctx() { inbound }: any) {
+    return (async function* () {
+      for await (const msg of inbound) yield `room:${msg}`;
+    })();
+  }
 }
 
 @Module({ mountpoint: '/', controllers: [Rt] })
@@ -65,6 +81,102 @@ Deno.test('serveDeno: HTTP + WebSocket round-trip through the graph', async () =
       // Give the close frame a moment to complete the handshake so no socket is leaked.
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
+  } finally {
+    await server.shutdown();
+  }
+});
+
+// #104: a malformed escape in a param segment used to reject out of the matcher and close 1011.
+Deno.test('serveDeno: a malformed upgrade path closes 1008 and the server keeps serving', async () => {
+  const app = createApp({ modules: [M] });
+
+  let port = 0;
+  const server = await serveDeno(app, {
+    port: 0,
+    onListen: (addr) => {
+      port = addr.port;
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  try {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/rt/room/%E0%A4%A`);
+    const closed = await new Promise<{ code: number; reason: string }>((resolve) => {
+      ws.onclose = (e) => resolve({ code: e.code, reason: e.reason });
+    });
+    assertEquals(closed, { code: 1008, reason: 'invalid request path' });
+
+    const httpRes = await fetch(`http://127.0.0.1:${port}/rt/hello`);
+    assertEquals(httpRes.status, 200);
+    await httpRes.body?.cancel();
+  } finally {
+    await server.shutdown();
+  }
+});
+
+/** Opens `path`, sends `frames` once open, and resolves with every reply and the close. */
+function exchange(port: number, path: string, frames: string[], until = 2000) {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}${path}`);
+  const replies: string[] = [];
+  return new Promise<{ replies: string[]; close?: { code: number; reason: string } }>((resolve) => {
+    const timer = setTimeout(() => {
+      ws.close();
+      resolve({ replies });
+    }, until);
+    ws.onopen = () => frames.forEach((f) => ws.send(f));
+    ws.onmessage = (e) => replies.push(String(e.data));
+    ws.onclose = (e) => {
+      clearTimeout(timer);
+      resolve({ replies, close: { code: e.code, reason: e.reason } });
+    };
+  });
+}
+
+// #107: on Deno the runtime receives the whole message before user code sees it, so the size
+// bound is checked after receipt — the close code is the same as on Node and Bun.
+Deno.test('serveDeno: ws message size and inbound queue limits', async () => {
+  const app = createApp({ modules: [M], limits: { maxWsMessageBytes: 1024, maxWsQueue: 4 } });
+  let port = 0;
+  const server = await serveDeno(app, {
+    port: 0,
+    onListen: (addr) => {
+      port = addr.port;
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  try {
+    const atLimit = await exchange(port, '/rt/echo', ['a'.repeat(1024)], 300);
+    assertEquals(atLimit.replies, [`echo:${'a'.repeat(1024)}`]);
+
+    const over = await exchange(port, '/rt/echo', ['a'.repeat(1025)]);
+    assertEquals(over.close, { code: 1009, reason: 'message too large' });
+
+    const full = await exchange(port, '/rt/stall', ['1', '2', '3', '4', '5']);
+    assertEquals(full.close, { code: 1013, reason: 'inbound queue full' });
+  } finally {
+    await server.shutdown();
+  }
+});
+
+Deno.test('serveDeno: ws message size default is 1 MiB', async () => {
+  const app = createApp({ modules: [M] });
+  let port = 0;
+  const server = await serveDeno(app, {
+    port: 0,
+    onListen: (addr) => {
+      port = addr.port;
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  try {
+    const atLimit = await exchange(port, '/rt/echo', ['a'.repeat(1_048_576)], 500);
+    assertEquals(atLimit.replies.length, 1);
+
+    const over = await exchange(port, '/rt/echo', ['a'.repeat(1_048_577)]);
+    assertEquals(over.close?.code, 1009);
   } finally {
     await server.shutdown();
   }

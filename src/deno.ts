@@ -1,6 +1,7 @@
 import type { App } from './app/types';
 import { eventSocket, toWsRequest, upgradeSafely, type EventfulSocket } from './http/ws-adapter';
 import { closeWithDeadline } from './http/shutdown';
+import { setPeer } from './http/peer';
 
 // The project tsconfig's `lib` doesn't include `DOM`, and the installed `@types/node` (18.x)
 // doesn't declare a global `WebSocket` either — so we ambient-declare just the shape we use.
@@ -82,6 +83,9 @@ export async function serveDeno(app: App, options?: DenoServeOptions): Promise<D
       return response;
     }
 
+    // The same object goes to `app.fetch`, which is what lets it find the peer again. A unix socket
+    // has no `hostname`, and records nothing.
+    setPeer(request, info.remoteAddr.hostname);
     return app.fetch(request);
   });
 

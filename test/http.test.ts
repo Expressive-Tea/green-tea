@@ -123,6 +123,32 @@ describe('request hardening', () => {
     server.close();
   });
 
+  // #105: a declared length over the limit is answered before any of the body is sent. Without the
+  // header check, the reader waits for a first chunk that this client never sends — and times out.
+  it('T2: rejects a declared content-length over the limit before reading any body', async () => {
+    let ran = false;
+    const server = createHttpServer(
+      [{ method: 'POST', pattern: '/echo', transport: 'buffer',
+         handler: async () => { ran = true; return { status: 200, headers: {}, body: 'ok' }; } }],
+      [], undefined, undefined, { limits: { maxBodyBytes: 16 } },
+    );
+    await new Promise<void>((r) => server.listen(0, r));
+    const socket = net.connect((server.address() as any).port, '127.0.0.1');
+    await once(socket, 'connect');
+    socket.write('POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 2000000\r\n\r\n'); // headers only
+
+    let raw = '';
+    socket.setEncoding('utf8');
+    socket.on('data', (chunk: string) => (raw += chunk));
+    await once(socket, 'end');
+
+    expect(raw).toMatch(/^HTTP\/1\.1 413 /);
+    expect(raw.toLowerCase()).toContain('connection: close');
+    expect(ran).toBe(false);
+    socket.destroy();
+    server.close();
+  }, 2000);
+
   it('sets the configured server timeouts and connection limit', async () => {
     const server = createHttpServer([], [], undefined, undefined,
       { limits: { maxConnections: 2468, requestTimeoutMs: 12345, headersTimeoutMs: 6789, keepAliveTimeoutMs: 4321 } });

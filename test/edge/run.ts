@@ -66,6 +66,33 @@ async function main() {
     assert.equal(httpRes.status, 200);
     assert.deepEqual(await httpRes.json(), { ok: true });
 
+    // Body limits (#105): the same statuses as app.fetch, Deno and Bun. workerd may drop a
+    // chunked upload's content-length, so the streamed case is enforced by the read count alone.
+    const LIMIT = 1000; // the route's maxBodyBytes, see worker.ts
+    const post = async (body: Uint8Array | string | ReadableStream<Uint8Array>): Promise<number> => {
+      const res = await mf.dispatchFetch('http://localhost/rt/body', {
+        method: 'POST',
+        headers: { 'content-type': 'text/plain' },
+        body,
+        duplex: 'half',
+      } as Parameters<typeof mf.dispatchFetch>[1]);
+      await res.arrayBuffer();
+      return res.status;
+    };
+    const chunks = (count: number, size: number): ReadableStream<Uint8Array> => {
+      let sent = 0;
+      return new ReadableStream({
+        pull(controller) {
+          if (sent++ === count) controller.close();
+          else controller.enqueue(new Uint8Array(size).fill(0x61));
+        },
+      });
+    };
+    assert.equal(await post(new Uint8Array(2 * LIMIT)), 413, 'declared content-length over the limit');
+    assert.equal(await post(chunks(10, 300)), 413, 'streamed body over the limit');
+    assert.equal(await post('x'.repeat(LIMIT)), 200, 'exactly the limit');
+    assert.equal(await post('x'.repeat(LIMIT + 1)), 413, 'one byte over the limit');
+
     // WebSocket
     const wsRes = await mf.dispatchFetch('http://localhost/rt/echo', {
       headers: { Upgrade: 'websocket' },
@@ -84,10 +111,57 @@ async function main() {
     });
     assert.equal(got, 'echo:hi');
 
-    console.log('edge (workerd via miniflare): HTTP 200 + WS echo:hi — PASS');
+    // #104: a malformed escape in a param segment closes 1008 instead of 1011, and HTTP still serves.
+    const badRes = await mf.dispatchFetch('http://localhost/rt/room/%E0%A4%A', {
+      headers: { Upgrade: 'websocket' },
+    });
+    const bad = badRes.webSocket;
+    assert.ok(bad, 'expected a client webSocket on the 101 response');
+    const closed = new Promise<{ code: number; reason: string }>((resolve) =>
+      bad.addEventListener('close', (e: { code: number; reason: string }) => resolve({ code: e.code, reason: e.reason })),
+    );
+    bad.accept();
+    assert.deepEqual(await closed, { code: 1008, reason: 'invalid request path' });
+    assert.equal((await mf.dispatchFetch('http://localhost/rt/hello')).status, 200);
+
+    // #107: workerd delivers the whole message before user code sees it, so the size bound is
+    // checked after receipt; the close codes match Node and Deno.
+    const limitedEcho = async (frames: string[]) => exchange(mf, 'http://limited/rt/echo', frames);
+    assert.deepEqual((await limitedEcho(['a'.repeat(1024)])).replies, [`echo:${'a'.repeat(1024)}`]);
+    assert.deepEqual((await limitedEcho(['a'.repeat(1025)])).close, { code: 1009, reason: 'message too large' });
+    assert.deepEqual((await exchange(mf, 'http://limited/rt/stall', ['1', '2', '3', '4', '5'])).close, {
+      code: 1013,
+      reason: 'inbound queue full',
+    });
+    assert.equal((await exchange(mf, 'http://localhost/rt/echo', ['a'.repeat(1_048_576)])).replies.length, 1);
+    assert.equal((await exchange(mf, 'http://localhost/rt/echo', ['a'.repeat(1_048_577)])).close?.code, 1009);
+
+    console.log('edge (workerd via miniflare): HTTP 200 + body limits 413/413/200/413 + WS echo:hi + ws limits — PASS');
   } finally {
     await mf.dispose();
   }
+}
+
+/** Opens a ws on `url`, sends `frames`, and resolves with the replies and the close (or none within `ms`). */
+async function exchange(mf: Miniflare, url: string, frames: string[], ms = 1000) {
+  const res = await mf.dispatchFetch(url, { headers: { Upgrade: 'websocket' } });
+  const ws = res.webSocket;
+  assert.ok(ws, `expected a client webSocket on the 101 response for ${url}`);
+  const replies: string[] = [];
+  const result = new Promise<{ replies: string[]; close?: { code: number; reason: string } }>((resolve) => {
+    const timer = setTimeout(() => {
+      ws.close();
+      resolve({ replies });
+    }, ms);
+    ws.addEventListener('message', (e: { data: unknown }) => replies.push(String(e.data)));
+    ws.addEventListener('close', (e: { code: number; reason: string }) => {
+      clearTimeout(timer);
+      resolve({ replies, close: { code: e.code, reason: e.reason } });
+    });
+  });
+  ws.accept();
+  for (const frame of frames) ws.send(frame);
+  return result;
 }
 
 main().catch((err) => {
