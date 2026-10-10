@@ -1,4 +1,5 @@
 import { isHttpError } from '../signals';
+import { CHANNEL_TAP, type TappableChannel } from '../channel';
 import type { Bus } from '../bus';
 import { correlateRequest } from './core';
 import { matchPattern } from './router';
@@ -80,7 +81,9 @@ export function boundInbound(
 ): WsSocket {
   const fanout = new InboundFanout(socket, wsMessageBytes(limits), limits?.maxWsQueue ?? DEFAULT_MAX_WS_QUEUE);
 
-  void fanout.pump();
+  const tap = (socket.inbound as Partial<TappableChannel<unknown>>)[CHANNEL_TAP];
+  if (tap) fanout.tap(tap);
+  else void fanout.pump();
 
   return Object.create(socket, {
     inbound: { value: { [Symbol.asyncIterator]: () => fanout.subscribe() } },
@@ -103,6 +106,24 @@ class InboundFanout {
     this.first = this.add();
   }
 
+  /**
+   * Reads the adapter's channel inside its `push`. Runtimes emit a whole read's worth of frames
+   * synchronously — `ws` does — so a bound checked after the event loop yields is checked after an
+   * unbounded queue has already taken the burst. Here each frame is bounded before it is queued.
+   */
+  tap(tap: TappableChannel<unknown>[typeof CHANNEL_TAP]): void {
+    const untap = tap({
+      push: (msg) => {
+        if (this.ended || this.accept(msg)) return;
+        untap();
+        this.settle();
+      },
+      end: () => this.settle(),
+      fail: (err) => this.settle({ err }),
+    });
+  }
+
+  // ponytail: only for an inbound that is not a channel (no adapter builds one); bounds late.
   async pump(): Promise<void> {
     try {
       for await (const msg of this.socket.inbound) {
@@ -135,13 +156,16 @@ class InboundFanout {
       return false;
     }
 
+    // Capacity first, for every consumer: a frame that overflows one queue reaches none, so a
+    // rejected frame cannot run some handlers' side effects and not others'.
     for (const sub of this.subs) {
-      if (!sub.offer(msg, this.maxQueue)) {
+      if (sub.full(this.maxQueue)) {
         this.socket.close(1013, 'inbound queue full');
         return false;
       }
     }
 
+    for (const sub of this.subs) sub.offer(msg);
     return true;
   }
 
@@ -164,19 +188,22 @@ class InboundSub implements AsyncIterator<unknown> {
 
   constructor(private readonly onReturn: () => void) {}
 
-  /** Hands `msg` to a waiting `next()` or queues it; false when `max` frames are already waiting. */
-  offer(msg: unknown, max: number): boolean {
+  /** True when `max` frames are already waiting and no `next()` is there to take another. */
+  full(max: number): boolean {
+    return !this.waiter && this.queue.length >= max;
+  }
+
+  /** Hands `msg` to a waiting `next()` or queues it; callers check {@link full} first. */
+  offer(msg: unknown): void {
     const waiter = this.waiter;
 
     if (waiter) {
       this.waiter = null;
       waiter.resolve({ value: msg, done: false });
-      return true;
+      return;
     }
 
-    if (this.queue.length >= max) return false;
     this.queue.push(msg);
-    return true;
   }
 
   next(): Promise<IteratorResult<unknown>> {

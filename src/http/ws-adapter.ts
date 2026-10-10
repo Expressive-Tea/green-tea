@@ -1,4 +1,4 @@
-import { channel } from '../channel';
+import { channel, type Channel } from '../channel';
 import type { App } from '../app/types';
 import type { WsRequest, WsSocket } from './ws-core';
 import { nodeRequire } from '../node-require';
@@ -91,7 +91,7 @@ export function eventSocket(host: EventfulSocket): WsSocket {
  */
 export function neutralSocket(
   host: Pick<EventfulSocket, 'readyState' | 'send' | 'close'> & { terminate?(): void },
-  inbound: ReturnType<typeof channel<unknown>>,
+  inbound: Channel<unknown>,
   ac: AbortController,
 ): WsSocket {
   return {

@@ -340,6 +340,35 @@ describe('boundInbound (#107)', () => {
     expect(closes).toEqual([[1013, 'inbound queue full']]);
   });
 
+  it('fans out: a frame that overflows any queue reaches no consumer', async () => {
+    const { socket, inbound, closes } = fakeSocket();
+    const bounded = boundInbound(socket, { maxWsQueue: 1 });
+    const fast = bounded.inbound[Symbol.asyncIterator]();
+    bounded.inbound[Symbol.asyncIterator](); // stalled
+    const first = fast.next();
+    inbound.push('a'); // fast takes it, stalled queues it: 1/1
+    expect(await first).toEqual({ value: 'a', done: false });
+    const second = fast.next();
+    inbound.push('b'); // stalled is full: rejected for everyone
+    expect(closes).toEqual([[1013, 'inbound queue full']]);
+    expect(await second).toEqual({ value: undefined, done: true });
+  });
+
+  it('enforces the queue bound inside a synchronous burst, before the event loop yields', () => {
+    const { socket, inbound, closes } = fakeSocket();
+    const bounded = boundInbound(socket, { maxWsQueue: 2 });
+    bounded.inbound[Symbol.asyncIterator](); // stalled
+    for (let i = 0; i < 100_000; i++) inbound.push(String(i)); // what `ws` does with one TCP read
+    expect(closes).toEqual([[1013, 'inbound queue full']]);
+  });
+
+  it('enforces the size bound synchronously too', () => {
+    const { socket, inbound, closes } = fakeSocket();
+    boundInbound(socket, { maxWsMessageBytes: 3 });
+    inbound.push('abcd');
+    expect(closes).toEqual([[1009, 'message too large']]);
+  });
+
   it('T15: keeps the socket capabilities other than inbound', () => {
     const { socket } = fakeSocket();
     const bounded = boundInbound(socket);

@@ -14,6 +14,26 @@ export function isAsyncIterable(x: unknown): x is AsyncIterable<unknown> {
   return x != null && typeof (x as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function';
 }
 
+/**
+ * Internal: reads a channel synchronously, inside `push`, rather than through an async iterator
+ * that only drains once the event loop yields. `boundInbound` needs it to bound a WebSocket burst
+ * frame by frame, before anything is queued (#107). Not exported from the package; `Symbol.for`
+ * because each tsup entry carries its own copy of this module.
+ */
+export const CHANNEL_TAP: unique symbol = Symbol.for('green-tea.channel-tap');
+
+/** What {@link CHANNEL_TAP} calls, synchronously, for every push, close and fail. */
+export interface ChannelSink<T> {
+  push(value: T): void;
+  end(): void;
+  fail(err: unknown): void;
+}
+
+/** A channel that can be tapped; every channel built by {@link channel} is one. */
+export interface TappableChannel<T> extends Channel<T> {
+  [CHANNEL_TAP](sink: ChannelSink<T>): () => void;
+}
+
 interface Sub<T> {
   iterator: AsyncIterator<T>;
   push(value: T, cap: number): void;
@@ -84,9 +104,9 @@ function newSub<T>(onReturn: () => void): Sub<T> {
  * Creates a fan-out {@link Channel}. Values pushed are delivered to every active subscriber.
  * @param opts.buffer Per-subscriber queue cap; drops oldest when exceeded (default: unbounded).
  */
-export function channel<T>(opts: { buffer?: number } = {}): Channel<T> {
+export function channel<T>(opts: { buffer?: number } = {}): TappableChannel<T> {
   const cap = opts.buffer ?? Infinity;
-  const subs = new Set<Sub<T>>();
+  const subs = new Set<Omit<Sub<T>, 'iterator'>>();
   let done = false;
   let closedFlag = false;
 
@@ -116,6 +136,15 @@ export function channel<T>(opts: { buffer?: number } = {}): Channel<T> {
       const sub = newSub<T>(() => subs.delete(sub));
       subs.add(sub);
       return sub.iterator;
+    },
+    [CHANNEL_TAP](sink) {
+      if (done) {
+        sink.end();
+        return () => {};
+      }
+
+      subs.add(sink);
+      return () => subs.delete(sink);
     },
   };
 }
