@@ -26,7 +26,7 @@
     "node"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "publishConfig": {
     "access": "public"
@@ -142,7 +142,7 @@
     "@types/autocannon": "^7.12.7",
     "@types/busboy": "^1.5.4",
     "@types/express": "^5.0.6",
-    "@types/node": "^18.19.0",
+    "@types/node": "^22.20.5",
     "@types/ws": "^8.18.1",
     "autocannon": "^8.0.0",
     "busboy": "^1.6.0",

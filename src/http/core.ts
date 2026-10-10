@@ -9,31 +9,15 @@ import { acquireBody, type BodyReader } from './body';
 import type { RouteDef, HttpOptions } from './types';
 import type { StreamEncoder } from '../encoders';
 import type { Bus } from '../bus';
-import { nodeRequire } from '../node-require';
 
 /**
- * `randomUUID`, from wherever this runtime keeps it. Resolved once, at import.
+ * `randomUUID` from the web-standard global, which every supported runtime exposes without a flag:
+ * Node (the `engines` floor is 22; the global arrived unflagged in 19), Deno, Bun and workerd.
  *
- * The web-standard global stays the primary path, and that is deliberate rather than stylistic:
- * this file is the runtime-neutral core, and Deno, Bun and workerd all expose `crypto` without a
- * compatibility flag, while `node:crypto` is unavailable to at least one of them.
- *
- * Node is the exception. The global arrived **unflagged in 19**, and `engines` promises `>=18`,
- * where it does not exist at all — so the previous `declare const crypto` compiled cleanly and then
- * threw `ReferenceError: crypto is not defined` on the first request of every Node 18 process. Only
- * CI's Node 18 job caught it; every newer Node and every other runtime hides it, which is exactly
- * why that job is pinned to the floor rather than to the current release.
- *
- * The fallback is reached only by a runtime that lacks the global, so workerd never evaluates it.
- * It goes through {@link nodeRequire} rather than a bare `require`, which is what makes it work on
- * every distribution of this package and not just the bundled ones.
+ * Node 18 lacked it, and this used to fall back to `node:crypto` there. That fallback went with the
+ * Node 18 floor.
  */
-const randomUUID: () => string = (() => {
-  const webCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
-  if (typeof webCrypto?.randomUUID === 'function') return () => webCrypto.randomUUID!();
-
-  return nodeRequire<{ randomUUID: () => string }>('node:crypto').randomUUID;
-})();
+const randomUUID = (): string => crypto.randomUUID();
 
 /**
  * A runtime-neutral inbound request.

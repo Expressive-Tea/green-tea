@@ -101,7 +101,7 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `f
 
 ## Local setup
 
-Node 18 or newer, which is what `engines` requires and what CI runs.
+Node 22 or newer, which is what `engines` requires and what CI runs. Node 18 and 20 are end-of-life and no longer supported.
 
 ```bash
 npm install

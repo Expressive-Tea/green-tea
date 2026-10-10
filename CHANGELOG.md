@@ -10,6 +10,11 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Breaking
 
+- **Node 18 and Node 20 are no longer supported; the minimum is Node 22.** Both are end-of-life
+  and receive no security patches, so `engines.node` is now `>=22`, CI runs Node 22 only, and the
+  build targets `node22`. Node 22 is the oldest line still maintained. The `node:crypto` fallback
+  for Node 18's missing global `crypto` is removed with it.
+
 - **Inbound WebSocket messages are capped at 1 MiB by default** (#107). Node used `ws`'s own
   default of 100 MiB, and Deno, Bun and the edge applied no cap of their own, so one client could
   make the server hold a message of any size the runtime would accept. A larger message now closes

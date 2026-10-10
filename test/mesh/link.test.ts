@@ -56,11 +56,11 @@ function startSkewedTeapot() {
 
 /**
  * Both client implementations, exercised on whatever Node runs the suite. `ws` is always in the
- * list: it is the Node 18-21 path, and on a modern CI the platform global would otherwise be the
- * only one ever covered — the fallback would rot unnoticed until someone ran the declared floor.
+ * list: it is the fallback for a Node run with the global WebSocket switched off, and every
+ * supported Node has the global, so it would otherwise never be covered and rot unnoticed.
  */
 const platform = (globalThis as { WebSocket?: SocketCtor }).WebSocket;
-const CTORS: [string, SocketCtor][] = [['the ws package (Node < 22 path)', WS as unknown as SocketCtor]];
+const CTORS: [string, SocketCtor][] = [['the ws package (fallback path)', WS as unknown as SocketCtor]];
 if (platform) CTORS.push(['the platform global WebSocket', platform]);
 
 describe('WebSocket client implementations', () => {

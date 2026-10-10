@@ -9,7 +9,7 @@ export default defineConfig({
   dts: true,
   clean: true,
   sourcemap: true,
-  target: 'node18',
+  target: 'node22',
   // Give the ESM output a real `require` (via createRequire) so the lazy require('ws') / require('busboy')
   // (optional peer deps) resolve instead of hitting esbuild's "Dynamic require not supported" stub.
   esbuildOptions(options, context) {

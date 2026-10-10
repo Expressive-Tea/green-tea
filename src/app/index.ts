@@ -1513,8 +1513,8 @@ function closeApp(
         timeoutMs,
       });
 
-      // closeAllConnections() requires Node >=18.2, same floor as closeIdleConnections()
-      // below — `engines` in package.json only guarantees >=18, so this matters.
+      // closeAllConnections() and closeIdleConnections() below both arrived in Node 18.2;
+      // `engines` guarantees >=22, so both are always present.
       server.closeAllConnections();
       finish();
     }, drainBudget);

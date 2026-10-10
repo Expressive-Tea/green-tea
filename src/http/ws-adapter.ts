@@ -124,8 +124,10 @@ export function neutralSocket(
 export type SocketCtor = new (url: string) => EventfulSocket;
 
 /**
- * The WebSocket client implementation: the platform global where it exists (Deno, Bun, and
- * Node >= 22), else the `ws` optional peer — Node 18-21, our declared floor, has no global.
+ * The WebSocket client implementation: the platform global where it exists, else the `ws`
+ * optional peer. Every supported runtime has the global — Deno, Bun, and Node from 22, the
+ * declared floor — so the fallback is reached only when Node runs with the global switched off
+ * (`--no-experimental-websocket`). `ws` is installed anyway for the server side.
  *
  * Both expose the same `addEventListener` API and deliver text frames as `event.data` strings,
  * so one bridge covers both. That is verified rather than assumed: `ws` implements the

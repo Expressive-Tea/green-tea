@@ -46,7 +46,7 @@ function runHarness(signal: NodeJS.Signals, env: NodeJS.ProcessEnv = {}, sendTwi
     // `process.execPath -r tsx/cjs`, not `npx tsx`: a wrapper puts the app one process further
     // down, and on Linux the signal then lands on the wrapper while the app never hears it — which
     // is exactly how this passed locally and failed in CI. `-r` rather than `--import`/`--loader`
-    // because it is the one form that works on both the Node 18 floor CI builds against and the
+    // because it is the one form that works on both the Node 22 floor CI builds against and the
     // current release.
     const proc = spawn(process.execPath, ['-r', 'tsx/cjs', 'test/interop/_signal-app.ts'], {
       env: { ...process.env, ...env },
