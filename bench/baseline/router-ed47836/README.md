@@ -1,90 +1,82 @@
 # Pre-radix router baseline — `ed47836`
 
-The performance half of the CARD-08 parity corpus (FPRD-001, #109). Captured before any CARD-07
-router change; immutable through CARD-07 review, like `test/router-parity/`. CARD-10 measures the
-radix index with the **same harness, same defaults, same machine class**, and compares against
-these files. Do not re-run into this directory: a new capture goes in a new directory.
+The performance half of the CARD-08 parity corpus (FPRD-001, #109), captured before any CARD-07
+router change and immutable through CARD-07 review, like `test/router-parity/`. CARD-10 measures
+the radix index with the **same harness and defaults, on the same host, cpuset and image**, running
+`LOOKUP_ROUTERS="base=<ed47836 router>,head=src/http/router.ts"`. Do not re-run into this directory:
+a new capture goes in a new directory.
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `lookup-raw.json` | **The D4 baseline.** `bench:lookup` on the live linear matcher: environment, method, every sample of every run, and the summary. |
-| `lookup-summary.txt` | The table `bench:lookup` printed for that run. |
-| `lookup-aa-raw.json`, `lookup-aa-summary.txt` | A/A noise check: the live router against the byte-identical frozen oracle (`test/router-parity/oracle.ts`), same alternating protocol. Any difference here is noise. |
-| `compare-e2e-raw.json`, `compare-e2e-summary.txt`, `compare-e2e-stderr.txt` | `npm run bench:compare`, run once with this tree as both base and head. **End-to-end req/s signal only**: 50/200 *filler* routes plus base routes, not 10/100/500 total, and not lookup time. It cannot decide D4. |
-| `load.txt` | `uptime` before and after each run. |
+| `lookup-raw.json` | **The D4 baseline.** Interleaved `bench:lookup` with the live linear matcher as A and the byte-identical frozen oracle as B: environment, method, every sample of every round, and the summary. The live column gives the absolute baseline; the B/A ratios give the A/A noise floor. |
+| `lookup-summary.txt` | The tables that run printed. |
+| `load.txt` | `uptime` and running CI job containers, before and after. |
+| `battery-run/` | The superseded first capture (laptop on battery, sequential harness), kept for reference, including its `bench:compare` end-to-end req/s run. |
 
 ## Environment
 
 | | |
 |---|---|
-| Hardware | Apple M4 Max (`Mac16,5`), 16 cores (12 performance + 4 efficiency), 64 GiB |
-| Power | **On battery** (84%, discharging) for every run. macOS may manage clocks differently on AC; run the CARD-10 comparison on the same power source, or re-capture both on AC. |
-| OS | macOS 27.0.1 (build 26A434), Darwin 27.0.0 arm64 |
-| Node | v22.22.2 (V8 12.4.254.21-node.39) |
-| Packages | `@green-tea/core@26.9.0-beta.2`; tsx 4.23.5, typescript 5.9.3, vitest 4.1.11, autocannon 8.0.0 (from `package-lock.json`) |
-| Core revision | Router source at `ed47836c9820c47bf4ed5e902d91e019abdb110a`. The harness ran from `98ea948` (this branch), whose `src/` is byte-identical to `ed47836` — the branch adds only tests and bench files. |
-| Env vars | `LOOKUP_OUT` only (and `LOOKUP_ROUTERS` for the A/A run); no `NODE_OPTIONS`. Recorded in each raw file under `meta.env`. |
-| Load | 1-minute load average 2.4–3.4 on 16 cores throughout (see `load.txt` and `meta.loadavgAtStart/End`). Foreground apps were a browser and the window server; nothing else CPU-bound. |
+| Host | jarvis (homelab), Ubuntu 24.04.3 LTS, kernel 6.8.0-138-generic, x86_64 |
+| CPU | AMD Ryzen 7 3700X, 8 cores / 16 threads, 2 × 16 MiB L3, governor `schedutil` (host default; not changed) |
+| Memory | 62.7 GiB |
+| Isolation | `docker run --rm --cpuset-cpus 6,7,14,15`: physical cores 6 and 7 plus their SMT siblings, both on the second CCX. All 16 CPUs were 0.0–0.8% busy in a 5 s sample beforehand. |
+| Container | `node:22` (`sha256:5647be70…`), Node v22.23.1, V8 12.4.254.21-node.56; Docker 29.1.3 |
+| Power | Not applicable (mains-powered server) |
+| Load | 1-minute load 0.27 before, 0.79 after; no CI job containers running (see `load.txt`). jarvis also runs long-lived services (payments-automation, open-webui, windmill, the Gitea act_runner, alloy, beszel), none of them pinned off these cores. |
+| Revision | Router at `ed47836c9820c47bf4ed5e902d91e019abdb110a`; harness `ee7fdec`, whose `src/` is byte-identical to `ed47836`. Copied with `git archive`, `npm ci --ignore-scripts` in the container. |
+| Env vars | Only `LOOKUP_*` (recorded in `meta.env`); no `NODE_OPTIONS`. |
 
-## Method (`bench/lookup.ts`, defaults)
+## Method (`bench/lookup.ts` at `ee7fdec`, defaults)
 
-- **Operation:** `resolveRoute(routes, method, path)`, and on `undefined`, `allowedMethods(routes, path)` — what `dispatch` does after `normalizeRequestPath`. Normalization is excluded.
-- **Route counts:** 10, 100 and 500 **total registered HTTP routes**.
-- **Generator:** N−2 fillers cycling `GET /res{k}/items`, `POST /res{k}/items`, `GET /res{k}/items/:id`, `PUT /res{k}/items/:id(\d+)`, `GET /res{k}/files/:path*` (k = ⌊i/5⌋), then `GET /static/target/leaf`, then `GET /late/:group/:id` declared last.
-- **Workloads:** static hit `GET /static/target/leaf`; late parameter hit `GET /late/g1/42`; method miss `DELETE /static/target/leaf` (Allow `GET, HEAD, OPTIONS`); path miss `GET /nowhere/at/all`. Each answer is asserted before timing.
-- **Order:** for each run, for each router (order alternates per run), for count 10 → 100 → 500, for the four workloads in the order above.
-- **Warm-up:** 250 ms per cell, time-boxed; it also calibrates iterations so one sample lasts ≈25 ms (iteration counts are stored per cell).
-- **Repetitions:** 5 runs, each a fresh child process; 21 samples per cell per run → 105 samples per cell. Every sample is kept.
-- **Statistic:** median ns per lookup over all 105 samples. Run spread = (max − min of the five per-run medians) / median.
+- **Operation:** `resolveRoute(routes, method, path)`, and on `undefined`, `allowedMethods(routes, path)` — what `dispatch` does after `normalizeRequestPath`.
+- **Route counts:** 10, 100 and 500 **total registered HTTP routes**, from the recorded generator (`meta.method.routeGenerator`).
+- **Workloads:** static hit, late parameter hit, method miss, path miss; each answer is asserted before timing.
+- **Interleaving:** for each cell, every router is warmed for 250 ms (also calibrating ≈25 ms samples), then 21 rounds of one sample per router with the order alternating AB / BA.
+- **Repetitions:** 4 fresh processes, with module import order alternating per process → 84 paired rounds per cell. Every sample is kept.
+- **Statistics:** absolute = median ns per lookup over all 84 samples; ratio = median of the 84 per-round B/A ratios, with a percentile-bootstrap 95% CI (4000 resamples, seed 10908).
 
-## Baseline (median ns per lookup, `lookup-raw.json`)
+## Baseline: live linear matcher (median ns per lookup)
 
-| Routes | Static hit | Late param hit | Method miss | Path miss |
-|---:|---:|---:|---:|---:|
-| 10 | 61.3 (spread 17.5%) | 123.3 (6.2%) | 313.1 (4.6%) | 247.1 (6.8%) |
-| 100 | 67.6 (8.0%) | 343.4 (2.1%) | 1 263.7 (3.5%) | 1 463.3 (3.2%) |
-| 500 | 67.8 (7.5%) | 1 326.8 (16.5%) | 6 732.2 (6.5%) | 8 973.4 (2.0%) |
+| Routes | Workload | live median ns | run medians (ns) | run spread |
+|---:|---|---:|---|---:|
+| 10 | static hit | 185.3 | 156.1 / 187.7 / 174.1 / 194.2 | 20.5% |
+| 10 | late param hit | 328.4 | 311.9 / 336.2 / 323.0 / 342.4 | 9.3% |
+| 10 | method miss | 800.4 | 762.6 / 801.2 / 798.6 / 804.4 | 5.2% |
+| 10 | path miss | 625.5 | 594.6 / 631.3 / 620.3 / 628.1 | 5.9% |
+| 100 | static hit | 201.2 | 202.2 / 200.8 / 197.6 / 207.2 | 4.8% |
+| 100 | late param hit | 878.0 | 861.1 / 857.0 / 907.3 / 880.5 | 5.7% |
+| 100 | method miss | 2,525 | 2,424 / 2,514 / 2,580 / 2,531 | 6.2% |
+| 100 | path miss | 3,054 | 2,965 / 3,024 / 3,114 / 3,071 | 4.9% |
+| 500 | static hit | 202.2 | 201.8 / 202.3 / 195.1 / 210.3 | 7.5% |
+| 500 | late param hit | 2,931 | 2,830 / 2,804 / 2,980 / 3,016 | 7.2% |
+| 500 | method miss | 11,904 | 11,635 / 11,518 / 11,946 / 12,031 | 4.3% |
+| 500 | path miss | 15,514 | 15,103 / 14,972 / 15,665 / 16,034 | 6.8% |
 
-## Noise floor (A/A, `lookup-aa-raw.json`)
+## A/A noise floor: identical code, oracle / live
 
-Identical matcher code under two labels, alternating order per run. Median difference
-(oracle − live) / live:
+| Routes | Workload | oracle / live median | 95% CI |
+|---:|---|---:|---|
+| 10 | static hit | 0.9507 (-4.9%) | -13.7% … +11.9% |
+| 10 | late param hit | 1.0415 (+4.1%) | -1.6% … +9.8% |
+| 10 | method miss | 0.9809 (-1.9%) | -4.4% … +0.8% |
+| 10 | path miss | 0.9919 (-0.8%) | -3.2% … +1.4% |
+| 100 | static hit | 1.0082 (+0.8%) | -1.9% … +4.5% |
+| 100 | late param hit | 1.0247 (+2.5%) | +1.9% … +2.9% |
+| 100 | method miss | 1.0055 (+0.6%) | +0.3% … +0.7% |
+| 100 | path miss | 1.0165 (+1.7%) | +1.2% … +1.9% |
+| 500 | static hit | 1.0107 (+1.1%) | -2.2% … +4.5% |
+| 500 | late param hit | 0.9838 (-1.6%) | -2.2% … +0.8% |
+| 500 | method miss | 1.0197 (+2.0%) | +1.6% … +2.3% |
+| 500 | path miss | 1.0161 (+1.6%) | +0.5% … +2.6% |
 
-| Routes | Static hit | Late param hit | Method miss | Path miss |
-|---:|---:|---:|---:|---:|
-| 10 | +5.2% | 0.0% | +1.2% | +0.2% |
-| 100 | −0.1% | −0.8% | −0.1% | +0.1% |
-| 500 | −2.7% | +0.3% | −0.4% | +0.1% |
+**For D4:**
 
-**For D4:** with no code difference at all, the 10-route static hit already moves 5.2% — the
-size of the proposed ≤5% regression limit — and per-run medians at 10 routes spread 4.5–17.5%.
-That cell is ~60 ns, where a few nanoseconds of timer and scheduling noise are a large fraction.
-The ≥20% improvement at 500 routes is well clear of the noise (≤2.7% A/A, ≤16.5% spread on a
-1.3–9 µs operation). Whether D4's 10-route limit applies per workload, to a mean across workloads,
-or needs more runs is an owner decision; this baseline does not make it.
+- **Import order.** In-process, the module imported first is faster on the cheapest cell. At 10-route static hit (≈180 ns) the per-run medians swap by about 20% when the import order swaps (run 1: live 156, oracle 200 ns; run 2: live 188, oracle 162 ns). Alternating the import order removes that bias from the median, but it leaves that cell's 95% CI at −13.7 … +11.9%. A ≤5% regression limit cannot be resolved there with this method and sample size.
+- **Other 10-route cells.** The CIs are within about ±10% (late parameter hit −1.6 … +9.8%), and the misses are within ±4.4%.
+- **100 and 500 routes.** Identical code shows small but systematic offsets of up to +2.9%, with CIs that exclude 1. Treat anything inside ±3% as indistinguishable from no change.
+- **500 routes.** The ≥20% improvement target is far outside the noise in every cell.
 
-## End-to-end signal (`bench:compare`, req/s — not lookup time)
-
-Run once, A/A: `AB_BASE` pointed at this same tree, so base and head are identical code. Defaults:
-3 rounds × 10 s per case after a 10 s warm-up, 100 connections, alternating side order. Load
-average 2.8–3.3 throughout. A few short parity-test runs (seconds each) happened during this
-~22-minute run; the lookup runs above had nothing else running.
-
-| Scenario | base req/s | head req/s | Δ |
-|---|---:|---:|---:|
-| hello | 88,212 | 88,236 | +0.0% |
-| param | 86,508 | 85,885 | −0.7% |
-| pipeline (3 steps) | 80,189 | 80,934 | +0.9% |
-| steps5 | 74,359 | 73,975 | −0.5% |
-| validate (POST) | 70,607 | 69,903 | −1.0% |
-| hello + security | 83,913 | 83,802 | −0.1% |
-| hello + cors predicate | 82,028 | 80,445 | −1.9% |
-| preflight + cors predicate | 114,377 | 114,010 | −0.3% |
-| param, 50 routes | 82,476 | 82,045 | −0.5% |
-| param, 200 routes | 72,957 | 73,306 | +0.5% |
-
-Every row's sample ranges overlap. So with no code change, end-to-end throughput moves up to
-±1.9%; the route-width rows show that 200 filler routes already cost ~12% req/s against
-`param` with none.
+The options for D4 are to apply the 10-route limit to the miss and late-parameter cells only, to require more rounds for the static cell, or to restate the limit relative to this measured floor. That decision belongs to the owner.

@@ -1,0 +1,21 @@
+
+> @green-tea/core@26.9.0-beta.2 bench:lookup
+> tsx bench/lookup.ts
+
+| router | routes | workload | median ns/op | run medians (ns) | run spread |
+| --- | --- | --- | --- | --- | --- |
+| live | 10 | static hit | 61.3 | 64.4 / 61.0 / 68.4 / 58.0 / 57.6 | 17.5% |
+| live | 10 | late param hit | 123.3 | 122.4 / 128.1 / 123.3 / 123.7 / 120.4 | 6.2% |
+| live | 10 | method miss | 313.1 | 303.2 / 314.0 / 317.6 / 317.2 / 304.7 | 4.6% |
+| live | 10 | path miss | 247.1 | 243.8 / 246.0 / 256.5 / 251.7 / 239.7 | 6.8% |
+| live | 100 | static hit | 67.6 | 67.6 / 70.3 / 71.7 / 66.9 / 66.3 | 8.0% |
+| live | 100 | late param hit | 343.4 | 339.7 / 345.5 / 346.8 / 343.0 / 341.0 | 2.1% |
+| live | 100 | method miss | 1263.7 | 1253.2 / 1236.5 / 1280.9 / 1261.0 / 1264.6 | 3.5% |
+| live | 100 | path miss | 1463.3 | 1444.6 / 1442.4 / 1489.2 / 1467.6 / 1467.1 | 3.2% |
+| live | 500 | static hit | 67.8 | 69.7 / 68.1 / 68.2 / 64.6 / 65.1 | 7.5% |
+| live | 500 | late param hit | 1326.8 | 1480.6 / 1262.0 / 1309.9 / 1328.9 / 1331.8 | 16.5% |
+| live | 500 | method miss | 6732.2 | 7072.0 / 6659.6 / 6796.0 / 6631.5 / 6699.6 | 6.5% |
+| live | 500 | path miss | 8973.4 | 8915.3 / 8994.7 / 9052.0 / 8876.0 / 8981.4 | 2.0% |
+
+load average: start 2.47 2.14 6.86, end 2.58 2.21 6.64
+raw samples: bench/baseline/router-ed47836/lookup-raw.json
