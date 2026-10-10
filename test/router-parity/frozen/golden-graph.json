@@ -1,0 +1,168 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": {
+    "nodes": [
+      {
+        "name": "db",
+        "kind": "provider",
+        "origin": "module:IntrospectionModule",
+        "needs": [],
+        "provides": [
+          "db"
+        ]
+      },
+      {
+        "name": "logger",
+        "kind": "provider",
+        "origin": "builtin",
+        "needs": [],
+        "provides": [
+          "logger"
+        ]
+      },
+      {
+        "name": "rooms",
+        "kind": "provider",
+        "origin": "builtin",
+        "needs": [],
+        "provides": [
+          "rooms"
+        ]
+      },
+      {
+        "name": "events",
+        "kind": "provider",
+        "origin": "builtin",
+        "needs": [],
+        "provides": [
+          "events"
+        ]
+      },
+      {
+        "name": "user",
+        "kind": "step",
+        "origin": "module:IntrospectionModule",
+        "needs": [
+          "db"
+        ],
+        "provides": [
+          "user"
+        ]
+      },
+      {
+        "name": "audit",
+        "kind": "step",
+        "origin": "module:IntrospectionModule",
+        "needs": [],
+        "provides": [
+          "audit"
+        ]
+      }
+    ],
+    "routes": [
+      {
+        "pattern": "/api/items/:id/files/:path*",
+        "method": "GET",
+        "transport": "buffer",
+        "chain": [
+          "files"
+        ]
+      },
+      {
+        "pattern": "/api/items/",
+        "method": "GET",
+        "transport": "buffer",
+        "chain": [
+          "db",
+          "user",
+          "list"
+        ]
+      },
+      {
+        "pattern": "/api/items/",
+        "method": "POST",
+        "transport": "buffer",
+        "chain": [
+          "db",
+          "user",
+          "create"
+        ]
+      },
+      {
+        "pattern": "/api/items/:id(\\d+)",
+        "method": "GET",
+        "transport": "buffer",
+        "chain": [
+          "get"
+        ]
+      },
+      {
+        "pattern": "/api/items/:id(\\d+)",
+        "method": "HEAD",
+        "transport": "buffer",
+        "chain": [
+          "head"
+        ]
+      },
+      {
+        "pattern": "/api/items/:id(\\d+)",
+        "method": "OPTIONS",
+        "transport": "buffer",
+        "chain": [
+          "options"
+        ]
+      },
+      {
+        "pattern": "/api/items/:id(\\d+)",
+        "method": "DELETE",
+        "transport": "buffer",
+        "chain": [
+          "audit",
+          "remove"
+        ]
+      },
+      {
+        "pattern": "/api/items/:slug([a-z0-9-]+)",
+        "method": "PUT",
+        "transport": "buffer",
+        "chain": [
+          "upsert"
+        ]
+      },
+      {
+        "pattern": "/api/items/search",
+        "method": "GET",
+        "transport": "buffer",
+        "chain": [
+          "search"
+        ]
+      },
+      {
+        "pattern": "/api/events",
+        "method": "GET",
+        "transport": "sse",
+        "chain": [
+          "events"
+        ]
+      },
+      {
+        "pattern": "/api/feed",
+        "method": "GET",
+        "transport": "negotiate",
+        "chain": [
+          "feed"
+        ]
+      },
+      {
+        "pattern": "/api/live/:room",
+        "method": "GET",
+        "transport": "ws",
+        "chain": [
+          "db",
+          "user",
+          "live"
+        ]
+      }
+    ]
+  }
+}

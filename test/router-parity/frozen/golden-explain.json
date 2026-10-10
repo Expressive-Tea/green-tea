@@ -1,0 +1,138 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": [
+    {
+      "pattern": "/api/items/:id(\\d+)",
+      "explain": {
+        "pattern": "/api/items/:id(\\d+)",
+        "method": "GET",
+        "transport": "buffer",
+        "chain": [
+          {
+            "name": "get",
+            "kind": "handler",
+            "origin": "module:IntrospectionModule",
+            "needs": [],
+            "provides": []
+          }
+        ]
+      }
+    },
+    {
+      "pattern": "/api/items",
+      "error": {
+        "name": "Error",
+        "message": "no route: /api/items"
+      }
+    },
+    {
+      "pattern": "/api/live/:room",
+      "explain": {
+        "pattern": "/api/live/:room",
+        "method": "GET",
+        "transport": "ws",
+        "chain": [
+          {
+            "name": "db",
+            "kind": "provider",
+            "origin": "module:IntrospectionModule",
+            "needs": [],
+            "provides": [
+              "db"
+            ]
+          },
+          {
+            "name": "user",
+            "kind": "step",
+            "origin": "module:IntrospectionModule",
+            "needs": [
+              "db"
+            ],
+            "provides": [
+              "user"
+            ]
+          },
+          {
+            "name": "live",
+            "kind": "handler",
+            "origin": "module:IntrospectionModule",
+            "needs": [
+              "user"
+            ],
+            "provides": []
+          }
+        ]
+      }
+    },
+    {
+      "pattern": "/api/items/:id/files/:path*",
+      "explain": {
+        "pattern": "/api/items/:id/files/:path*",
+        "method": "GET",
+        "transport": "buffer",
+        "chain": [
+          {
+            "name": "files",
+            "kind": "handler",
+            "origin": "module:IntrospectionModule",
+            "needs": [],
+            "provides": []
+          }
+        ]
+      }
+    },
+    {
+      "pattern": "/api/missing",
+      "error": {
+        "name": "Error",
+        "message": "no route: /api/missing"
+      }
+    },
+    {
+      "pattern": "/api/items/42",
+      "error": {
+        "name": "Error",
+        "message": "no route: /api/items/42"
+      }
+    },
+    {
+      "pattern": "/api/items/",
+      "explain": {
+        "pattern": "/api/items/",
+        "method": "GET",
+        "transport": "buffer",
+        "chain": [
+          {
+            "name": "db",
+            "kind": "provider",
+            "origin": "module:IntrospectionModule",
+            "needs": [],
+            "provides": [
+              "db"
+            ]
+          },
+          {
+            "name": "user",
+            "kind": "step",
+            "origin": "module:IntrospectionModule",
+            "needs": [
+              "db"
+            ],
+            "provides": [
+              "user"
+            ]
+          },
+          {
+            "name": "list",
+            "kind": "handler",
+            "origin": "module:IntrospectionModule",
+            "needs": [
+              "user"
+            ],
+            "provides": []
+          }
+        ]
+      }
+    }
+  ]
+}
