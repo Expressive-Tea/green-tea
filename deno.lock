@@ -46,7 +46,7 @@
         "npm:typescript-eslint@^8.65.0",
         "npm:typescript@^5.5.0",
         "npm:vite@^6.4.3",
-        "npm:vitest@^3.2.7",
+        "npm:vitest@^4.1.11",
         "npm:ws@^8.21.1"
       ],
       "overrides": {

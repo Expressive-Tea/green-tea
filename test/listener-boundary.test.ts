@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import http from 'node:http';
 import net from 'node:net';
 import { once } from 'node:events';
@@ -39,7 +39,7 @@ function get(port: number, path: string, headers: Record<string, string> = {}): 
   });
 }
 
-function spyLogger(): Logger & { error: ReturnType<typeof vi.fn> } {
+function spyLogger(): Logger & { error: Mock<(...args: unknown[]) => void> } {
   return { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
 
@@ -69,8 +69,8 @@ async function expectServerStillServes(port: number): Promise<void> {
 
 const settle = () => new Promise((r) => setTimeout(r, 20));
 
-let unhandled: ReturnType<typeof vi.fn>;
-let uncaught: ReturnType<typeof vi.fn>;
+let unhandled: Mock<(...args: unknown[]) => void>;
+let uncaught: Mock<(...args: unknown[]) => void>;
 
 beforeEach(() => {
   unhandled = vi.fn();
