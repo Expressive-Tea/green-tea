@@ -118,7 +118,9 @@ async function main() {
     const bad = badRes.webSocket;
     assert.ok(bad, 'expected a client webSocket on the 101 response');
     const closed = new Promise<{ code: number; reason: string }>((resolve) =>
-      bad.addEventListener('close', (e: { code: number; reason: string }) => resolve({ code: e.code, reason: e.reason })),
+      bad.addEventListener('close', (e: { code: number; reason: string }) =>
+        resolve({ code: e.code, reason: e.reason }),
+      ),
     );
     bad.accept();
     assert.deepEqual(await closed, { code: 1008, reason: 'invalid request path' });
@@ -137,6 +139,57 @@ async function main() {
     assert.equal((await exchange(mf, 'http://localhost/rt/echo', ['a'.repeat(1_048_577)])).close?.code, 1009);
 
     console.log('edge (workerd via miniflare): HTTP 200 + body limits 413/413/200/413 + WS echo:hi + ws limits — PASS');
+  } finally {
+    await mf.dispose();
+  }
+}
+
+const PARITY_BUNDLE = 'test/edge/_parity-worker.mjs';
+
+/**
+ * The frozen router-parity differential inside workerd (test/router-parity/README.md). Same bundling
+ * as the main worker; the worker runs every case itself and answers with its mismatch report.
+ */
+async function parity() {
+  await build({
+    entryPoints: ['test/edge/parity-worker.ts'],
+    bundle: true,
+    format: 'esm',
+    outfile: PARITY_BUNDLE,
+    platform: 'browser',
+    target: 'esnext',
+    external: ['node:*', 'http', 'https'],
+    alias: {
+      crypto: 'node:crypto',
+      stream: 'node:stream',
+      zlib: 'node:zlib',
+      buffer: 'node:buffer',
+      events: 'node:events',
+      net: 'node:net',
+      tls: 'node:tls',
+      util: 'node:util',
+    },
+  });
+
+  const mf = new Miniflare({
+    modules: true,
+    scriptPath: PARITY_BUNDLE,
+    compatibilityDate: '2024-11-01',
+    compatibilityFlags: ['nodejs_compat'],
+  });
+
+  try {
+    const res = await mf.dispatchFetch('http://localhost/');
+    const report = (await res.json()) as {
+      matcher: { sets: Array<{ name: string; requests: number }>; mismatches: string[] };
+      app: { requests: number; mismatches: string[] };
+    };
+    assert.deepEqual(report.matcher.mismatches, [], 'matcher differential mismatches under workerd');
+    assert.deepEqual(report.app.mismatches, [], 'app.fetch parity mismatches under workerd');
+    const requests = report.matcher.sets.reduce((sum, set) => sum + set.requests, 0);
+    console.log(
+      `edge (workerd): router parity — ${requests} matcher cases + ${report.app.requests} app.fetch cases — PASS`,
+    );
   } finally {
     await mf.dispose();
   }
@@ -164,7 +217,9 @@ async function exchange(mf: Miniflare, url: string, frames: string[], ms = 1000)
   return result;
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .then(parity)
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

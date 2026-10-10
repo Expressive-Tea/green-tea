@@ -7,49 +7,11 @@ import http from 'http';
 import net from 'net';
 import type { AddressInfo } from 'net';
 import { describe, it, afterAll, beforeAll } from 'vitest';
-import { createApp, Route, Get, Post, Delete, Module, param } from '../../src/index';
+import { createApp, Route, Get, Module } from '../../src/index';
+import { ALLOW_REQUESTS, CrossAllowModule, fetchRequest, type Seen } from './app-fixture';
 import type { App } from '../../src/app/types';
 import type { Logger } from '../../src/logger';
 import { frozen, expectFrozenEqual } from './frozen';
-
-// `/ca` is GET :id + POST b; `/cb` adds DELETE :rest*. Two prefixes because one app cannot hold both
-// variants at the same path.
-@Route('/')
-class CrossAllow {
-  @Get('/ca/:id') caGet(@param() p: Record<string, string>) {
-    return { id: 'caGet', p };
-  }
-  @Post('/ca/b') caPost() {
-    return { id: 'caPost' };
-  }
-  @Get('/cb/:id') cbGet(@param() p: Record<string, string>) {
-    return { id: 'cbGet', p };
-  }
-  @Post('/cb/b') cbPost() {
-    return { id: 'cbPost' };
-  }
-  @Delete('/cb/:rest*') cbDelete(@param() p: Record<string, string>) {
-    return { id: 'cbDelete', p };
-  }
-}
-@Module({ mountpoint: '/', controllers: [CrossAllow] })
-class CrossAllowModule {}
-
-const ALLOW_REQUESTS: Array<[string, string]> = ['/ca', '/cb'].flatMap((base): Array<[string, string]> => [
-  ['PUT', `${base}/b`],
-  ['OPTIONS', `${base}/b`],
-  ['PUT', `${base}/x`],
-  ['HEAD', `${base}/b`],
-  ['PUT', `${base}/x/y`],
-]);
-
-interface Seen {
-  method: string;
-  path: string;
-  status: number;
-  allow: string | null;
-  body: string;
-}
 
 function nodeRequest(port: number, method: string, path: string): Promise<Seen> {
   return new Promise((resolve, reject) => {
@@ -64,11 +26,6 @@ function nodeRequest(port: number, method: string, path: string): Promise<Seen> 
     req.on('error', reject);
     req.end();
   });
-}
-
-async function fetchRequest(app: App, method: string, path: string): Promise<Seen> {
-  const res = await app.fetch(new Request(`http://parity.test${path}`, { method }));
-  return { method, path, status: res.status, allow: res.headers.get('allow'), body: await res.text() };
 }
 
 // ── mesh: the HTTP route table across a peer's lifetime ─────────────────────────────────────────

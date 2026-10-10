@@ -49,4 +49,19 @@ Application-level, WS, boot and introspection files are compared against the liv
 because there is no second implementation of `app.fetch` to diff against; the frozen capture plays
 the oracle's role.
 
+### On every runtime
+
+`differential.ts` and `app-fixture.ts` hold the same comparison with no vitest and no file API, so
+it runs unchanged on Deno (`test/deno/router-parity.test.ts`), Bun (`test/bun/router-parity.test.ts`)
+and workerd (`test/edge/parity-worker.ts`, driven by `test/edge/run.ts`). Each runtime runs every frozen
+matcher case through both the oracle and the live router, plus the `app.fetch` cases from
+`app-fetch.json` and `owner-app-allow.json`. The Node-socket, WS-upgrade, boot and mesh files stay
+Node-only: they need `http.request`, the `ws` client, or a mesh peer listening on a port.
+
+### Mutation check
+
+`npm run parity:mutants` (not part of `npm test`) applies targeted mutants modelling likely radix
+bugs to a temporary copy of `src/`, runs this suite against each, and reports which were killed.
+`src/` itself is never modified.
+
 The performance half of the baseline is in `bench/lookup.ts` and `bench/baseline/router-ed47836/`.

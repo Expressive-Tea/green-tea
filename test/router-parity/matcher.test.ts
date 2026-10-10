@@ -7,10 +7,10 @@
  * for a radix index behind the same exports, the same test compares oracle against radix with no
  * edit here.
  */
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { describe, it, expect, beforeAll } from 'vitest';
 import * as live from '../../src/http/router';
-import { matchWsRoute as liveMatchWsRoute } from '../../src/http/ws-core';
-import type { WsRouteDef } from '../../src/http/types';
 import * as oracle from './oracle';
 import { runScenario, type MatcherImpl, type Outcome, type Scenario } from './matcher';
 import { HAND_SCENARIOS, OWNER_SCENARIOS } from './cases';
@@ -25,6 +25,7 @@ import {
   GENERATOR_V2_VERSION,
 } from './generator';
 import { frozen, expectFrozenEqual } from './frozen';
+import { runDifferential, runWsMatcher, LIVE_WS_MATCHER, ORACLE_WS_MATCHER } from './differential';
 
 const LIVE: MatcherImpl = live;
 const ORACLE: MatcherImpl = oracle;
@@ -139,34 +140,17 @@ describe(`router parity: generated shared-prefix cases (${GENERATOR_V2_VERSION},
 
 describe('router parity: WebSocket matcher (first registered wins)', () => {
   // WS selection is a separate contract from HTTP: no specificity ranking, registration order only.
-  // Paths are fed already normalized, as both upgrade adapters do since #117.
-  type WsDecl = WsRouteDef & { id: string };
-  type WsMatcher = (
-    routes: WsRouteDef[],
-    path: string,
-  ) => { def: WsRouteDef; params: Record<string, string> | undefined } | undefined;
-  const ws = (id: string, pattern: string): WsDecl => ({ id, pattern, open: async () => (async function* () {})() });
-  const overlap = [ws('param', '/ws/:id'), ws('static', '/ws/static'), ws('rest', '/ws/:rest*')];
-  const scenarios = [
-    { id: 'W01-overlap', routes: overlap },
-    { id: 'W02-overlap-reversed', routes: [...overlap].reverse() },
-    { id: 'W03-catch-all-first', routes: [ws('rest', '/w/:rest*'), ws('exact', '/w')] },
-  ];
-  const paths = ['/ws/static', '/ws/x', '/ws/a%20b', '/ws', '/ws/x/y', '/w', '/w/a%2Fb/c', '/nope'];
-
-  const run = (matchWs: WsMatcher) =>
-    scenarios.map(({ id, routes }) => ({
-      id,
-      declarations: routes.map((route) => ({ id: route.id, pattern: route.pattern })),
-      outcomes: paths.map((path) => {
-        const hit = matchWs(routes, path);
-        return { path, route: hit ? { id: (hit.def as WsDecl).id, params: hit.params } : null };
-      }),
-    }));
-
   it('oracle and live matchWsRoute equal the frozen capture', async () => {
-    const expected = await frozen('matcher-ws', () => run(liveMatchWsRoute));
-    expectFrozenEqual(run(oracle.matchWsRoute), expected, 'ws oracle');
-    expectFrozenEqual(run(liveMatchWsRoute), expected, 'ws live');
+    const expected = await frozen('matcher-ws', () => runWsMatcher(LIVE_WS_MATCHER));
+    expectFrozenEqual(runWsMatcher(ORACLE_WS_MATCHER), expected, 'ws oracle');
+    expectFrozenEqual(runWsMatcher(LIVE_WS_MATCHER), expected, 'ws live');
+  });
+});
+
+describe('router parity: runtime-neutral differential (the one Deno, Bun and workerd run)', () => {
+  it('reports no mismatch on Node', async () => {
+    const dir = join(__dirname, 'frozen');
+    const report = await runDifferential((name) => JSON.parse(readFileSync(join(dir, `${name}.json`), 'utf8')));
+    expect(report.mismatches).toEqual([]);
   });
 });
