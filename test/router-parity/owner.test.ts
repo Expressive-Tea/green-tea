@@ -7,8 +7,8 @@ import http from 'http';
 import net from 'net';
 import type { AddressInfo } from 'net';
 import { describe, it, afterAll, beforeAll } from 'vitest';
-import { createApp, Route, Get, Module } from '../../src/index';
-import { ALLOW_REQUESTS, CrossAllowModule, fetchRequest, type Seen } from './app-fixture';
+import { createApp, Route, Get, Post, Module } from '../../src/index';
+import { ALLOW_REQUESTS, CrossAllowModule, fetchRequest, stableHeaders, type Seen } from './app-fixture';
 import type { App } from '../../src/app/types';
 import type { Logger } from '../../src/logger';
 import { frozen, expectFrozenEqual } from './frozen';
@@ -128,6 +128,104 @@ async function meshLifetimes() {
   return results;
 }
 
+// ── mesh: local and remote routes answering one path (CARD-07 indexes them as two trees) ─────────
+
+@Route('/')
+class RemoteMixCtl {
+  // Same path as a local GET, another method.
+  @Post('/dup/ping', { export: true }) dupPost() {
+    return { from: 'teapot', route: 'POST /api/dup/ping' };
+  }
+  // A remote param route overlapping a local static one.
+  @Post('/v/:id', { export: true }) vPost() {
+    return { from: 'teapot', route: 'POST /api/v/:id' };
+  }
+  // Remote only: remote routes are `buffer`, so the teacup's router resolves HEAD to it implicitly.
+  // Captured as observed at ed47836: the teacup forwards the request as HEAD, the teapot looks its
+  // plan up by (pattern, method) and has none for HEAD, so HEAD answers 404 while OPTIONS still
+  // advertises HEAD. That is the mesh proxy's behaviour, not the matcher's; CARD-07 must keep it.
+  @Get('/x', { export: true }) x() {
+    return { from: 'teapot', route: 'GET /api/x' };
+  }
+}
+@Module({ mountpoint: '/api', controllers: [RemoteMixCtl] })
+class RemoteMixTeapotModule {}
+
+@Route('/')
+class LocalMixCtl {
+  @Get('/dup/ping') dupGet() {
+    return { from: 'teacup', route: 'GET /api/dup/ping' };
+  }
+  @Get('/v/b') vGet() {
+    return { from: 'teacup', route: 'GET /api/v/b' };
+  }
+}
+@Module({ mountpoint: '/api', controllers: [LocalMixCtl] })
+class LocalMixTeacupModule {}
+
+const MIX_REQUESTS: Array<[string, string]> = [
+  ...['PUT', 'OPTIONS', 'HEAD', 'GET', 'POST'].map((m): [string, string] => [m, '/api/dup/ping']),
+  ...['PUT', 'OPTIONS', 'HEAD', 'GET', 'POST'].map((m): [string, string] => [m, '/api/v/b']),
+  ...['PUT', 'OPTIONS', 'HEAD', 'GET'].map((m): [string, string] => [m, '/api/v/c']),
+  ...['HEAD', 'GET', 'OPTIONS', 'PUT'].map((m): [string, string] => [m, '/api/x']),
+];
+
+/** Full stable headers for both adapters, so HEAD body suppression and content headers are visible. */
+async function mixedTable() {
+  const teapot = createApp({ modules: [RemoteMixTeapotModule], experimental: true, mesh: { secret: SECRET } });
+  const tServer = await teapot.listen(0);
+  const url = `ws://127.0.0.1:${(tServer.address() as AddressInfo).port}/__mesh__/control`;
+  const teacup = createApp({
+    modules: [LocalMixTeacupModule],
+    experimental: true,
+    logger: quiet,
+    mesh: { teapots: [{ url, secret: SECRET }], reconnect: false },
+  });
+
+  try {
+    const port = ((await teacup.listen(0)).address() as AddressInfo).port;
+    const out = [];
+    for (const [method, path] of MIX_REQUESTS) {
+      const res = await teacup.fetch(new Request(`http://parity.test${path}`, { method }));
+      out.push({
+        adapter: 'fetch',
+        method,
+        path,
+        status: res.status,
+        headers: stableHeaders(res.headers),
+        body: await res.text(),
+      });
+    }
+    for (const [method, path] of MIX_REQUESTS) {
+      const seen = await nodeRequestWithHeaders(port, method, path);
+      out.push({ adapter: 'node', method, path, ...seen });
+    }
+    return out;
+  } finally {
+    await teacup.close();
+    await teapot.close();
+  }
+}
+
+function nodeRequestWithHeaders(port: number, method: string, path: string) {
+  return new Promise<{ status: number; headers: Record<string, string>; body: string }>((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, method, path, agent: false }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => (body += chunk));
+      res.on('end', () => {
+        const headers = Object.entries(res.headers).map(([k, v]): [string, string] => [
+          k,
+          Array.isArray(v) ? v.join(', ') : String(v),
+        ]);
+        resolve({ status: res.statusCode ?? 0, headers: stableHeaders(headers), body });
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 describe('router parity: owner-requested application cases', () => {
   let fetchApp: App;
   let nodeApp: App;
@@ -157,5 +255,10 @@ describe('router parity: owner-requested application cases', () => {
   it('the mesh HTTP route table across a peer lifetime equals the frozen capture', async () => {
     const expected = await frozen('owner-mesh-lifetime', meshLifetimes);
     expectFrozenEqual(await meshLifetimes(), expected, 'mesh lifetime');
+  }, 30_000);
+
+  it('local and remote routes on one path: Allow union, precedence and remote implicit HEAD equal the frozen capture', async () => {
+    const expected = await frozen('owner-mesh-allow', mixedTable);
+    expectFrozenEqual(await mixedTable(), expected, 'mesh local/remote mix');
   }, 30_000);
 });
