@@ -10,15 +10,21 @@
  *
  *   npm run bench:lookup
  *   LOOKUP_ROUTERS="base=/tmp/base/src/http/router.ts,head=src/http/router.ts" npm run bench:lookup
+ *   LOOKUP_ROUTERS="live=src/http/router.ts,oracle=test/router-parity/oracle.ts" npm run bench:lookup   # A/A
  *
- * Each implementation is a module exporting `resolveRoute` and `allowedMethods` with the
- * `src/http/router.ts` signatures. With several, every run measures all of them in separate child
- * processes, alternating which goes first, on the same generated tables. Do not edit the generator,
- * the workloads or the defaults below between a baseline and its comparison — they are the method.
+ * Each router is a module exporting `resolveRoute` and `allowedMethods` with the `src/http/router.ts`
+ * signatures. All routers are loaded into the same process and **interleaved**: per cell, every
+ * router is warmed, then each round takes one sample from each router, alternating which goes first
+ * (AB, BA, AB, ...). Every router after the first is reported against the first as the median of the
+ * per-round B/A ratios, with a bootstrap 95% CI. Interleaving puts drift and background load on both
+ * sides of each ratio instead of on whichever ran later. With one router it reports absolute numbers
+ * only. Do not edit the generator, the workloads or the defaults between a baseline and its
+ * comparison: they are the method.
  *
- * Env: `LOOKUP_ROUTERS` (label=path list, default `live=src/http/router.ts`), `LOOKUP_RUNS` (5),
- * `LOOKUP_SAMPLES` (21 per cell per run), `LOOKUP_SAMPLE_MS` (25), `LOOKUP_WARMUP_MS` (250),
- * `LOOKUP_OUT` (bench/lookup-results.json).
+ * Env: `LOOKUP_ROUTERS` (label=path list, default `live=src/http/router.ts`), `LOOKUP_RUNS` (4 fresh
+ * processes, import order alternating), `LOOKUP_ROUNDS` (21 per cell per run, minimum 15), `LOOKUP_SAMPLE_MS` (25),
+ * `LOOKUP_WARMUP_MS` (250 per router per cell), `LOOKUP_OUT` (bench/lookup-results.json). Any other
+ * `LOOKUP_*` variable (e.g. `LOOKUP_HOST`, `LOOKUP_CPUSET`) is copied into the record as a note.
  */
 import { spawn, execFileSync } from 'child_process';
 import { writeFileSync, readFileSync } from 'fs';
@@ -27,8 +33,9 @@ import { dirname, resolve } from 'path';
 import { pathToFileURL } from 'url';
 
 const ROUTE_COUNTS = [10, 100, 500];
-const RUNS = Number(process.env.LOOKUP_RUNS ?? 5);
-const SAMPLES = Number(process.env.LOOKUP_SAMPLES ?? 21);
+const RUNS = Number(process.env.LOOKUP_RUNS ?? 4);
+const ROUNDS = Math.max(15, Number(process.env.LOOKUP_ROUNDS ?? 21));
+const BOOTSTRAP = 4000;
 const SAMPLE_MS = Number(process.env.LOOKUP_SAMPLE_MS ?? 25);
 const WARMUP_MS = Number(process.env.LOOKUP_WARMUP_MS ?? 250);
 const OUT = process.env.LOOKUP_OUT ?? 'bench/lookup-results.json';
@@ -98,16 +105,23 @@ function lookup(router: RouterModule, routes: Route[], w: Workload): string {
 interface Cell {
   routes: number;
   workload: string;
-  iterations: number;
-  samplesNs: number[];
+  /** Calibrated per router; a sample is `iterations` lookups. */
+  iterations: Record<string, number>;
+  /** Round order, e.g. ['live', 'oracle'] then ['oracle', 'live']. */
+  orders: string[][];
+  /** One entry per router, one sample (ns per lookup) per round, in round order. */
+  samplesNs: Record<string, number[]>;
 }
 
-function measure(router: RouterModule, routes: Route[], w: Workload): { iterations: number; samplesNs: number[] } {
+type Loaded = Array<{ label: string; router: RouterModule }>;
+
+let sink = 0;
+
+function warm(router: RouterModule, routes: Route[], w: Workload): number {
   const answer = lookup(router, routes, w);
   if (answer !== w.expect) throw new Error(`${w.name} @ ${routes.length}: expected '${w.expect}', got '${answer}'`);
 
-  // Warm-up, time-boxed; it also calibrates how many iterations make one sample last SAMPLE_MS.
-  let sink = 0;
+  // Time-boxed; it also calibrates how many iterations make one sample last SAMPLE_MS.
   let ops = 0;
   const warmStart = process.hrtime.bigint();
   const warmBudget = BigInt(WARMUP_MS * 1_000_000);
@@ -116,41 +130,63 @@ function measure(router: RouterModule, routes: Route[], w: Workload): { iteratio
     ops += 100;
   }
   const nsPerOp = Number(process.hrtime.bigint() - warmStart) / ops;
-  const iterations = Math.max(100, Math.round((SAMPLE_MS * 1e6) / nsPerOp));
+  return Math.max(100, Math.round((SAMPLE_MS * 1e6) / nsPerOp));
+}
 
-  const samplesNs: number[] = [];
-  for (let s = 0; s < SAMPLES; s++) {
-    const start = process.hrtime.bigint();
-    for (let i = 0; i < iterations; i++) sink += lookup(router, routes, w).length;
-    samplesNs.push(Number(process.hrtime.bigint() - start) / iterations);
+function sample(router: RouterModule, routes: Route[], w: Workload, iterations: number): number {
+  const start = process.hrtime.bigint();
+  for (let i = 0; i < iterations; i++) sink += lookup(router, routes, w).length;
+  return Number(process.hrtime.bigint() - start) / iterations;
+}
+
+function measureCell(loaded: Loaded, routes: Route[], w: Workload): Cell {
+  const iterations: Record<string, number> = {};
+  const samplesNs: Record<string, number[]> = {};
+  const orders: string[][] = [];
+
+  for (const { label, router } of loaded) {
+    iterations[label] = warm(router, routes, w);
+    samplesNs[label] = [];
+  }
+
+  for (let round = 0; round < ROUNDS; round++) {
+    const order = round % 2 === 0 ? loaded : [...loaded].reverse();
+    orders.push(order.map(({ label }) => label));
+    for (const { label, router } of order) samplesNs[label].push(sample(router, routes, w, iterations[label]));
+  }
+
+  return { routes: routes.length, workload: w.name, iterations, orders, samplesNs };
+}
+
+async function child(routers: Array<[string, string]>): Promise<void> {
+  // Import order alternates per run (LOOKUP_IMPORT_REVERSED): which copy V8 sees first can bias an
+  // in-process comparison of otherwise identical code, and alternating spreads that over both sides.
+  const imports = process.env.LOOKUP_IMPORT_REVERSED === '1' ? [...routers].reverse() : routers;
+  const modules = new Map<string, RouterModule>();
+  for (const [label, path] of imports)
+    modules.set(label, (await import(pathToFileURL(resolve(path)).href)) as RouterModule);
+  const loaded: Loaded = routers.map(([label]) => ({ label, router: modules.get(label)! }));
+
+  const cells: Cell[] = [];
+  for (const count of ROUTE_COUNTS) {
+    const routes = buildRoutes(count);
+    for (const w of WORKLOADS) cells.push(measureCell(loaded, routes, w));
   }
 
   if (sink === 42) process.stderr.write(''); // keeps `sink` observable
-  return { iterations, samplesNs };
+  process.stdout.write(`${JSON.stringify({ cells })}\n`);
 }
 
-async function child(label: string, path: string): Promise<void> {
-  const router = (await import(pathToFileURL(resolve(path)).href)) as RouterModule;
-  const cells: Cell[] = [];
-
-  for (const count of ROUTE_COUNTS) {
-    const routes = buildRoutes(count);
-    for (const w of WORKLOADS) cells.push({ routes: count, workload: w.name, ...measure(router, routes, w) });
-  }
-
-  process.stdout.write(`${JSON.stringify({ label, cells })}\n`);
-}
-
-function runChild(label: string, path: string): Promise<{ label: string; cells: Cell[] }> {
+function runChild(spec: string, importReversed: boolean): Promise<{ cells: Cell[] }> {
   return new Promise((resolvePromise, reject) => {
     const proc = spawn(process.execPath, ['--import', 'tsx', 'bench/lookup.ts'], {
-      env: { ...process.env, LOOKUP_CHILD: `${label}=${path}` },
+      env: { ...process.env, LOOKUP_CHILD: spec, LOOKUP_IMPORT_REVERSED: importReversed ? '1' : '0' },
       stdio: ['ignore', 'pipe', 'inherit'],
     });
     let out = '';
     proc.stdout.on('data', (d) => (out += d));
     proc.on('exit', (code) =>
-      code === 0 ? resolvePromise(JSON.parse(out)) : reject(new Error(`${label} exited ${code}`)),
+      code === 0 ? resolvePromise(JSON.parse(out)) : reject(new Error(`child exited ${code}`)),
     );
   });
 }
@@ -161,33 +197,62 @@ const median = (xs: number[]): number => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
+/** Deterministic PRNG for the bootstrap, so the same raw samples always give the same interval. */
+function mulberry32(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Percentile bootstrap 95% CI of the median of `xs`. */
+function bootstrapMedianCi(xs: number[]): [number, number] {
+  const rng = mulberry32(10908);
+  const medians: number[] = [];
+  for (let b = 0; b < BOOTSTRAP; b++) medians.push(median(xs.map(() => xs[Math.floor(rng() * xs.length)])));
+  medians.sort((a, b) => a - b);
+  return [medians[Math.floor(BOOTSTRAP * 0.025)], medians[Math.ceil(BOOTSTRAP * 0.975) - 1]];
+}
+
 function git(cwd: string, ...args: string[]): string {
   try {
-    return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+    return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch {
     return 'unavailable';
   }
+}
+
+function cpuset(): string {
+  for (const file of ['/sys/fs/cgroup/cpuset.cpus.effective', '/sys/fs/cgroup/cpuset/cpuset.effective_cpus']) {
+    try {
+      return readFileSync(file, 'utf8').trim();
+    } catch {
+      /* not Linux, or not this cgroup layout */
+    }
+  }
+  return 'n/a';
 }
 
 function environment(routers: Array<[string, string]>) {
   const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { name: string; version: string };
   return {
     startedAt: new Date().toISOString(),
+    hostname: os.hostname(),
     node: process.version,
     v8: process.versions.v8,
     platform: `${os.platform()} ${os.release()} ${os.arch()}`,
     cpu: os.cpus()[0]?.model,
     cpus: os.cpus().length,
+    cpuset: cpuset(),
     memoryBytes: os.totalmem(),
     loadavgAtStart: os.loadavg(),
     package: `${pkg.name}@${pkg.version}`,
-    harnessCommit: git('.', 'rev-parse', 'HEAD'),
-    routers: routers.map(([label, path]) => ({
-      label,
-      path,
-      commit: git(dirname(resolve(path)), 'rev-parse', 'HEAD'),
-      dirty: git(dirname(resolve(path)), 'status', '--porcelain', '--', resolve(path)) !== '',
-    })),
+    harnessCommit: process.env.LOOKUP_COMMIT ?? git('.', 'rev-parse', 'HEAD'),
+    routers: routers.map(([label, path]) => ({ label, path })),
     env: Object.fromEntries(
       Object.entries(process.env).filter(([k]) => k.startsWith('LOOKUP_') || k === 'NODE_OPTIONS'),
     ),
@@ -197,72 +262,90 @@ function environment(routers: Array<[string, string]>) {
       routeGenerator: ROUTE_GENERATOR,
       workloads: WORKLOADS,
       workloadOrder:
-        'for each run: for each router (order alternates per run): for count in routeCounts: for workload in workloads',
+        'for each run (fresh process; module import order reversed on even-numbered runs): for count in routeCounts: ' +
+        'for workload in workloads: warm every router, ' +
+        'then ROUNDS rounds of one sample per router, order alternating AB/BA per round',
       operation: 'resolveRoute(routes, method, path); on undefined, allowedMethods(routes, path)',
       runs: RUNS,
-      samplesPerCellPerRun: SAMPLES,
+      roundsPerCellPerRun: ROUNDS,
       sampleMs: SAMPLE_MS,
-      warmupMsPerCell: WARMUP_MS,
+      warmupMsPerRouterPerCell: WARMUP_MS,
+      ratio: 'per round, sample(B) / sample(A) with A the first router; median over all rounds of all runs',
+      ci: `percentile bootstrap of the median ratio, ${BOOTSTRAP} resamples, seed 10908`,
       unit: 'ns per lookup (sample time / iterations)',
     },
   };
 }
 
-async function main(): Promise<void> {
-  if (process.env.LOOKUP_CHILD) {
-    const [label, path] = process.env.LOOKUP_CHILD.split('=');
-    return child(label, path);
-  }
-
-  const routers = (process.env.LOOKUP_ROUTERS ?? 'live=src/http/router.ts')
-    .split(',')
-    .map((entry) => entry.split('=') as [string, string]);
-  const meta = environment(routers);
-  const runs: Array<{ run: number; order: string[]; label: string; cells: Cell[] }> = [];
-
-  for (let run = 0; run < RUNS; run++) {
-    const order = run % 2 === 0 ? routers : [...routers].reverse();
-    for (const [label, path] of order) {
-      const result = await runChild(label, path);
-      runs.push({ run: run + 1, order: order.map(([l]) => l), ...result });
-      process.stderr.write(`[lookup] run ${run + 1}/${RUNS} ${label} done\n`);
-    }
-  }
-
-  const summary = routers.flatMap(([label]) =>
-    ROUTE_COUNTS.flatMap((count) =>
-      WORKLOADS.map((w) => {
-        const cells = runs
-          .filter((r) => r.label === label)
-          .map((r) => r.cells.find((c) => c.routes === count && c.workload === w.name)!);
-        const runMedians = cells.map((c) => median(c.samplesNs));
-        const all = cells.flatMap((c) => c.samplesNs);
-        const med = median(all);
+function summarize(labels: string[], runs: Array<{ run: number; cells: Cell[] }>) {
+  return ROUTE_COUNTS.flatMap((count) =>
+    WORKLOADS.map((w) => {
+      const cells = runs.map((r) => r.cells.find((c) => c.routes === count && c.workload === w.name)!);
+      const routers = labels.map((label) => {
+        const runMedians = cells.map((c) => median(c.samplesNs[label]));
+        const med = median(cells.flatMap((c) => c.samplesNs[label]));
         return {
           router: label,
-          routes: count,
-          workload: w.name,
           medianNs: med,
           runMediansNs: runMedians,
           runSpreadPct: ((Math.max(...runMedians) - Math.min(...runMedians)) / med) * 100,
         };
-      }),
-    ),
+      });
+      const ratios = labels.slice(1).map((label) => {
+        const paired = cells.flatMap((c) => c.samplesNs[label].map((b, i) => b / c.samplesNs[labels[0]][i]));
+        const [low, high] = bootstrapMedianCi(paired);
+        return { b: label, a: labels[0], medianRatio: median(paired), ci95: [low, high], rounds: paired.length };
+      });
+      return { routes: count, workload: w.name, routers, ratios };
+    }),
   );
+}
 
+const pct = (ratio: number): string => `${ratio >= 1 ? '+' : ''}${((ratio - 1) * 100).toFixed(1)}%`;
+
+async function main(): Promise<void> {
+  const spec = process.env.LOOKUP_CHILD
+    ? process.env.LOOKUP_CHILD
+    : (process.env.LOOKUP_ROUTERS ?? 'live=src/http/router.ts');
+  const routers = spec.split(',').map((entry) => entry.split('=') as [string, string]);
+  if (process.env.LOOKUP_CHILD) return child(routers);
+
+  const labels = routers.map(([label]) => label);
+  const meta = environment(routers);
+  const runs: Array<{ run: number; importReversed: boolean; cells: Cell[] }> = [];
+
+  for (let run = 0; run < RUNS; run++) {
+    runs.push({ run: run + 1, importReversed: run % 2 === 1, ...(await runChild(spec, run % 2 === 1)) });
+    process.stderr.write(`[lookup] run ${run + 1}/${RUNS} done\n`);
+  }
+
+  const summary = summarize(labels, runs);
   const loadavgAtEnd = os.loadavg();
   writeFileSync(OUT, `${JSON.stringify({ meta: { ...meta, loadavgAtEnd }, summary, runs }, null, 2)}\n`);
 
-  console.log('| router | routes | workload | median ns/op | run medians (ns) | run spread |');
+  console.log('| routes | workload | router | median ns/op | run medians (ns) | run spread |');
   console.log('| --- | --- | --- | --- | --- | --- |');
-  for (const row of summary) {
-    const runsText = row.runMediansNs.map((n) => n.toFixed(1)).join(' / ');
-    console.log(
-      `| ${row.router} | ${row.routes} | ${row.workload} | ${row.medianNs.toFixed(1)} | ${runsText} | ${row.runSpreadPct.toFixed(1)}% |`,
-    );
+  for (const cell of summary)
+    for (const r of cell.routers)
+      console.log(
+        `| ${cell.routes} | ${cell.workload} | ${r.router} | ${r.medianNs.toFixed(1)} | ` +
+          `${r.runMediansNs.map((n) => n.toFixed(1)).join(' / ')} | ${r.runSpreadPct.toFixed(1)}% |`,
+      );
+
+  if (labels.length > 1) {
+    console.log('\n| routes | workload | B / A | median ratio | 95% CI | rounds |');
+    console.log('| --- | --- | --- | --- | --- | --- |');
+    for (const cell of summary)
+      for (const r of cell.ratios)
+        console.log(
+          `| ${cell.routes} | ${cell.workload} | ${r.b} / ${r.a} | ${r.medianRatio.toFixed(4)} (${pct(r.medianRatio)}) | ` +
+            `${r.ci95.map((x) => x.toFixed(4)).join(' – ')} (${pct(r.ci95[0])} … ${pct(r.ci95[1])}) | ${r.rounds} |`,
+        );
   }
+
   console.log(
-    `\nload average: start ${meta.loadavgAtStart.map((n) => n.toFixed(2)).join(' ')}, end ${loadavgAtEnd.map((n) => n.toFixed(2)).join(' ')}`,
+    `\nload average: start ${meta.loadavgAtStart.map((n) => n.toFixed(2)).join(' ')}, ` +
+      `end ${loadavgAtEnd.map((n) => n.toFixed(2)).join(' ')}; cpuset ${meta.cpuset}`,
   );
   console.log(`raw samples: ${OUT}`);
 }
