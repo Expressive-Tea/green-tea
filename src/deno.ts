@@ -3,8 +3,8 @@ import { eventSocket, toWsRequest, upgradeSafely, type EventfulSocket } from './
 import { closeWithDeadline } from './http/shutdown';
 import { setPeer } from './http/peer';
 
-// The project tsconfig's `lib` doesn't include `DOM`, and the installed `@types/node` (18.x)
-// doesn't declare a global `WebSocket` either — so we ambient-declare just the shape we use.
+// The project tsconfig's `lib` doesn't include `DOM`, so we ambient-declare just the shape of
+// Deno's `WebSocket` we use rather than rely on whichever global `@types/node` happens to declare.
 interface WebSocket extends EventfulSocket {
   binaryType: string;
 }

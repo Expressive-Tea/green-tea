@@ -27,7 +27,7 @@
         "npm:@types/autocannon@^7.12.7",
         "npm:@types/busboy@^1.5.4",
         "npm:@types/express@^5.0.6",
-        "npm:@types/node@^18.19.0",
+        "npm:@types/node@^22.20.5",
         "npm:@types/ws@^8.18.1",
         "npm:autocannon@8",
         "npm:busboy@^1.6.0",
@@ -35,7 +35,7 @@
         "npm:esbuild@0.27.2",
         "npm:eslint@^9.39.5",
         "npm:express@^5.2.1",
-        "npm:fastify@^5.11.0",
+        "npm:fastify@^5.12.5",
         "npm:graphql@^16.9.0",
         "npm:miniflare@^4.20260730.0",
         "npm:prettier@^3.9.6",
@@ -46,7 +46,7 @@
         "npm:typescript-eslint@^8.65.0",
         "npm:typescript@^5.5.0",
         "npm:vite@^6.4.3",
-        "npm:vitest@^3.2.7",
+        "npm:vitest@^4.1.11",
         "npm:ws@^8.21.1"
       ],
       "overrides": {
@@ -56,7 +56,9 @@
             "uuid": "11.1.1"
           }
         },
-        "undici": "7.29.0"
+        "undici": "7.29.1",
+        "sharp": "0.35.5",
+        "fastify": "$fastify"
       }
     }
   }

@@ -284,7 +284,7 @@ green-tea is **beta**, on the road to a release candidate. Express and Fastify h
 
 **What is not here:** no metrics registry, and **no OpenTelemetry exporter in core** — that is a separate package, because core has one runtime dependency and intends to keep it. A `traceparent` header is carried through untouched for an exporter to interpret; core implements no propagation spec. If your definition of production-ready includes shipping traces on day one, you are writing the exporter, and the stream it needs is the part that now exists.
 
-**Runtimes differ in what they can offer.** Node ≥ 18, Deno, and Bun run everything. On the edge (Cloudflare Workers) there is no `app.listen()`, no filesystem — so `@Html` file/template modes and `static` serving are unavailable — and mesh does not run there at all (the teapot's secret comparison needs `node:crypto`'s `timingSafeEqual`, which `nodejs_compat` doesn't provide). Workers also require the `nodejs_compat` flag.
+**Runtimes differ in what they can offer.** Node ≥ 22, Deno, and Bun run everything. On the edge (Cloudflare Workers) there is no `app.listen()`, no filesystem — so `@Html` file/template modes and `static` serving are unavailable — and mesh does not run there at all (the teapot's secret comparison needs `node:crypto`'s `timingSafeEqual`, which `nodejs_compat` doesn't provide). Workers also require the `nodejs_compat` flag.
 
 **mesh is alpha.** Distributed DI works, but discovery, load-balancing, and failover are not built, and its API and wire protocol may change between releases. It is gated behind an explicit opt-in — `createApp({ mesh, experimental: true })` — and `createApp` throws if you configure `mesh` without it. Don't ship mesh to production yet.
 
