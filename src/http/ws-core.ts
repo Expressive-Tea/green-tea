@@ -69,26 +69,29 @@ function exceedsBytes(msg: unknown, max: number): boolean {
  *
  * Subscribes to `socket.inbound` immediately. `channel` is fan-out, so a frame pushed with no
  * subscriber is lost; subscribing here, before any boot or step runs, is what keeps the first
- * frames — for the mesh control channel, the `hello` itself. The returned socket's `inbound` is a
- * single-consumer FIFO over those frames, and every other capability is the original socket's.
+ * frames — for the mesh control channel, the `hello` itself. Those early frames go to the first
+ * consumer. After that the returned `inbound` fans out like `channel`: each iterator gets every
+ * frame from the moment it subscribes, through its own queue, and the bound applies to each queue.
+ * Every other capability is the original socket's.
  */
 export function boundInbound(
   socket: WsSocket,
   limits?: Pick<RequestLimits, 'maxWsMessageBytes' | 'maxWsQueue'>,
 ): WsSocket {
-  const fifo = new InboundFifo(socket, wsMessageBytes(limits), limits?.maxWsQueue ?? DEFAULT_MAX_WS_QUEUE);
+  const fanout = new InboundFanout(socket, wsMessageBytes(limits), limits?.maxWsQueue ?? DEFAULT_MAX_WS_QUEUE);
 
-  void fifo.pump();
+  void fanout.pump();
 
   return Object.create(socket, {
-    inbound: { value: { [Symbol.asyncIterator]: () => fifo } },
+    inbound: { value: { [Symbol.asyncIterator]: () => fanout.subscribe() } },
   }) as WsSocket;
 }
 
-/** The single-consumer queue behind {@link boundInbound}; it is its own async iterator. */
-class InboundFifo implements AsyncIterator<unknown> {
-  private readonly queue: unknown[] = [];
-  private waiter: { resolve: (r: IteratorResult<unknown>) => void; reject: (e: unknown) => void } | null = null;
+/** The fan-out behind {@link boundInbound}: one bounded queue per consumer. */
+class InboundFanout {
+  private readonly subs = new Set<InboundSub>();
+  /** Holds the frames that arrive before anyone reads; handed to the first consumer. */
+  private first: InboundSub | null;
   private ended = false;
   private failure: { err: unknown } | null = null;
 
@@ -96,7 +99,9 @@ class InboundFifo implements AsyncIterator<unknown> {
     private readonly socket: WsSocket,
     private readonly maxBytes: number,
     private readonly maxQueue: number,
-  ) {}
+  ) {
+    this.first = this.add();
+  }
 
   async pump(): Promise<void> {
     try {
@@ -110,6 +115,70 @@ class InboundFifo implements AsyncIterator<unknown> {
     }
   }
 
+  subscribe(): AsyncIterator<unknown> {
+    const sub = this.first ?? this.add();
+    this.first = null;
+    return sub;
+  }
+
+  private add(): InboundSub {
+    const sub = new InboundSub(() => this.subs.delete(sub));
+    if (this.ended) sub.settle(this.failure ?? undefined);
+    else this.subs.add(sub);
+    return sub;
+  }
+
+  /** Delivers or queues one frame for every consumer; returns false once it has closed the socket. */
+  private accept(msg: unknown): boolean {
+    if (exceedsBytes(msg, this.maxBytes)) {
+      this.socket.close(1009, 'message too large');
+      return false;
+    }
+
+    for (const sub of this.subs) {
+      if (!sub.offer(msg, this.maxQueue)) {
+        this.socket.close(1013, 'inbound queue full');
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /** Ends every consumer once, cleanly or with a failure; whatever is still queued is delivered first. */
+  private settle(failure?: { err: unknown }): void {
+    if (this.ended) return;
+    this.ended = true;
+    this.failure = failure ?? null;
+    for (const sub of this.subs) sub.settle(failure);
+    this.subs.clear();
+  }
+}
+
+/** One consumer's queue; it is its own async iterator. */
+class InboundSub implements AsyncIterator<unknown> {
+  private readonly queue: unknown[] = [];
+  private waiter: { resolve: (r: IteratorResult<unknown>) => void; reject: (e: unknown) => void } | null = null;
+  private ended = false;
+  private failure: { err: unknown } | null = null;
+
+  constructor(private readonly onReturn: () => void) {}
+
+  /** Hands `msg` to a waiting `next()` or queues it; false when `max` frames are already waiting. */
+  offer(msg: unknown, max: number): boolean {
+    const waiter = this.waiter;
+
+    if (waiter) {
+      this.waiter = null;
+      waiter.resolve({ value: msg, done: false });
+      return true;
+    }
+
+    if (this.queue.length >= max) return false;
+    this.queue.push(msg);
+    return true;
+  }
+
   next(): Promise<IteratorResult<unknown>> {
     if (this.queue.length) return Promise.resolve({ value: this.queue.shift(), done: false });
     if (this.failure) return Promise.reject(this.failure.err);
@@ -120,39 +189,15 @@ class InboundFifo implements AsyncIterator<unknown> {
   }
 
   // A consumer that stops reading has said it wants no more; queueing for it would only close
-  // the connection for a bound it no longer cares about.
+  // the connection for a bound it no longer cares about. Other consumers keep receiving.
   return(): Promise<IteratorResult<unknown>> {
     this.queue.length = 0;
+    this.onReturn();
     this.settle();
     return Promise.resolve({ value: undefined, done: true });
   }
 
-  /** Delivers or queues one frame; returns false once the frame has closed the socket. */
-  private accept(msg: unknown): boolean {
-    if (exceedsBytes(msg, this.maxBytes)) {
-      this.socket.close(1009, 'message too large');
-      return false;
-    }
-
-    const waiter = this.waiter;
-
-    if (waiter) {
-      this.waiter = null;
-      waiter.resolve({ value: msg, done: false });
-      return true;
-    }
-
-    if (this.queue.length >= this.maxQueue) {
-      this.socket.close(1013, 'inbound queue full');
-      return false;
-    }
-
-    this.queue.push(msg);
-    return true;
-  }
-
-  /** Ends the queue once, cleanly or with a failure; whatever is still queued is delivered first. */
-  private settle(failure?: { err: unknown }): void {
+  settle(failure?: { err: unknown }): void {
     if (this.ended) return;
     this.ended = true;
     this.failure = failure ?? null;

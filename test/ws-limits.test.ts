@@ -302,6 +302,44 @@ describe('boundInbound (#107)', () => {
     expect((await it.next()).done).toBe(true);
   });
 
+  it('fans out: two consumers waiting at once both receive the frame', async () => {
+    const { socket, inbound } = fakeSocket();
+    const bounded = boundInbound(socket);
+    const a = bounded.inbound[Symbol.asyncIterator]();
+    const b = bounded.inbound[Symbol.asyncIterator]();
+    const [nextA, nextB] = [a.next(), b.next()];
+    inbound.push('x');
+    expect(await nextA).toEqual({ value: 'x', done: false });
+    expect(await nextB).toEqual({ value: 'x', done: false });
+  });
+
+  it('fans out: a consumer that returns does not end the next one', async () => {
+    const { socket, inbound } = fakeSocket();
+    const bounded = boundInbound(socket);
+    const first = bounded.inbound[Symbol.asyncIterator]();
+    const firstNext = first.next();
+    inbound.push('a');
+    expect(await firstNext).toEqual({ value: 'a', done: false });
+    await first.return?.();
+    const second = bounded.inbound[Symbol.asyncIterator]();
+    const secondNext = second.next();
+    inbound.push('b');
+    expect(await secondNext).toEqual({ value: 'b', done: false });
+  });
+
+  it('fans out: the bound applies to each consumer, so one stalled reader closes 1013', async () => {
+    const { socket, inbound, closes } = fakeSocket();
+    const bounded = boundInbound(socket, { maxWsQueue: 2 });
+    const reader = bounded.inbound[Symbol.asyncIterator]();
+    bounded.inbound[Symbol.asyncIterator](); // subscribed, never reads
+    for (const m of ['a', 'b', 'c']) {
+      const got = reader.next();
+      inbound.push(m);
+      await got;
+    }
+    expect(closes).toEqual([[1013, 'inbound queue full']]);
+  });
+
   it('T15: keeps the socket capabilities other than inbound', () => {
     const { socket } = fakeSocket();
     const bounded = boundInbound(socket);
