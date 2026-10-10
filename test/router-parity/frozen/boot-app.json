@@ -1,0 +1,183 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": [
+    {
+      "id": "B01-duplicate-param",
+      "declarations": [
+        "@Get('/x/:id/:id')"
+      ],
+      "error": {
+        "name": "Error",
+        "message": "invalid route pattern '/x/:id/:id': duplicate parameter 'id'"
+      }
+    },
+    {
+      "id": "B02-nonfinal-catch-all",
+      "declarations": [
+        "@Get('/x/:rest*/tail')"
+      ],
+      "error": {
+        "name": "Error",
+        "message": "invalid route pattern '/x/:rest*/tail': catch-all must be the final segment"
+      }
+    },
+    {
+      "id": "B03-nested-quantifier",
+      "declarations": [
+        "@Get('/x/:id((a+)+)')"
+      ],
+      "error": {
+        "name": "Error",
+        "message": "unsafe route constraint: unsupported expression '(a+)+'"
+      }
+    },
+    {
+      "id": "B04-alternation",
+      "declarations": [
+        "@Get('/x/:id(a|b)')"
+      ],
+      "error": {
+        "name": "Error",
+        "message": "unsafe route constraint: unsupported expression 'a|b'"
+      }
+    },
+    {
+      "id": "B05-adjacent-unbounded",
+      "declarations": [
+        "@Get('/x/:id(\\d+\\w+)')"
+      ],
+      "error": {
+        "name": "Error",
+        "message": "unsafe route constraint: adjacent unbounded quantifiers in '\\d+\\w+'"
+      }
+    },
+    {
+      "id": "B06-inverted-quantifier",
+      "declarations": [
+        "@Get('/x/:id(\\d{5,2})')"
+      ],
+      "error": {
+        "name": "Error",
+        "message": "unsafe route constraint: invalid quantifier '{5,2}'"
+      }
+    },
+    {
+      "id": "B07-invalid-param-name",
+      "declarations": [
+        "@Get('/x/:1x')"
+      ],
+      "error": {
+        "name": "Error",
+        "message": "invalid route pattern '/x/:1x': invalid parameter name '1x'"
+      }
+    },
+    {
+      "id": "B08-malformed-constraint",
+      "declarations": [
+        "@Get('/x/:id(\\d+')"
+      ],
+      "error": {
+        "name": "Error",
+        "message": "invalid route pattern '/x/:id(\\d+': malformed constraint"
+      }
+    },
+    {
+      "id": "B09-same-shape-plain",
+      "declarations": [
+        "@Get('/users/:id')",
+        "@Get('/users/:name')"
+      ],
+      "error": {
+        "name": "Error",
+        "message": "ambiguous route GET /users/:name at ParityBoot.h1 conflicts with GET /users/:id at ParityBoot.h0"
+      }
+    },
+    {
+      "id": "B10-same-shape-constrained",
+      "declarations": [
+        "@Get('/c/:a(\\d+)')",
+        "@Get('/c/:b(\\d+)')"
+      ],
+      "error": {
+        "name": "Error",
+        "message": "ambiguous route GET /c/:b(\\d+) at ParityBoot.h1 conflicts with GET /c/:a(\\d+) at ParityBoot.h0"
+      }
+    },
+    {
+      "id": "B11-trailing-slash-twin",
+      "declarations": [
+        "@Get('/t')",
+        "@Get('/t/')"
+      ],
+      "error": {
+        "name": "Error",
+        "message": "ambiguous route GET /t/ at ParityBoot.h1 conflicts with GET /t at ParityBoot.h0"
+      }
+    },
+    {
+      "id": "B12-get-and-ws-same-path",
+      "declarations": [
+        "@Get('/live')",
+        "@Ws('/live')"
+      ],
+      "error": {
+        "name": "Error",
+        "message": "ambiguous route GET /live at ParityBoot.h1 conflicts with GET /live at ParityBoot.h0"
+      }
+    },
+    {
+      "id": "B13-get-and-sse-same-path",
+      "declarations": [
+        "@Get('/feed')",
+        "@Sse('/feed')"
+      ],
+      "error": {
+        "name": "Error",
+        "message": "ambiguous route GET /feed at ParityBoot.h1 conflicts with GET /feed at ParityBoot.h0"
+      }
+    },
+    {
+      "id": "B14-ws-same-shape",
+      "declarations": [
+        "@Ws('/w/:a')",
+        "@Ws('/w/:b')"
+      ],
+      "error": {
+        "name": "Error",
+        "message": "ambiguous route GET /w/:b at ParityBoot.h1 conflicts with GET /w/:a at ParityBoot.h0"
+      }
+    },
+    {
+      "id": "B15-ok-same-shape-different-methods",
+      "declarations": [
+        "@Get('/users/:id')",
+        "@Post('/users/:name')"
+      ],
+      "ok": true
+    },
+    {
+      "id": "B16-ok-different-constraints",
+      "declarations": [
+        "@Get('/c/:a(\\d+)')",
+        "@Get('/c/:b([a-z]+)')"
+      ],
+      "ok": true
+    },
+    {
+      "id": "B17-ok-static-and-param",
+      "declarations": [
+        "@Get('/users/me')",
+        "@Get('/users/:id')"
+      ],
+      "ok": true
+    },
+    {
+      "id": "B18-ok-exact-and-catch-all",
+      "declarations": [
+        "@Get('/f')",
+        "@Get('/f/:rest*')"
+      ],
+      "ok": true
+    }
+  ]
+}

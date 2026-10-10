@@ -1,0 +1,632 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": [
+    {
+      "method": "GET",
+      "raw": "/a/b",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"aB\",\"params\":{}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/a/x",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"aId\",\"params\":{\"id\":\"x\"}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/a/x/y",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"aRest\",\"params\":{\"rest\":\"x/y\"}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/a",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"aRest\",\"params\":{\"rest\":\"\"}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/users/42",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"usersId\",\"params\":{\"id\":\"42\"}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/users/alice",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"usersValue\",\"params\":{\"value\":\"alice\"}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/users/a%20b",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"usersValue\",\"params\":{\"value\":\"a b\"}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/n/42",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"nNum\",\"params\":{\"num\":\"42\"}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/n/ff",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"nCode\",\"params\":{\"code\":\"ff\"}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/files",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"files\",\"params\":{}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/files/",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"files\",\"params\":{}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/files/a%2Fb",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"filesRest\",\"params\":{\"rest\":\"a/b\"}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/m",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"mGet\",\"params\":{}}"
+    },
+    {
+      "method": "HEAD",
+      "raw": "/m",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "method": "OPTIONS",
+      "raw": "/m",
+      "status": 204,
+      "headers": {
+        "allow": "GET, HEAD, POST, OPTIONS",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "method": "PUT",
+      "raw": "/m",
+      "status": 405,
+      "headers": {
+        "allow": "GET, HEAD, POST, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "method": "DELETE",
+      "raw": "/m",
+      "status": 405,
+      "headers": {
+        "allow": "GET, HEAD, POST, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "method": "POST",
+      "raw": "/m",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"mPost\",\"params\":{}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/h",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"hGet\",\"params\":{}}"
+    },
+    {
+      "method": "HEAD",
+      "raw": "/h",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "raw": "/stream",
+      "status": 200,
+      "headers": {
+        "cache-control": "no-cache",
+        "content-type": "text/event-stream",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "data: {\"id\":\"stream\"}\n\n"
+    },
+    {
+      "method": "HEAD",
+      "raw": "/stream",
+      "status": 405,
+      "headers": {
+        "allow": "GET, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "method": "OPTIONS",
+      "raw": "/stream",
+      "status": 204,
+      "headers": {
+        "allow": "GET, OPTIONS",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "method": "HEAD",
+      "raw": "/s/live",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "method": "HEAD",
+      "raw": "/s/x",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "raw": "/absent",
+      "status": 404,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Not Found\"}"
+    },
+    {
+      "method": "HEAD",
+      "raw": "/absent",
+      "status": 404,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "method": "OPTIONS",
+      "raw": "/absent",
+      "status": 404,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "raw": "/users/%E0%A4%A",
+      "status": 400,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Bad Request\"}"
+    },
+    {
+      "method": "HEAD",
+      "raw": "/users/%E0%A4%A",
+      "status": 400,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "raw": "/a//b",
+      "status": 400,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Bad Request\"}"
+    },
+    {
+      "method": "GET",
+      "raw": "/Case",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"caseUpper\",\"params\":{}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/case",
+      "status": 404,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "raw": "/caf%C3%A9",
+      "status": 404,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "raw": "/u/caf%C3%A9",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"uName\",\"params\":{\"name\":\"café\"}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/public/../admin",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"admin\",\"params\":{}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/public/%2e%2e/admin",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"admin\",\"params\":{}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/public/..%2fadmin",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"publicFile\",\"params\":{\"file\":\"../admin\"}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/admin/",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"admin\",\"params\":{}}"
+    },
+    {
+      "method": "OPTIONS",
+      "raw": "/r",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"rOptions\",\"params\":{}}"
+    },
+    {
+      "method": "HEAD",
+      "raw": "/r",
+      "status": 405,
+      "headers": {
+        "allow": "PUT, PATCH, DELETE, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "raw": "/r",
+      "status": 405,
+      "headers": {
+        "allow": "PUT, PATCH, DELETE, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "method": "PURGE",
+      "raw": "/r",
+      "status": 405,
+      "headers": {
+        "allow": "PUT, PATCH, DELETE, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "method": "GET",
+      "raw": "/",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"root\",\"params\":{}}"
+    },
+    {
+      "method": "GET",
+      "raw": "/?q=1",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"id\":\"root\",\"params\":{}}"
+    }
+  ]
+}
