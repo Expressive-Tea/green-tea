@@ -1,0 +1,6 @@
+uptime before: 17:01  up 9 days,  7:50, 1 user, load averages: 2.47 2.14 6.86
+uptime after: 17:02  up 9 days,  7:51, 1 user, load averages: 2.58 2.21 6.64
+A/A uptime before: 17:02  up 9 days,  7:51, 1 user, load averages: 3.42 2.40 6.66
+A/A uptime after: 17:03  up 9 days,  7:53, 1 user, load averages: 2.89 2.48 6.26
+bench:compare uptime before: 17:04  up 9 days,  7:53, 1 user, load averages: 2.98 2.51 6.25
+bench:compare uptime after: 17:26  up 9 days,  8:15, 1 user, load averages: 2.82 3.32 4.29

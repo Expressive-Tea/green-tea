@@ -1,0 +1,21 @@
+
+> @green-tea/core@26.9.0-beta.2 bench:compare
+> tsx bench/compare.ts
+
+
+| Scenario | base | head | Δ | |
+| --- | --- | --- | --- | --- |
+| hello | 88,212 | 88,236 | +0.0% | overlaps |
+| param | 86,508 | 85,885 | -0.7% | overlaps |
+| pipeline (3 steps) | 80,189 | 80,934 | +0.9% | overlaps |
+| steps5 | 74,359 | 73,975 | -0.5% | overlaps |
+| validate (POST) | 70,607 | 69,903 | -1.0% | overlaps |
+| hello + security | 83,913 | 83,802 | -0.1% | overlaps |
+| hello + cors predicate | 82,028 | 80,445 | -1.9% | overlaps |
+| preflight + cors predicate | 114,377 | 114,010 | -0.3% | overlaps |
+| param, 50 routes | 82,476 | 82,045 | -0.5% | overlaps |
+| param, 200 routes | 72,957 | 73,306 | +0.5% | overlaps |
+
+cors.origins calls — base: 1 per GET, 1 per preflight
+cors.origins calls — head: 1 per GET, 1 per preflight
+exit 0
