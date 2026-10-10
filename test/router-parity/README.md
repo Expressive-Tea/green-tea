@@ -26,10 +26,12 @@ Nothing can regenerate the baseline by accident:
 |---|---|
 | `manifest.json` | Existing tests retained unchanged (ROUTER-CORPUS §1), with the verification result at the pinned revision. `manifest.test.ts` fails if a named file or test disappears. |
 | `oracle.ts` | Verbatim copy of the pre-radix `matchRoute`, `resolveRoute`, `allowedMethods`, `normalizeRequestPath`, `compilePattern` and `matchWsRoute`. Test-only; `src/` must never import it. |
-| `cases.ts`, `generator.ts` | Matcher inputs: 24 hand-picked scenarios (§2), and a fixed-seed generator (`router-parity-gen-v1`, seed `10908`). |
+| `cases.ts`, `generator.ts` | Matcher inputs: 24 hand-picked scenarios (§2), 9 owner-requested scenarios (backtracking, cross-pattern `Allow`, encoded slashes, zero-segment catch-alls), and a fixed-seed generator in two versions, both seed `10908`: `router-parity-gen-v1`, and `router-parity-gen-v2`, which forces static/param/constrained/catch-all siblings under shared prefixes. |
+| `branches.ts` | Measures the share of generated requests that walk into sibling branches and backtrack; frozen with the v2 fixture. |
 | `frozen/matcher-*.json` | Captured matcher outputs: declaration ID, decoded params, `implicitHead`, ordered `Allow`, or the normalization error. The generated file also stores the seed, the generator rules and every generated input. |
 | `frozen/app-*.json` | Status, headers, `Allow` and body through `app.fetch` and through a Node socket, including HEAD body suppression. |
 | `frozen/ws-*.json` | WS upgrade selection through `app.upgrade` and the Node listener, plus HTTP requests at the WS paths. |
+| `frozen/owner-*.json` | Owner additions needing a running app: cross-pattern `Allow` through both adapters, and the mesh HTTP route table across a peer's lifetime (it is built once at boot and never changes — see `owner.test.ts`). |
 | `frozen/boot-*.json` | Boot-time rejections: pattern compilation, local ambiguity, mesh splicing. |
 | `frozen/golden-*.json` | `graph()`, `explain()`, `openapi({ title: 'Parity', version: '1' })`, and a mesh teacup before and after `ready()`. |
 

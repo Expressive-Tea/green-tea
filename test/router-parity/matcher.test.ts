@@ -13,8 +13,17 @@ import { matchWsRoute as liveMatchWsRoute } from '../../src/http/ws-core';
 import type { WsRouteDef } from '../../src/http/types';
 import * as oracle from './oracle';
 import { runScenario, type MatcherImpl, type Outcome, type Scenario } from './matcher';
-import { HAND_SCENARIOS } from './cases';
-import { generateScenarios, GENERATOR_RULES, GENERATOR_SEED, GENERATOR_VERSION } from './generator';
+import { HAND_SCENARIOS, OWNER_SCENARIOS } from './cases';
+import { branchStats, type BranchStats } from './branches';
+import {
+  generateScenarios,
+  generateScenariosV2,
+  GENERATOR_RULES,
+  GENERATOR_SEED,
+  GENERATOR_VERSION,
+  GENERATOR_V2_RULES,
+  GENERATOR_V2_VERSION,
+} from './generator';
 import { frozen, expectFrozenEqual } from './frozen';
 
 const LIVE: MatcherImpl = live;
@@ -72,6 +81,53 @@ describe(`router parity: generated matcher cases (${GENERATOR_VERSION}, seed ${G
       seed: GENERATOR_SEED,
       rules: GENERATOR_RULES,
     });
+    expect(data.scenarios.map((scenario) => scenario.id)).toEqual(generated.map((scenario) => scenario.id));
+    expected = new Map(data.scenarios.map((scenario) => [scenario.id, scenario]));
+  });
+
+  for (const scenario of generated) {
+    it(`${scenario.id}`, () => checkScenario(scenario, expected.get(scenario.id)));
+  }
+});
+
+describe('router parity: owner-requested matcher cases', () => {
+  let expected: Map<string, CapturedScenario>;
+
+  beforeAll(async () => {
+    const data = await frozen('matcher-owner', () => capture(OWNER_SCENARIOS));
+    expect(data.map((scenario) => scenario.id)).toEqual(OWNER_SCENARIOS.map((scenario) => scenario.id));
+    expected = new Map(data.map((scenario) => [scenario.id, scenario]));
+  });
+
+  for (const scenario of OWNER_SCENARIOS) {
+    it(`${scenario.id}: ${scenario.note}`, () => checkScenario(scenario, expected.get(scenario.id)));
+  }
+});
+
+interface GeneratedV2File extends GeneratedFile {
+  /** Share of generated requests that walk into sibling branches; v1's share is kept for contrast. */
+  branchStats: { v1: BranchStats; v2: BranchStats };
+}
+
+describe(`router parity: generated shared-prefix cases (${GENERATOR_V2_VERSION}, seed ${GENERATOR_SEED})`, () => {
+  const generated = generateScenariosV2(GENERATOR_SEED);
+  const stats = () => ({ v1: branchStats(generateScenarios(GENERATOR_SEED)), v2: branchStats(generated) });
+  let expected: Map<string, CapturedScenario>;
+
+  beforeAll(async () => {
+    const data = await frozen<GeneratedV2File>('matcher-generated-v2', () => ({
+      generator: GENERATOR_V2_VERSION,
+      seed: GENERATOR_SEED,
+      rules: GENERATOR_V2_RULES,
+      branchStats: stats(),
+      scenarios: capture(generated),
+    }));
+    expect({ generator: data.generator, seed: data.seed, rules: data.rules }).toEqual({
+      generator: GENERATOR_V2_VERSION,
+      seed: GENERATOR_SEED,
+      rules: GENERATOR_V2_RULES,
+    });
+    expect(stats()).toEqual(data.branchStats);
     expect(data.scenarios.map((scenario) => scenario.id)).toEqual(generated.map((scenario) => scenario.id));
     expected = new Map(data.scenarios.map((scenario) => [scenario.id, scenario]));
   });

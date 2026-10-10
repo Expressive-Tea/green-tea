@@ -1,0 +1,133 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": [
+    {
+      "phase": "A1 teapot up at boot",
+      "method": "GET",
+      "path": "/api/remote/ping",
+      "status": 200,
+      "allow": null,
+      "body": "{\"from\":\"teapot\"}"
+    },
+    {
+      "phase": "A1 teapot up at boot",
+      "method": "POST",
+      "path": "/api/remote/ping",
+      "status": 405,
+      "allow": "GET, HEAD, OPTIONS",
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "phase": "A1 teapot up at boot",
+      "method": "GET",
+      "path": "/api/local/ok",
+      "status": 200,
+      "allow": null,
+      "body": "{\"from\":\"teacup\"}"
+    },
+    {
+      "phase": "A1 teapot up at boot",
+      "method": "GET",
+      "path": "/api/nope",
+      "status": 404,
+      "allow": null,
+      "body": "{\"error\":\"Not Found\"}"
+    },
+    {
+      "phase": "A2 teapot gone after boot",
+      "method": "GET",
+      "path": "/api/remote/ping",
+      "status": 503,
+      "allow": null,
+      "body": "{\"error\":\"mesh link to <teapot>/__mesh__/control is down\"}"
+    },
+    {
+      "phase": "A2 teapot gone after boot",
+      "method": "POST",
+      "path": "/api/remote/ping",
+      "status": 405,
+      "allow": "GET, HEAD, OPTIONS",
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "phase": "A2 teapot gone after boot",
+      "method": "GET",
+      "path": "/api/local/ok",
+      "status": 200,
+      "allow": null,
+      "body": "{\"from\":\"teacup\"}"
+    },
+    {
+      "phase": "A2 teapot gone after boot",
+      "method": "GET",
+      "path": "/api/nope",
+      "status": 404,
+      "allow": null,
+      "body": "{\"error\":\"Not Found\"}"
+    },
+    {
+      "phase": "B1 teapot absent at boot",
+      "method": "GET",
+      "path": "/api/remote/ping",
+      "status": 404,
+      "allow": null,
+      "body": "{\"error\":\"Not Found\"}"
+    },
+    {
+      "phase": "B1 teapot absent at boot",
+      "method": "POST",
+      "path": "/api/remote/ping",
+      "status": 404,
+      "allow": null,
+      "body": "{\"error\":\"Not Found\"}"
+    },
+    {
+      "phase": "B1 teapot absent at boot",
+      "method": "GET",
+      "path": "/api/local/ok",
+      "status": 200,
+      "allow": null,
+      "body": "{\"from\":\"teacup\"}"
+    },
+    {
+      "phase": "B1 teapot absent at boot",
+      "method": "GET",
+      "path": "/api/nope",
+      "status": 404,
+      "allow": null,
+      "body": "{\"error\":\"Not Found\"}"
+    },
+    {
+      "phase": "B2 teapot up after boot",
+      "method": "GET",
+      "path": "/api/remote/ping",
+      "status": 404,
+      "allow": null,
+      "body": "{\"error\":\"Not Found\"}"
+    },
+    {
+      "phase": "B2 teapot up after boot",
+      "method": "POST",
+      "path": "/api/remote/ping",
+      "status": 404,
+      "allow": null,
+      "body": "{\"error\":\"Not Found\"}"
+    },
+    {
+      "phase": "B2 teapot up after boot",
+      "method": "GET",
+      "path": "/api/local/ok",
+      "status": 200,
+      "allow": null,
+      "body": "{\"from\":\"teacup\"}"
+    },
+    {
+      "phase": "B2 teapot up after boot",
+      "method": "GET",
+      "path": "/api/nope",
+      "status": 404,
+      "allow": null,
+      "body": "{\"error\":\"Not Found\"}"
+    }
+  ]
+}

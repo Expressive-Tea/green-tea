@@ -250,3 +250,93 @@ export const HAND_SCENARIOS: Scenario[] = [
     get('/v/1/x', '/v/a/x', '/v/1', '/v'),
   ),
 ];
+
+/**
+ * Owner-requested additions (CARD-08 review), frozen separately in `frozen/matcher-owner.json` so the
+ * first capture stays untouched. Inputs only, like everything above.
+ */
+export const OWNER_SCENARIOS: Scenario[] = [
+  scenario(
+    'O01-backtrack',
+    'a static branch that fails one level down must fall back to a sibling param branch',
+    [
+      ['static', 'GET', '/a/b/c'],
+      ['param', 'GET', '/a/:x/d'],
+    ],
+    get('/a/b/d', '/a/b/c', '/a/z/d', '/a/b/x'),
+  ),
+  scenario(
+    'O02-backtrack-deep',
+    'the static branch fails at depth 5 (and a param branch at depth 3), after walking four or two levels',
+    [
+      ['static', 'GET', '/p/q/r/s/t'],
+      ['paramDepth2', 'GET', '/p/:x/r/s/u'],
+      ['paramDepth3', 'GET', '/p/q/:y/s/v'],
+    ],
+    get('/p/q/r/s/u', '/p/q/r/s/t', '/p/z/r/s/u', '/p/q/r/s/v', '/p/q/z/s/v', '/p/q/r/s/w'),
+  ),
+  scenario(
+    'O03-backtrack-constrained',
+    'the fallback branch is a constrained param',
+    [
+      ['static', 'GET', '/k/1/c'],
+      ['digits', 'GET', '/k/:n(\\d+)/d'],
+    ],
+    get('/k/1/d', '/k/1/c', '/k/2/d', '/k/x/d'),
+  ),
+  scenario(
+    'O04-cross-pattern-allow',
+    'Allow is the union of methods across different patterns matching the same path',
+    [
+      ['getParam', 'GET', '/a/:id'],
+      ['postStatic', 'POST', '/a/b'],
+    ],
+    [
+      ['PUT', '/a/b'],
+      ['OPTIONS', '/a/b'],
+      ['PUT', '/a/x'],
+      ['HEAD', '/a/b'],
+      ['GET', '/a/b'],
+      ['POST', '/a/x'],
+    ],
+  ),
+  scenario(
+    'O05-cross-pattern-allow-catch-all',
+    'the same, with a catch-all contributing a method',
+    [
+      ['getParam', 'GET', '/a/:id'],
+      ['postStatic', 'POST', '/a/b'],
+      ['deleteRest', 'DELETE', '/a/:rest*'],
+    ],
+    [
+      ['PUT', '/a/b'],
+      ['OPTIONS', '/a/b'],
+      ['PUT', '/a/x'],
+      ['HEAD', '/a/b'],
+      ['PUT', '/a/x/y'],
+      ['DELETE', '/a'],
+    ],
+  ),
+  scenario(
+    'O06-encoded-slash-plain',
+    'an encoded slash inside one segment, plain param',
+    [['userId', 'GET', '/users/:id']],
+    get('/users/a%2Fb', '/users/a%2fb', '/users/%2F', '/users/a/b'),
+  ),
+  scenario(
+    'O07-encoded-slash-constrained',
+    'an encoded slash against a word constraint and a non-space constraint (a / cannot appear inside a constraint: the pattern splits there)',
+    [
+      ['word', 'GET', '/c/:id(\\w+)'],
+      ['nonSpace', 'GET', '/d/:id(\\S+)'],
+    ],
+    get('/c/a%2Fb', '/c/ab', '/d/a%2Fb', '/d/a%2fb', '/d/%2F', '/d/a/b'),
+  ),
+  scenario(
+    'O08-zero-segment-catch-all',
+    'a catch-all with no exact sibling route',
+    [['rest', 'GET', '/files/:rest*']],
+    [...get('/files', '/files/', '/files/a', '/filesx'), ['HEAD', '/files'], ['OPTIONS', '/files']],
+  ),
+  scenario('O09-root-catch-all', 'a root catch-all alone', [['rest', 'GET', '/:rest*']], get('/', '/a', '/a/b/')),
+];

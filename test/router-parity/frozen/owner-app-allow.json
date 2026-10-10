@@ -1,0 +1,165 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": [
+    {
+      "adapter": "fetch",
+      "method": "PUT",
+      "path": "/ca/b",
+      "status": 405,
+      "allow": "GET, HEAD, POST, OPTIONS",
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "fetch",
+      "method": "OPTIONS",
+      "path": "/ca/b",
+      "status": 204,
+      "allow": "GET, HEAD, POST, OPTIONS",
+      "body": ""
+    },
+    {
+      "adapter": "fetch",
+      "method": "PUT",
+      "path": "/ca/x",
+      "status": 405,
+      "allow": "GET, HEAD, OPTIONS",
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "fetch",
+      "method": "HEAD",
+      "path": "/ca/b",
+      "status": 200,
+      "allow": null,
+      "body": ""
+    },
+    {
+      "adapter": "fetch",
+      "method": "PUT",
+      "path": "/ca/x/y",
+      "status": 404,
+      "allow": null,
+      "body": "{\"error\":\"Not Found\"}"
+    },
+    {
+      "adapter": "fetch",
+      "method": "PUT",
+      "path": "/cb/b",
+      "status": 405,
+      "allow": "GET, HEAD, POST, DELETE, OPTIONS",
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "fetch",
+      "method": "OPTIONS",
+      "path": "/cb/b",
+      "status": 204,
+      "allow": "GET, HEAD, POST, DELETE, OPTIONS",
+      "body": ""
+    },
+    {
+      "adapter": "fetch",
+      "method": "PUT",
+      "path": "/cb/x",
+      "status": 405,
+      "allow": "GET, HEAD, DELETE, OPTIONS",
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "fetch",
+      "method": "HEAD",
+      "path": "/cb/b",
+      "status": 200,
+      "allow": null,
+      "body": ""
+    },
+    {
+      "adapter": "fetch",
+      "method": "PUT",
+      "path": "/cb/x/y",
+      "status": 405,
+      "allow": "DELETE, OPTIONS",
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "PUT",
+      "path": "/ca/b",
+      "status": 405,
+      "allow": "GET, HEAD, POST, OPTIONS",
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "OPTIONS",
+      "path": "/ca/b",
+      "status": 204,
+      "allow": "GET, HEAD, POST, OPTIONS",
+      "body": ""
+    },
+    {
+      "adapter": "node",
+      "method": "PUT",
+      "path": "/ca/x",
+      "status": 405,
+      "allow": "GET, HEAD, OPTIONS",
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "HEAD",
+      "path": "/ca/b",
+      "status": 200,
+      "allow": null,
+      "body": ""
+    },
+    {
+      "adapter": "node",
+      "method": "PUT",
+      "path": "/ca/x/y",
+      "status": 404,
+      "allow": null,
+      "body": "{\"error\":\"Not Found\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "PUT",
+      "path": "/cb/b",
+      "status": 405,
+      "allow": "GET, HEAD, POST, DELETE, OPTIONS",
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "OPTIONS",
+      "path": "/cb/b",
+      "status": 204,
+      "allow": "GET, HEAD, POST, DELETE, OPTIONS",
+      "body": ""
+    },
+    {
+      "adapter": "node",
+      "method": "PUT",
+      "path": "/cb/x",
+      "status": 405,
+      "allow": "GET, HEAD, DELETE, OPTIONS",
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "HEAD",
+      "path": "/cb/b",
+      "status": 200,
+      "allow": null,
+      "body": ""
+    },
+    {
+      "adapter": "node",
+      "method": "PUT",
+      "path": "/cb/x/y",
+      "status": 405,
+      "allow": "DELETE, OPTIONS",
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    }
+  ]
+}
