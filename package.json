@@ -103,6 +103,8 @@
     "complexity:cyclomatic": "cyclomatic-complexity \"src/**/*.ts\" -tw 15 -te 25",
     "bench": "tsx bench/run.ts",
     "bench:compare": "tsx bench/compare.ts",
+    "bench:lookup": "tsx bench/lookup.ts",
+    "parity:mutants": "tsx test/router-parity/mutants.ts",
     "prepublishOnly": "npm run lint && npm run complexity:check && npm run typecheck && npm test && npm run build",
     "prepare": "git config core.hooksPath .githooks || true"
   },

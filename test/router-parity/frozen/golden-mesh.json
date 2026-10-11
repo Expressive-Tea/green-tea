@@ -1,0 +1,233 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": {
+    "before": {
+      "graph": {
+        "error": {
+          "name": "Error",
+          "message": "graph() unavailable until a mesh app has booted: a mesh graph is not knowable until its teapots are asked. Call `await app.ready()` first — it is a no-op on a non-mesh app"
+        }
+      },
+      "explain": {
+        "error": {
+          "name": "Error",
+          "message": "explain() unavailable until a mesh app has booted: a mesh graph is not knowable until its teapots are asked. Call `await app.ready()` first — it is a no-op on a non-mesh app"
+        }
+      },
+      "openapi": {
+        "value": {
+          "openapi": "3.1.0",
+          "info": {
+            "title": "Parity",
+            "version": "1"
+          },
+          "paths": {
+            "/api/local/who": {
+              "get": {
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "content": {
+                      "application/json": {
+                        "schema": {}
+                      }
+                    }
+                  },
+                  "500": {
+                    "description": "Internal Server Error"
+                  }
+                }
+              }
+            },
+            "/api/local/{id}": {
+              "get": {
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "content": {
+                      "application/json": {
+                        "schema": {}
+                      }
+                    }
+                  },
+                  "500": {
+                    "description": "Internal Server Error"
+                  }
+                },
+                "parameters": [
+                  {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "after": {
+      "graph": {
+        "nodes": [
+          {
+            "name": "logger",
+            "kind": "provider",
+            "origin": "builtin",
+            "needs": [],
+            "provides": [
+              "logger"
+            ]
+          },
+          {
+            "name": "rooms",
+            "kind": "provider",
+            "origin": "builtin",
+            "needs": [],
+            "provides": [
+              "rooms"
+            ]
+          },
+          {
+            "name": "events",
+            "kind": "provider",
+            "origin": "builtin",
+            "needs": [],
+            "provides": [
+              "events"
+            ]
+          },
+          {
+            "name": "config",
+            "kind": "step",
+            "origin": "mesh:<teapot>",
+            "needs": [],
+            "provides": [
+              "config"
+            ]
+          }
+        ],
+        "routes": [
+          {
+            "pattern": "/api/local/who",
+            "method": "GET",
+            "transport": "buffer",
+            "chain": [
+              "config",
+              "who"
+            ]
+          },
+          {
+            "pattern": "/api/local/:id",
+            "method": "GET",
+            "transport": "buffer",
+            "chain": [
+              "byId"
+            ]
+          }
+        ]
+      },
+      "explain": [
+        {
+          "pattern": "/api/missing",
+          "error": {
+            "name": "Error",
+            "message": "no route: /api/missing"
+          }
+        }
+      ],
+      "explainLocal": {
+        "pattern": "/api/local/who",
+        "method": "GET",
+        "transport": "buffer",
+        "chain": [
+          {
+            "name": "config",
+            "kind": "step",
+            "origin": "mesh:<teapot>",
+            "needs": [],
+            "provides": [
+              "config"
+            ]
+          },
+          {
+            "name": "who",
+            "kind": "handler",
+            "origin": "module:TeacupModule",
+            "needs": [
+              "config"
+            ],
+            "provides": []
+          }
+        ]
+      },
+      "explainRemote": {
+        "error": {
+          "name": "Error",
+          "message": "no route: /api/remote/ping"
+        }
+      },
+      "openapi": {
+        "openapi": "3.1.0",
+        "info": {
+          "title": "Parity",
+          "version": "1"
+        },
+        "paths": {
+          "/api/local/who": {
+            "get": {
+              "responses": {
+                "200": {
+                  "description": "OK",
+                  "content": {
+                    "application/json": {
+                      "schema": {}
+                    }
+                  }
+                },
+                "500": {
+                  "description": "Internal Server Error"
+                }
+              }
+            }
+          },
+          "/api/local/{id}": {
+            "get": {
+              "responses": {
+                "200": {
+                  "description": "OK",
+                  "content": {
+                    "application/json": {
+                      "schema": {}
+                    }
+                  }
+                },
+                "500": {
+                  "description": "Internal Server Error"
+                }
+              },
+              "parameters": [
+                {
+                  "name": "id",
+                  "in": "path",
+                  "required": true,
+                  "schema": {
+                    "type": "string"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "lookup": {
+      "path": "/api/remote/ping",
+      "status": 200,
+      "body": "{\"from\":\"teapot\"}"
+    }
+  }
+}

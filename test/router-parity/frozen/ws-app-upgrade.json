@@ -1,0 +1,151 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": [
+    {
+      "path": "/live/lobby",
+      "sent": [
+        {
+          "id": "liveRoom",
+          "params": {
+            "room": "lobby"
+          }
+        }
+      ],
+      "closes": [
+        {}
+      ]
+    },
+    {
+      "path": "/live/kitchen",
+      "sent": [
+        {
+          "id": "liveRoom",
+          "params": {
+            "room": "kitchen"
+          }
+        }
+      ],
+      "closes": [
+        {}
+      ]
+    },
+    {
+      "path": "/live/lobby/",
+      "sent": [
+        {
+          "id": "liveRoom",
+          "params": {
+            "room": "lobby"
+          }
+        }
+      ],
+      "closes": [
+        {}
+      ]
+    },
+    {
+      "path": "/live/x/../lobby",
+      "sent": [
+        {
+          "id": "liveRoom",
+          "params": {
+            "room": "lobby"
+          }
+        }
+      ],
+      "closes": [
+        {}
+      ]
+    },
+    {
+      "path": "/live/a%20b",
+      "sent": [
+        {
+          "id": "liveRoom",
+          "params": {
+            "room": "a b"
+          }
+        }
+      ],
+      "closes": [
+        {}
+      ]
+    },
+    {
+      "path": "/live/lobby?x=1",
+      "sent": [
+        {
+          "id": "liveRoom",
+          "params": {
+            "room": "lobby"
+          }
+        }
+      ],
+      "closes": [
+        {}
+      ]
+    },
+    {
+      "path": "/live/%E0%A4%A",
+      "sent": [],
+      "closes": [
+        {
+          "code": 1008,
+          "reason": "invalid request path"
+        }
+      ]
+    },
+    {
+      "path": "/live//lobby",
+      "sent": [],
+      "closes": [
+        {
+          "code": 1008,
+          "reason": "invalid request path"
+        }
+      ]
+    },
+    {
+      "path": "/plain",
+      "sent": [],
+      "closes": [
+        {
+          "code": 1008,
+          "reason": "no matching ws route"
+        }
+      ]
+    },
+    {
+      "path": "/nope",
+      "sent": [],
+      "closes": [
+        {
+          "code": 1008,
+          "reason": "no matching ws route"
+        }
+      ]
+    },
+    {
+      "path": "/feed",
+      "sent": [
+        {
+          "id": "feed",
+          "params": {}
+        }
+      ],
+      "closes": [
+        {}
+      ]
+    },
+    {
+      "path": "/__mesh__/control",
+      "sent": [],
+      "closes": [
+        {
+          "code": 1008,
+          "reason": "mesh control channel not enabled: this app exports nothing, or has no mesh.secret"
+        }
+      ]
+    }
+  ]
+}

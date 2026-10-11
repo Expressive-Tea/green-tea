@@ -1,0 +1,214 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": [
+    {
+      "id": "W01-overlap",
+      "declarations": [
+        {
+          "id": "param",
+          "pattern": "/ws/:id"
+        },
+        {
+          "id": "static",
+          "pattern": "/ws/static"
+        },
+        {
+          "id": "rest",
+          "pattern": "/ws/:rest*"
+        }
+      ],
+      "outcomes": [
+        {
+          "path": "/ws/static",
+          "route": {
+            "id": "param",
+            "params": {
+              "id": "static"
+            }
+          }
+        },
+        {
+          "path": "/ws/x",
+          "route": {
+            "id": "param",
+            "params": {
+              "id": "x"
+            }
+          }
+        },
+        {
+          "path": "/ws/a%20b",
+          "route": {
+            "id": "param",
+            "params": {
+              "id": "a b"
+            }
+          }
+        },
+        {
+          "path": "/ws",
+          "route": {
+            "id": "rest",
+            "params": {
+              "rest": ""
+            }
+          }
+        },
+        {
+          "path": "/ws/x/y",
+          "route": {
+            "id": "rest",
+            "params": {
+              "rest": "x/y"
+            }
+          }
+        },
+        {
+          "path": "/w",
+          "route": null
+        },
+        {
+          "path": "/w/a%2Fb/c",
+          "route": null
+        },
+        {
+          "path": "/nope",
+          "route": null
+        }
+      ]
+    },
+    {
+      "id": "W02-overlap-reversed",
+      "declarations": [
+        {
+          "id": "rest",
+          "pattern": "/ws/:rest*"
+        },
+        {
+          "id": "static",
+          "pattern": "/ws/static"
+        },
+        {
+          "id": "param",
+          "pattern": "/ws/:id"
+        }
+      ],
+      "outcomes": [
+        {
+          "path": "/ws/static",
+          "route": {
+            "id": "rest",
+            "params": {
+              "rest": "static"
+            }
+          }
+        },
+        {
+          "path": "/ws/x",
+          "route": {
+            "id": "rest",
+            "params": {
+              "rest": "x"
+            }
+          }
+        },
+        {
+          "path": "/ws/a%20b",
+          "route": {
+            "id": "rest",
+            "params": {
+              "rest": "a b"
+            }
+          }
+        },
+        {
+          "path": "/ws",
+          "route": {
+            "id": "rest",
+            "params": {
+              "rest": ""
+            }
+          }
+        },
+        {
+          "path": "/ws/x/y",
+          "route": {
+            "id": "rest",
+            "params": {
+              "rest": "x/y"
+            }
+          }
+        },
+        {
+          "path": "/w",
+          "route": null
+        },
+        {
+          "path": "/w/a%2Fb/c",
+          "route": null
+        },
+        {
+          "path": "/nope",
+          "route": null
+        }
+      ]
+    },
+    {
+      "id": "W03-catch-all-first",
+      "declarations": [
+        {
+          "id": "rest",
+          "pattern": "/w/:rest*"
+        },
+        {
+          "id": "exact",
+          "pattern": "/w"
+        }
+      ],
+      "outcomes": [
+        {
+          "path": "/ws/static",
+          "route": null
+        },
+        {
+          "path": "/ws/x",
+          "route": null
+        },
+        {
+          "path": "/ws/a%20b",
+          "route": null
+        },
+        {
+          "path": "/ws",
+          "route": null
+        },
+        {
+          "path": "/ws/x/y",
+          "route": null
+        },
+        {
+          "path": "/w",
+          "route": {
+            "id": "rest",
+            "params": {
+              "rest": ""
+            }
+          }
+        },
+        {
+          "path": "/w/a%2Fb/c",
+          "route": {
+            "id": "rest",
+            "params": {
+              "rest": "a/b/c"
+            }
+          }
+        },
+        {
+          "path": "/nope",
+          "route": null
+        }
+      ]
+    }
+  ]
+}

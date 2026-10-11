@@ -1,0 +1,149 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": [
+    {
+      "path": "/live/lobby",
+      "status": 101,
+      "sent": [
+        {
+          "id": "liveRoom",
+          "params": {
+            "room": "lobby"
+          }
+        }
+      ],
+      "close": {
+        "code": 1005,
+        "reason": ""
+      }
+    },
+    {
+      "path": "/live/kitchen",
+      "status": 101,
+      "sent": [
+        {
+          "id": "liveRoom",
+          "params": {
+            "room": "kitchen"
+          }
+        }
+      ],
+      "close": {
+        "code": 1005,
+        "reason": ""
+      }
+    },
+    {
+      "path": "/live/lobby/",
+      "status": 101,
+      "sent": [
+        {
+          "id": "liveRoom",
+          "params": {
+            "room": "lobby"
+          }
+        }
+      ],
+      "close": {
+        "code": 1005,
+        "reason": ""
+      }
+    },
+    {
+      "path": "/live/x/../lobby",
+      "status": 101,
+      "sent": [
+        {
+          "id": "liveRoom",
+          "params": {
+            "room": "lobby"
+          }
+        }
+      ],
+      "close": {
+        "code": 1005,
+        "reason": ""
+      }
+    },
+    {
+      "path": "/live/a%20b",
+      "status": 101,
+      "sent": [
+        {
+          "id": "liveRoom",
+          "params": {
+            "room": "a b"
+          }
+        }
+      ],
+      "close": {
+        "code": 1005,
+        "reason": ""
+      }
+    },
+    {
+      "path": "/live/lobby?x=1",
+      "status": 101,
+      "sent": [
+        {
+          "id": "liveRoom",
+          "params": {
+            "room": "lobby"
+          }
+        }
+      ],
+      "close": {
+        "code": 1005,
+        "reason": ""
+      }
+    },
+    {
+      "path": "/live/%E0%A4%A",
+      "status": 400,
+      "sent": []
+    },
+    {
+      "path": "/live//lobby",
+      "status": 400,
+      "sent": []
+    },
+    {
+      "path": "/plain",
+      "status": 404,
+      "sent": []
+    },
+    {
+      "path": "/nope",
+      "status": 404,
+      "sent": []
+    },
+    {
+      "path": "/feed",
+      "status": 101,
+      "sent": [
+        {
+          "id": "feed",
+          "params": {}
+        }
+      ],
+      "close": {
+        "code": 1005,
+        "reason": ""
+      }
+    },
+    {
+      "path": "/__mesh__/control",
+      "status": 101,
+      "sent": [
+        {
+          "id": "reserved",
+          "params": {}
+        }
+      ],
+      "close": {
+        "code": 1005,
+        "reason": ""
+      }
+    }
+  ]
+}

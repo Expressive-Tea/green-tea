@@ -1,0 +1,72 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": [
+    {
+      "id": "M01-two-teapots-same-route",
+      "error": {
+        "name": "Error",
+        "message": "mesh: ambiguous remote route 'GET /api/dup/ping' from <teapot2> conflicts with 'GET /api/dup/ping' from <teapot1> — load balancing across teapots is not implemented yet, so green-tea will not choose one for you. Export it from a single teapot."
+      }
+    },
+    {
+      "id": "M02-two-teapots-same-shape",
+      "error": {
+        "name": "Error",
+        "message": "mesh: ambiguous remote route 'GET /api/shape/:name' from <teapot2> conflicts with 'GET /api/shape/:id' from <teapot1> — load balancing across teapots is not implemented yet, so green-tea will not choose one for you. Export it from a single teapot."
+      }
+    },
+    {
+      "id": "M03-local-same-shape-wins",
+      "ok": true,
+      "warnings": [
+        "mesh: route 'GET /api/dup/ping' is exported by teapot <teapot1> but also declared locally — the local route takes precedence and the remote one will not be reached. Remove one if that is not what you meant."
+      ],
+      "responses": [
+        {
+          "path": "/api/dup/ping",
+          "status": 200,
+          "body": "{\"from\":\"local\"}"
+        }
+      ]
+    },
+    {
+      "id": "M04-unique-remote",
+      "ok": true,
+      "warnings": [],
+      "responses": [
+        {
+          "path": "/api/dup/ping",
+          "status": 200,
+          "body": "{\"from\":\"teapot\"}"
+        },
+        {
+          "path": "/c/ok",
+          "status": 200,
+          "body": "{\"from\":\"teacup\"}"
+        },
+        {
+          "path": "/api/nope",
+          "status": 404,
+          "body": "{\"error\":\"Not Found\"}"
+        }
+      ]
+    },
+    {
+      "id": "M05-remote-static-outranks-local-param",
+      "ok": true,
+      "warnings": [],
+      "responses": [
+        {
+          "path": "/api/dup/ping",
+          "status": 200,
+          "body": "{\"from\":\"teapot\"}"
+        },
+        {
+          "path": "/api/dup/x",
+          "status": 200,
+          "body": "{\"from\":\"local\",\"p\":{\"anything\":\"x\"}}"
+        }
+      ]
+    }
+  ]
+}

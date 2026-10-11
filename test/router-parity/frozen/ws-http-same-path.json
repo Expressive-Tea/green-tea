@@ -1,0 +1,40 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": [
+    {
+      "method": "GET",
+      "path": "/live/lobby",
+      "status": 405,
+      "allow": "POST, OPTIONS",
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "method": "POST",
+      "path": "/live/lobby",
+      "status": 200,
+      "allow": null,
+      "body": "{\"id\":\"httpLobby\"}"
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/live/lobby",
+      "status": 204,
+      "allow": "POST, OPTIONS",
+      "body": ""
+    },
+    {
+      "method": "GET",
+      "path": "/live/kitchen",
+      "status": 404,
+      "allow": null,
+      "body": "{\"error\":\"Not Found\"}"
+    },
+    {
+      "method": "GET",
+      "path": "/feed",
+      "status": 200,
+      "allow": null,
+      "body": "{\"id\":\"feed\",\"params\":{}}\n"
+    }
+  ]
+}

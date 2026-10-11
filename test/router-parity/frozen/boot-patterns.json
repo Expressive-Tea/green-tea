@@ -1,0 +1,163 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": [
+    {
+      "pattern": "/",
+      "shape": ""
+    },
+    {
+      "pattern": "/users/:id",
+      "shape": "s:users/p"
+    },
+    {
+      "pattern": "/users/:id(\\d+)",
+      "shape": "s:users/r:\\d+"
+    },
+    {
+      "pattern": "/files/:rest*",
+      "shape": "s:files/c"
+    },
+    {
+      "pattern": "/:rest*",
+      "shape": "c"
+    },
+    {
+      "pattern": "/t/",
+      "shape": "s:t"
+    },
+    {
+      "pattern": "/café",
+      "shape": "s:café"
+    },
+    {
+      "pattern": "/build/:version(\\d{2}\\.\\d{1,2})",
+      "shape": "s:build/r:\\d{2}\\.\\d{1,2}"
+    },
+    {
+      "pattern": "/x/:id/:id",
+      "error": {
+        "name": "Error",
+        "message": "invalid route pattern '/x/:id/:id': duplicate parameter 'id'"
+      }
+    },
+    {
+      "pattern": "/x/:id/:rest*/tail",
+      "error": {
+        "name": "Error",
+        "message": "invalid route pattern '/x/:id/:rest*/tail': catch-all must be the final segment"
+      }
+    },
+    {
+      "pattern": "/x/:rest*/:rest*",
+      "error": {
+        "name": "Error",
+        "message": "invalid route pattern '/x/:rest*/:rest*': catch-all must be the final segment"
+      }
+    },
+    {
+      "pattern": "/x/:",
+      "error": {
+        "name": "Error",
+        "message": "invalid route pattern '/x/:': invalid parameter name ''"
+      }
+    },
+    {
+      "pattern": "/x/:1x",
+      "error": {
+        "name": "Error",
+        "message": "invalid route pattern '/x/:1x': invalid parameter name '1x'"
+      }
+    },
+    {
+      "pattern": "/x//y",
+      "error": {
+        "name": "Error",
+        "message": "invalid route pattern '/x//y': repeated slash"
+      }
+    },
+    {
+      "pattern": "x",
+      "error": {
+        "name": "Error",
+        "message": "invalid route pattern 'x': pattern must start with '/'"
+      }
+    },
+    {
+      "pattern": "",
+      "error": {
+        "name": "Error",
+        "message": "invalid route pattern '': pattern must start with '/'"
+      }
+    },
+    {
+      "pattern": "/x/:id((a+)+)",
+      "error": {
+        "name": "Error",
+        "message": "unsafe route constraint: unsupported expression '(a+)+'"
+      }
+    },
+    {
+      "pattern": "/x/:id((?=a)a)",
+      "error": {
+        "name": "Error",
+        "message": "unsafe route constraint: unsupported expression '(?=a)a'"
+      }
+    },
+    {
+      "pattern": "/x/:id(\\1)",
+      "error": {
+        "name": "Error",
+        "message": "unsafe route constraint: unsupported expression '\\1'"
+      }
+    },
+    {
+      "pattern": "/x/:id(a|b)",
+      "error": {
+        "name": "Error",
+        "message": "unsafe route constraint: unsupported expression 'a|b'"
+      }
+    },
+    {
+      "pattern": "/x/:id(\\d+\\w+)",
+      "error": {
+        "name": "Error",
+        "message": "unsafe route constraint: adjacent unbounded quantifiers in '\\d+\\w+'"
+      }
+    },
+    {
+      "pattern": "/x/:id(\\d{5,2})",
+      "error": {
+        "name": "Error",
+        "message": "unsafe route constraint: invalid quantifier '{5,2}'"
+      }
+    },
+    {
+      "pattern": "/x/:id(\\d{1,4096})",
+      "error": {
+        "name": "Error",
+        "message": "unsafe route constraint: invalid quantifier '{1,4096}'"
+      }
+    },
+    {
+      "pattern": "/x/:id(\\d+",
+      "error": {
+        "name": "Error",
+        "message": "invalid route pattern '/x/:id(\\d+': malformed constraint"
+      }
+    },
+    {
+      "pattern": "/x/:id()",
+      "error": {
+        "name": "Error",
+        "message": "unsafe route constraint: expression must contain 1-128 characters"
+      }
+    },
+    {
+      "pattern": "/x/:id(aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)",
+      "error": {
+        "name": "Error",
+        "message": "unsafe route constraint: expression must contain 1-128 characters"
+      }
+    }
+  ]
+}

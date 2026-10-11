@@ -1,0 +1,155 @@
+{
+  "purpose": "Existing tests retained unchanged as the radix-router compatibility baseline (FPRD-001 CARD-08, ROUTER-CORPUS §1, #109).",
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "corpusRevision": "42376c6693c7e15fadbcfb544172cc571fcacef0",
+  "verification": {
+    "date": "2026-10-10",
+    "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+    "command": "npx vitest run <every vitest file below> --reporter=json; npm run test:deno; npm run test:bun; npm run test:edge",
+    "result": "Every file and every named test exists at the pinned revision and passes. No test was renamed or removed between 42376c6 and ed47836; src/http/router.ts is byte-identical between the two.",
+    "renamed": []
+  },
+  "retained": [
+    {
+      "surface": "Pattern grammar, normalization, matching, Allow, HEAD",
+      "file": "test/router.test.ts",
+      "scope": "file"
+    },
+    {
+      "surface": "HTTP adapter",
+      "file": "test/http.test.ts",
+      "scope": "tests",
+      "tests": [
+        "matches a static + :param route and extracts params",
+        "http streaming > routes by method (non-GET no longer falls through)"
+      ]
+    },
+    {
+      "surface": "Fetch adapter",
+      "file": "test/fetch.test.ts",
+      "scope": "tests",
+      "tests": [
+        "app.fetch > handles GET and returns JSON 200",
+        "app.fetch > 404s an unknown route",
+        "app.fetch on a mesh app > serves without ever calling listen()",
+        "app.fetch on a mesh app > does not re-boot when listen() follows a fetch"
+      ]
+    },
+    {
+      "surface": "App declarations and introspection",
+      "file": "test/app.test.ts",
+      "scope": "tests",
+      "tests": [
+        "app.graph / explain > graph() returns nodes (with origin/needs/provides) and routes with their sliced chain",
+        "app.graph / explain > explain() returns the rich chain with origin and a handler entry",
+        "route table validation > rejects routes with the same method and effective pattern",
+        "route table validation > allows the same effective pattern under different methods",
+        "devGraph endpoint > serves /__graph__ as HTML when devGraph:true",
+        "devGraph endpoint > does NOT mount /__graph__ without devGraph",
+        "devGraph endpoint > serves /__graph__ and /__openapi__ over app.fetch too (runtime-agnostic dev tools)",
+        "app streaming wiring > serves a @Ws route receiving @inbound and returning a channel"
+      ]
+    },
+    {
+      "surface": "OpenAPI",
+      "file": "test/openapi.test.ts",
+      "scope": "file"
+    },
+    {
+      "surface": "WebSocket selection",
+      "file": "test/ws-core.test.ts",
+      "scope": "tests",
+      "tests": ["runWsConnection (neutral core) > matchWsRoute finds a pattern and captures params"]
+    },
+    {
+      "surface": "Node WebSocket upgrade",
+      "file": "test/ws.test.ts",
+      "scope": "tests",
+      "tests": [
+        "ws upgrade > echoes inbound to outbound and aborts on close",
+        "ws upgrade > closes with a 4000+status code when the WS open() throws an HttpError"
+      ]
+    },
+    {
+      "surface": "Mesh route splicing",
+      "file": "test/mesh/integration.test.ts",
+      "scope": "tests",
+      "tests": [
+        "mesh skeleton integration > teapot still serves its own local route (regression)",
+        "mesh skeleton integration > refuses to boot when two teapots export the same route, naming both",
+        "mesh skeleton integration > refuses ambiguous remote routes that differ only by parameter name",
+        "mesh skeleton integration > accepts the same route from a single teapot (regression: no false positive)",
+        "mesh skeleton integration > gives a local route precedence over a remote one, and says so",
+        "mesh skeleton integration > does not warn when a remote route has no local twin"
+      ]
+    }
+  ],
+  "runtimeSmoke": [
+    {
+      "file": "test/deno/ws.test.ts",
+      "runner": "npm run test:deno",
+      "tests": [
+        "serveDeno: HTTP + WebSocket round-trip through the graph",
+        "serveDeno: a malformed upgrade path closes 1008 and the server keeps serving"
+      ]
+    },
+    {
+      "file": "test/bun/ws.test.ts",
+      "runner": "npm run test:bun",
+      "tests": [
+        "serveBun: HTTP + WebSocket round-trip",
+        "serveBun: a malformed upgrade path closes 1008 and the server keeps serving"
+      ]
+    },
+    {
+      "file": "test/deno/mesh.test.ts",
+      "runner": "npm run test:deno",
+      "tests": [
+        "mesh on Deno: teacup resolves a Deno teapot through the graph",
+        "mesh on Deno: a teapot refuses a bad secret over its control channel"
+      ]
+    },
+    {
+      "file": "test/bun/mesh.test.ts",
+      "runner": "npm run test:bun",
+      "tests": [
+        "mesh on Bun: teacup resolves a Bun teapot through the graph",
+        "mesh on Bun: a teapot refuses a bad secret over its control channel"
+      ]
+    },
+    {
+      "file": "test/edge/run.ts",
+      "runner": "npm run test:edge",
+      "tests": []
+    }
+  ],
+  "supplementary": {
+    "note": "Not in ROUTER-CORPUS §1. Proposed because #117 (merged after the corpus was written) moved WS upgrade paths through normalizeRequestPath and added the reserved-path refusal on app.upgrade. Pending D5 approval; they run in npm test either way.",
+    "retained": [
+      {
+        "surface": "Node upgrade path normalization and rejection (#104)",
+        "file": "test/ws-upgrade-reject.test.ts",
+        "scope": "file"
+      },
+      {
+        "surface": "Reserved mesh control path ahead of WS routes (Node)",
+        "file": "test/mesh/control-upgrade.test.ts",
+        "scope": "file"
+      },
+      {
+        "surface": "Reserved mesh control path over app.upgrade",
+        "file": "test/mesh/fetch-boot.test.ts",
+        "scope": "tests",
+        "tests": [
+          "mesh control over app.upgrade (no listen) > serves the handshake to a peer that never touched a Node server",
+          "mesh control over app.upgrade (no listen) > refuses the reserved path explicitly on an app that exports nothing"
+        ]
+      }
+    ]
+  },
+  "frozenFixtures": {
+    "dir": "test/router-parity/frozen",
+    "oracle": "test/router-parity/oracle.ts",
+    "readme": "test/router-parity/README.md"
+  }
+}

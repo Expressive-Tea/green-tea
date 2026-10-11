@@ -1,0 +1,531 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": [
+    {
+      "adapter": "fetch",
+      "method": "PUT",
+      "path": "/api/dup/ping",
+      "status": 405,
+      "headers": {
+        "allow": "GET, HEAD, POST, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "fetch",
+      "method": "OPTIONS",
+      "path": "/api/dup/ping",
+      "status": 204,
+      "headers": {
+        "allow": "GET, HEAD, POST, OPTIONS",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "fetch",
+      "method": "HEAD",
+      "path": "/api/dup/ping",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "fetch",
+      "method": "GET",
+      "path": "/api/dup/ping",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"from\":\"teacup\",\"route\":\"GET /api/dup/ping\"}"
+    },
+    {
+      "adapter": "fetch",
+      "method": "POST",
+      "path": "/api/dup/ping",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"from\":\"teapot\",\"route\":\"POST /api/dup/ping\"}"
+    },
+    {
+      "adapter": "fetch",
+      "method": "PUT",
+      "path": "/api/v/b",
+      "status": 405,
+      "headers": {
+        "allow": "GET, HEAD, POST, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "fetch",
+      "method": "OPTIONS",
+      "path": "/api/v/b",
+      "status": 204,
+      "headers": {
+        "allow": "GET, HEAD, POST, OPTIONS",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "fetch",
+      "method": "HEAD",
+      "path": "/api/v/b",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "fetch",
+      "method": "GET",
+      "path": "/api/v/b",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"from\":\"teacup\",\"route\":\"GET /api/v/b\"}"
+    },
+    {
+      "adapter": "fetch",
+      "method": "POST",
+      "path": "/api/v/b",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"from\":\"teapot\",\"route\":\"POST /api/v/:id\"}"
+    },
+    {
+      "adapter": "fetch",
+      "method": "PUT",
+      "path": "/api/v/c",
+      "status": 405,
+      "headers": {
+        "allow": "POST, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "fetch",
+      "method": "OPTIONS",
+      "path": "/api/v/c",
+      "status": 204,
+      "headers": {
+        "allow": "POST, OPTIONS",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "fetch",
+      "method": "HEAD",
+      "path": "/api/v/c",
+      "status": 405,
+      "headers": {
+        "allow": "POST, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "fetch",
+      "method": "GET",
+      "path": "/api/v/c",
+      "status": 405,
+      "headers": {
+        "allow": "POST, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "fetch",
+      "method": "HEAD",
+      "path": "/api/x",
+      "status": 404,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "fetch",
+      "method": "GET",
+      "path": "/api/x",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"from\":\"teapot\",\"route\":\"GET /api/x\"}"
+    },
+    {
+      "adapter": "fetch",
+      "method": "OPTIONS",
+      "path": "/api/x",
+      "status": 204,
+      "headers": {
+        "allow": "GET, HEAD, OPTIONS",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "fetch",
+      "method": "PUT",
+      "path": "/api/x",
+      "status": 405,
+      "headers": {
+        "allow": "GET, HEAD, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "PUT",
+      "path": "/api/dup/ping",
+      "status": 405,
+      "headers": {
+        "allow": "GET, HEAD, POST, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "OPTIONS",
+      "path": "/api/dup/ping",
+      "status": 204,
+      "headers": {
+        "allow": "GET, HEAD, POST, OPTIONS",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "node",
+      "method": "HEAD",
+      "path": "/api/dup/ping",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "node",
+      "method": "GET",
+      "path": "/api/dup/ping",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"from\":\"teacup\",\"route\":\"GET /api/dup/ping\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "POST",
+      "path": "/api/dup/ping",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"from\":\"teapot\",\"route\":\"POST /api/dup/ping\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "PUT",
+      "path": "/api/v/b",
+      "status": 405,
+      "headers": {
+        "allow": "GET, HEAD, POST, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "OPTIONS",
+      "path": "/api/v/b",
+      "status": 204,
+      "headers": {
+        "allow": "GET, HEAD, POST, OPTIONS",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "node",
+      "method": "HEAD",
+      "path": "/api/v/b",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "node",
+      "method": "GET",
+      "path": "/api/v/b",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"from\":\"teacup\",\"route\":\"GET /api/v/b\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "POST",
+      "path": "/api/v/b",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"from\":\"teapot\",\"route\":\"POST /api/v/:id\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "PUT",
+      "path": "/api/v/c",
+      "status": 405,
+      "headers": {
+        "allow": "POST, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "OPTIONS",
+      "path": "/api/v/c",
+      "status": 204,
+      "headers": {
+        "allow": "POST, OPTIONS",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "node",
+      "method": "HEAD",
+      "path": "/api/v/c",
+      "status": 405,
+      "headers": {
+        "allow": "POST, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "node",
+      "method": "GET",
+      "path": "/api/v/c",
+      "status": 405,
+      "headers": {
+        "allow": "POST, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "HEAD",
+      "path": "/api/x",
+      "status": 404,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "node",
+      "method": "GET",
+      "path": "/api/x",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"from\":\"teapot\",\"route\":\"GET /api/x\"}"
+    },
+    {
+      "adapter": "node",
+      "method": "OPTIONS",
+      "path": "/api/x",
+      "status": 204,
+      "headers": {
+        "allow": "GET, HEAD, OPTIONS",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": ""
+    },
+    {
+      "adapter": "node",
+      "method": "PUT",
+      "path": "/api/x",
+      "status": 405,
+      "headers": {
+        "allow": "GET, HEAD, OPTIONS",
+        "content-type": "application/json",
+        "referrer-policy": "no-referrer",
+        "transfer-encoding": "chunked",
+        "x-content-type-options": "nosniff",
+        "x-dns-prefetch-control": "off",
+        "x-frame-options": "SAMEORIGIN"
+      },
+      "body": "{\"error\":\"Method Not Allowed\"}"
+    }
+  ]
+}

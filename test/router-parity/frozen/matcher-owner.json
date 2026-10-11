@@ -1,0 +1,1190 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": [
+    {
+      "id": "O01-backtrack",
+      "note": "a static branch that fails one level down must fall back to a sibling param branch",
+      "declarations": [
+        {
+          "id": "static",
+          "method": "GET",
+          "pattern": "/a/b/c",
+          "transport": "buffer"
+        },
+        {
+          "id": "param",
+          "method": "GET",
+          "pattern": "/a/:x/d",
+          "transport": "buffer"
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "raw": "/a/b/d"
+        },
+        {
+          "method": "GET",
+          "raw": "/a/b/c"
+        },
+        {
+          "method": "GET",
+          "raw": "/a/z/d"
+        },
+        {
+          "method": "GET",
+          "raw": "/a/b/x"
+        }
+      ],
+      "outcomes": [
+        {
+          "method": "GET",
+          "raw": "/a/b/d",
+          "normalized": "/a/b/d",
+          "match": {
+            "id": "param",
+            "params": {
+              "x": "b"
+            }
+          },
+          "resolve": {
+            "id": "param",
+            "params": {
+              "x": "b"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/a/b/c",
+          "normalized": "/a/b/c",
+          "match": {
+            "id": "static",
+            "params": {}
+          },
+          "resolve": {
+            "id": "static",
+            "params": {},
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/a/z/d",
+          "normalized": "/a/z/d",
+          "match": {
+            "id": "param",
+            "params": {
+              "x": "z"
+            }
+          },
+          "resolve": {
+            "id": "param",
+            "params": {
+              "x": "z"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/a/b/x",
+          "normalized": "/a/b/x",
+          "match": null,
+          "resolve": null,
+          "allow": []
+        }
+      ]
+    },
+    {
+      "id": "O02-backtrack-deep",
+      "note": "the static branch fails at depth 5 (and a param branch at depth 3), after walking four or two levels",
+      "declarations": [
+        {
+          "id": "static",
+          "method": "GET",
+          "pattern": "/p/q/r/s/t",
+          "transport": "buffer"
+        },
+        {
+          "id": "paramDepth2",
+          "method": "GET",
+          "pattern": "/p/:x/r/s/u",
+          "transport": "buffer"
+        },
+        {
+          "id": "paramDepth3",
+          "method": "GET",
+          "pattern": "/p/q/:y/s/v",
+          "transport": "buffer"
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "raw": "/p/q/r/s/u"
+        },
+        {
+          "method": "GET",
+          "raw": "/p/q/r/s/t"
+        },
+        {
+          "method": "GET",
+          "raw": "/p/z/r/s/u"
+        },
+        {
+          "method": "GET",
+          "raw": "/p/q/r/s/v"
+        },
+        {
+          "method": "GET",
+          "raw": "/p/q/z/s/v"
+        },
+        {
+          "method": "GET",
+          "raw": "/p/q/r/s/w"
+        }
+      ],
+      "outcomes": [
+        {
+          "method": "GET",
+          "raw": "/p/q/r/s/u",
+          "normalized": "/p/q/r/s/u",
+          "match": {
+            "id": "paramDepth2",
+            "params": {
+              "x": "q"
+            }
+          },
+          "resolve": {
+            "id": "paramDepth2",
+            "params": {
+              "x": "q"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/p/q/r/s/t",
+          "normalized": "/p/q/r/s/t",
+          "match": {
+            "id": "static",
+            "params": {}
+          },
+          "resolve": {
+            "id": "static",
+            "params": {},
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/p/z/r/s/u",
+          "normalized": "/p/z/r/s/u",
+          "match": {
+            "id": "paramDepth2",
+            "params": {
+              "x": "z"
+            }
+          },
+          "resolve": {
+            "id": "paramDepth2",
+            "params": {
+              "x": "z"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/p/q/r/s/v",
+          "normalized": "/p/q/r/s/v",
+          "match": {
+            "id": "paramDepth3",
+            "params": {
+              "y": "r"
+            }
+          },
+          "resolve": {
+            "id": "paramDepth3",
+            "params": {
+              "y": "r"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/p/q/z/s/v",
+          "normalized": "/p/q/z/s/v",
+          "match": {
+            "id": "paramDepth3",
+            "params": {
+              "y": "z"
+            }
+          },
+          "resolve": {
+            "id": "paramDepth3",
+            "params": {
+              "y": "z"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/p/q/r/s/w",
+          "normalized": "/p/q/r/s/w",
+          "match": null,
+          "resolve": null,
+          "allow": []
+        }
+      ]
+    },
+    {
+      "id": "O03-backtrack-constrained",
+      "note": "the fallback branch is a constrained param",
+      "declarations": [
+        {
+          "id": "static",
+          "method": "GET",
+          "pattern": "/k/1/c",
+          "transport": "buffer"
+        },
+        {
+          "id": "digits",
+          "method": "GET",
+          "pattern": "/k/:n(\\d+)/d",
+          "transport": "buffer"
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "raw": "/k/1/d"
+        },
+        {
+          "method": "GET",
+          "raw": "/k/1/c"
+        },
+        {
+          "method": "GET",
+          "raw": "/k/2/d"
+        },
+        {
+          "method": "GET",
+          "raw": "/k/x/d"
+        }
+      ],
+      "outcomes": [
+        {
+          "method": "GET",
+          "raw": "/k/1/d",
+          "normalized": "/k/1/d",
+          "match": {
+            "id": "digits",
+            "params": {
+              "n": "1"
+            }
+          },
+          "resolve": {
+            "id": "digits",
+            "params": {
+              "n": "1"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/k/1/c",
+          "normalized": "/k/1/c",
+          "match": {
+            "id": "static",
+            "params": {}
+          },
+          "resolve": {
+            "id": "static",
+            "params": {},
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/k/2/d",
+          "normalized": "/k/2/d",
+          "match": {
+            "id": "digits",
+            "params": {
+              "n": "2"
+            }
+          },
+          "resolve": {
+            "id": "digits",
+            "params": {
+              "n": "2"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/k/x/d",
+          "normalized": "/k/x/d",
+          "match": null,
+          "resolve": null,
+          "allow": []
+        }
+      ]
+    },
+    {
+      "id": "O04-cross-pattern-allow",
+      "note": "Allow is the union of methods across different patterns matching the same path",
+      "declarations": [
+        {
+          "id": "getParam",
+          "method": "GET",
+          "pattern": "/a/:id",
+          "transport": "buffer"
+        },
+        {
+          "id": "postStatic",
+          "method": "POST",
+          "pattern": "/a/b",
+          "transport": "buffer"
+        }
+      ],
+      "requests": [
+        {
+          "method": "PUT",
+          "raw": "/a/b"
+        },
+        {
+          "method": "OPTIONS",
+          "raw": "/a/b"
+        },
+        {
+          "method": "PUT",
+          "raw": "/a/x"
+        },
+        {
+          "method": "HEAD",
+          "raw": "/a/b"
+        },
+        {
+          "method": "GET",
+          "raw": "/a/b"
+        },
+        {
+          "method": "POST",
+          "raw": "/a/x"
+        }
+      ],
+      "outcomes": [
+        {
+          "method": "PUT",
+          "raw": "/a/b",
+          "normalized": "/a/b",
+          "match": null,
+          "resolve": null,
+          "allow": [
+            "GET",
+            "HEAD",
+            "POST",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "OPTIONS",
+          "raw": "/a/b",
+          "normalized": "/a/b",
+          "match": null,
+          "resolve": null,
+          "allow": [
+            "GET",
+            "HEAD",
+            "POST",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "PUT",
+          "raw": "/a/x",
+          "normalized": "/a/x",
+          "match": null,
+          "resolve": null,
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "HEAD",
+          "raw": "/a/b",
+          "normalized": "/a/b",
+          "match": null,
+          "resolve": {
+            "id": "getParam",
+            "params": {
+              "id": "b"
+            },
+            "implicitHead": true
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "POST",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/a/b",
+          "normalized": "/a/b",
+          "match": {
+            "id": "getParam",
+            "params": {
+              "id": "b"
+            }
+          },
+          "resolve": {
+            "id": "getParam",
+            "params": {
+              "id": "b"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "POST",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "POST",
+          "raw": "/a/x",
+          "normalized": "/a/x",
+          "match": null,
+          "resolve": null,
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "O05-cross-pattern-allow-catch-all",
+      "note": "the same, with a catch-all contributing a method",
+      "declarations": [
+        {
+          "id": "getParam",
+          "method": "GET",
+          "pattern": "/a/:id",
+          "transport": "buffer"
+        },
+        {
+          "id": "postStatic",
+          "method": "POST",
+          "pattern": "/a/b",
+          "transport": "buffer"
+        },
+        {
+          "id": "deleteRest",
+          "method": "DELETE",
+          "pattern": "/a/:rest*",
+          "transport": "buffer"
+        }
+      ],
+      "requests": [
+        {
+          "method": "PUT",
+          "raw": "/a/b"
+        },
+        {
+          "method": "OPTIONS",
+          "raw": "/a/b"
+        },
+        {
+          "method": "PUT",
+          "raw": "/a/x"
+        },
+        {
+          "method": "HEAD",
+          "raw": "/a/b"
+        },
+        {
+          "method": "PUT",
+          "raw": "/a/x/y"
+        },
+        {
+          "method": "DELETE",
+          "raw": "/a"
+        }
+      ],
+      "outcomes": [
+        {
+          "method": "PUT",
+          "raw": "/a/b",
+          "normalized": "/a/b",
+          "match": null,
+          "resolve": null,
+          "allow": [
+            "GET",
+            "HEAD",
+            "POST",
+            "DELETE",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "OPTIONS",
+          "raw": "/a/b",
+          "normalized": "/a/b",
+          "match": null,
+          "resolve": null,
+          "allow": [
+            "GET",
+            "HEAD",
+            "POST",
+            "DELETE",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "PUT",
+          "raw": "/a/x",
+          "normalized": "/a/x",
+          "match": null,
+          "resolve": null,
+          "allow": [
+            "GET",
+            "HEAD",
+            "DELETE",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "HEAD",
+          "raw": "/a/b",
+          "normalized": "/a/b",
+          "match": null,
+          "resolve": {
+            "id": "getParam",
+            "params": {
+              "id": "b"
+            },
+            "implicitHead": true
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "POST",
+            "DELETE",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "PUT",
+          "raw": "/a/x/y",
+          "normalized": "/a/x/y",
+          "match": null,
+          "resolve": null,
+          "allow": [
+            "DELETE",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "DELETE",
+          "raw": "/a",
+          "normalized": "/a",
+          "match": {
+            "id": "deleteRest",
+            "params": {
+              "rest": ""
+            }
+          },
+          "resolve": {
+            "id": "deleteRest",
+            "params": {
+              "rest": ""
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "DELETE",
+            "OPTIONS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "O06-encoded-slash-plain",
+      "note": "an encoded slash inside one segment, plain param",
+      "declarations": [
+        {
+          "id": "userId",
+          "method": "GET",
+          "pattern": "/users/:id",
+          "transport": "buffer"
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "raw": "/users/a%2Fb"
+        },
+        {
+          "method": "GET",
+          "raw": "/users/a%2fb"
+        },
+        {
+          "method": "GET",
+          "raw": "/users/%2F"
+        },
+        {
+          "method": "GET",
+          "raw": "/users/a/b"
+        }
+      ],
+      "outcomes": [
+        {
+          "method": "GET",
+          "raw": "/users/a%2Fb",
+          "normalized": "/users/a%2Fb",
+          "match": {
+            "id": "userId",
+            "params": {
+              "id": "a/b"
+            }
+          },
+          "resolve": {
+            "id": "userId",
+            "params": {
+              "id": "a/b"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/users/a%2fb",
+          "normalized": "/users/a%2fb",
+          "match": {
+            "id": "userId",
+            "params": {
+              "id": "a/b"
+            }
+          },
+          "resolve": {
+            "id": "userId",
+            "params": {
+              "id": "a/b"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/users/%2F",
+          "normalized": "/users/%2F",
+          "match": {
+            "id": "userId",
+            "params": {
+              "id": "/"
+            }
+          },
+          "resolve": {
+            "id": "userId",
+            "params": {
+              "id": "/"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/users/a/b",
+          "normalized": "/users/a/b",
+          "match": null,
+          "resolve": null,
+          "allow": []
+        }
+      ]
+    },
+    {
+      "id": "O07-encoded-slash-constrained",
+      "note": "an encoded slash against a word constraint and a non-space constraint (a / cannot appear inside a constraint: the pattern splits there)",
+      "declarations": [
+        {
+          "id": "word",
+          "method": "GET",
+          "pattern": "/c/:id(\\w+)",
+          "transport": "buffer"
+        },
+        {
+          "id": "nonSpace",
+          "method": "GET",
+          "pattern": "/d/:id(\\S+)",
+          "transport": "buffer"
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "raw": "/c/a%2Fb"
+        },
+        {
+          "method": "GET",
+          "raw": "/c/ab"
+        },
+        {
+          "method": "GET",
+          "raw": "/d/a%2Fb"
+        },
+        {
+          "method": "GET",
+          "raw": "/d/a%2fb"
+        },
+        {
+          "method": "GET",
+          "raw": "/d/%2F"
+        },
+        {
+          "method": "GET",
+          "raw": "/d/a/b"
+        }
+      ],
+      "outcomes": [
+        {
+          "method": "GET",
+          "raw": "/c/a%2Fb",
+          "normalized": "/c/a%2Fb",
+          "match": null,
+          "resolve": null,
+          "allow": []
+        },
+        {
+          "method": "GET",
+          "raw": "/c/ab",
+          "normalized": "/c/ab",
+          "match": {
+            "id": "word",
+            "params": {
+              "id": "ab"
+            }
+          },
+          "resolve": {
+            "id": "word",
+            "params": {
+              "id": "ab"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/d/a%2Fb",
+          "normalized": "/d/a%2Fb",
+          "match": {
+            "id": "nonSpace",
+            "params": {
+              "id": "a/b"
+            }
+          },
+          "resolve": {
+            "id": "nonSpace",
+            "params": {
+              "id": "a/b"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/d/a%2fb",
+          "normalized": "/d/a%2fb",
+          "match": {
+            "id": "nonSpace",
+            "params": {
+              "id": "a/b"
+            }
+          },
+          "resolve": {
+            "id": "nonSpace",
+            "params": {
+              "id": "a/b"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/d/%2F",
+          "normalized": "/d/%2F",
+          "match": {
+            "id": "nonSpace",
+            "params": {
+              "id": "/"
+            }
+          },
+          "resolve": {
+            "id": "nonSpace",
+            "params": {
+              "id": "/"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/d/a/b",
+          "normalized": "/d/a/b",
+          "match": null,
+          "resolve": null,
+          "allow": []
+        }
+      ]
+    },
+    {
+      "id": "O08-zero-segment-catch-all",
+      "note": "a catch-all with no exact sibling route",
+      "declarations": [
+        {
+          "id": "rest",
+          "method": "GET",
+          "pattern": "/files/:rest*",
+          "transport": "buffer"
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "raw": "/files"
+        },
+        {
+          "method": "GET",
+          "raw": "/files/"
+        },
+        {
+          "method": "GET",
+          "raw": "/files/a"
+        },
+        {
+          "method": "GET",
+          "raw": "/filesx"
+        },
+        {
+          "method": "HEAD",
+          "raw": "/files"
+        },
+        {
+          "method": "OPTIONS",
+          "raw": "/files"
+        }
+      ],
+      "outcomes": [
+        {
+          "method": "GET",
+          "raw": "/files",
+          "normalized": "/files",
+          "match": {
+            "id": "rest",
+            "params": {
+              "rest": ""
+            }
+          },
+          "resolve": {
+            "id": "rest",
+            "params": {
+              "rest": ""
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/files/",
+          "normalized": "/files",
+          "match": {
+            "id": "rest",
+            "params": {
+              "rest": ""
+            }
+          },
+          "resolve": {
+            "id": "rest",
+            "params": {
+              "rest": ""
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/files/a",
+          "normalized": "/files/a",
+          "match": {
+            "id": "rest",
+            "params": {
+              "rest": "a"
+            }
+          },
+          "resolve": {
+            "id": "rest",
+            "params": {
+              "rest": "a"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/filesx",
+          "normalized": "/filesx",
+          "match": null,
+          "resolve": null,
+          "allow": []
+        },
+        {
+          "method": "HEAD",
+          "raw": "/files",
+          "normalized": "/files",
+          "match": null,
+          "resolve": {
+            "id": "rest",
+            "params": {
+              "rest": ""
+            },
+            "implicitHead": true
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "OPTIONS",
+          "raw": "/files",
+          "normalized": "/files",
+          "match": null,
+          "resolve": null,
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "O09-root-catch-all",
+      "note": "a root catch-all alone",
+      "declarations": [
+        {
+          "id": "rest",
+          "method": "GET",
+          "pattern": "/:rest*",
+          "transport": "buffer"
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "raw": "/"
+        },
+        {
+          "method": "GET",
+          "raw": "/a"
+        },
+        {
+          "method": "GET",
+          "raw": "/a/b/"
+        }
+      ],
+      "outcomes": [
+        {
+          "method": "GET",
+          "raw": "/",
+          "normalized": "/",
+          "match": {
+            "id": "rest",
+            "params": {
+              "rest": ""
+            }
+          },
+          "resolve": {
+            "id": "rest",
+            "params": {
+              "rest": ""
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/a",
+          "normalized": "/a",
+          "match": {
+            "id": "rest",
+            "params": {
+              "rest": "a"
+            }
+          },
+          "resolve": {
+            "id": "rest",
+            "params": {
+              "rest": "a"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        },
+        {
+          "method": "GET",
+          "raw": "/a/b/",
+          "normalized": "/a/b",
+          "match": {
+            "id": "rest",
+            "params": {
+              "rest": "a/b"
+            }
+          },
+          "resolve": {
+            "id": "rest",
+            "params": {
+              "rest": "a/b"
+            },
+            "implicitHead": false
+          },
+          "allow": [
+            "GET",
+            "HEAD",
+            "OPTIONS"
+          ]
+        }
+      ]
+    }
+  ]
+}

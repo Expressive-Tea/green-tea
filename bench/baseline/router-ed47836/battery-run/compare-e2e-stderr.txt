@@ -1,0 +1,60 @@
+[compare] round 1 base hello                        82,493 req/s
+[compare] round 1 base param                        81,231 req/s
+[compare] round 1 base pipeline (3 steps)           76,116 req/s
+[compare] round 1 base steps5                       75,273 req/s
+[compare] round 1 base validate (POST)              70,775 req/s
+[compare] round 1 base hello + security             81,929 req/s
+[compare] round 1 base hello + cors predicate       82,481 req/s
+[compare] round 1 base preflight + cors predicate   114,580 req/s
+[compare] round 1 base param, 50 routes             82,563 req/s
+[compare] round 1 base param, 200 routes            72,986 req/s
+[compare] round 1 head hello                        88,177 req/s
+[compare] round 1 head param                        83,412 req/s
+[compare] round 1 head pipeline (3 steps)           77,036 req/s
+[compare] round 1 head steps5                       72,236 req/s
+[compare] round 1 head validate (POST)              67,139 req/s
+[compare] round 1 head hello + security             81,743 req/s
+[compare] round 1 head hello + cors predicate       79,369 req/s
+[compare] round 1 head preflight + cors predicate   109,670 req/s
+[compare] round 1 head param, 50 routes             78,892 req/s
+[compare] round 1 head param, 200 routes            72,055 req/s
+[compare] round 2 head hello                        88,236 req/s
+[compare] round 2 head param                        86,705 req/s
+[compare] round 2 head pipeline (3 steps)           80,992 req/s
+[compare] round 2 head steps5                       74,813 req/s
+[compare] round 2 head validate (POST)              74,353 req/s
+[compare] round 2 head hello + security             83,802 req/s
+[compare] round 2 head hello + cors predicate       82,214 req/s
+[compare] round 2 head preflight + cors predicate   114,813 req/s
+[compare] round 2 head param, 50 routes             82,045 req/s
+[compare] round 2 head param, 200 routes            73,306 req/s
+[compare] round 2 base hello                        88,503 req/s
+[compare] round 2 base param                        86,758 req/s
+[compare] round 2 base pipeline (3 steps)           80,189 req/s
+[compare] round 2 base steps5                       74,359 req/s
+[compare] round 2 base validate (POST)              70,607 req/s
+[compare] round 2 base hello + security             84,710 req/s
+[compare] round 2 base hello + cors predicate       82,028 req/s
+[compare] round 2 base preflight + cors predicate   114,377 req/s
+[compare] round 2 base param, 50 routes             82,476 req/s
+[compare] round 2 base param, 200 routes            72,957 req/s
+[compare] round 3 base hello                        88,212 req/s
+[compare] round 3 base param                        86,508 req/s
+[compare] round 3 base pipeline (3 steps)           80,276 req/s
+[compare] round 3 base steps5                       73,929 req/s
+[compare] round 3 base validate (POST)              69,763 req/s
+[compare] round 3 base hello + security             83,913 req/s
+[compare] round 3 base hello + cors predicate       81,382 req/s
+[compare] round 3 base preflight + cors predicate   112,323 req/s
+[compare] round 3 base param, 50 routes             82,179 req/s
+[compare] round 3 base param, 200 routes            72,195 req/s
+[compare] round 3 head hello                        92,826 req/s
+[compare] round 3 head param                        85,885 req/s
+[compare] round 3 head pipeline (3 steps)           80,934 req/s
+[compare] round 3 head steps5                       73,975 req/s
+[compare] round 3 head validate (POST)              69,903 req/s
+[compare] round 3 head hello + security             84,512 req/s
+[compare] round 3 head hello + cors predicate       80,445 req/s
+[compare] round 3 head preflight + cors predicate   114,010 req/s
+[compare] round 3 head param, 50 routes             82,388 req/s
+[compare] round 3 head param, 200 routes            73,382 req/s
