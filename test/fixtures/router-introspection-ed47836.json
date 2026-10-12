@@ -1,0 +1,1091 @@
+{
+  "revision": "ed47836c9820c47bf4ed5e902d91e019abdb110a",
+  "data": {
+    "local": {
+      "direct": {
+        "graph": {
+          "nodes": [
+            {
+              "name": "store",
+              "kind": "provider",
+              "origin": "module:DocsModule",
+              "needs": [],
+              "provides": ["store"]
+            },
+            {
+              "name": "logger",
+              "kind": "provider",
+              "origin": "builtin",
+              "needs": [],
+              "provides": ["logger"]
+            },
+            {
+              "name": "rooms",
+              "kind": "provider",
+              "origin": "builtin",
+              "needs": [],
+              "provides": ["rooms"]
+            },
+            {
+              "name": "events",
+              "kind": "provider",
+              "origin": "builtin",
+              "needs": [],
+              "provides": ["events"]
+            },
+            {
+              "name": "caller",
+              "kind": "step",
+              "origin": "module:DocsModule",
+              "needs": ["store"],
+              "provides": ["caller"]
+            }
+          ],
+          "routes": [
+            {
+              "pattern": "/v1/docs/:id",
+              "method": "DELETE",
+              "transport": "buffer",
+              "chain": ["remove"]
+            },
+            {
+              "pattern": "/v1/docs/:rest*",
+              "method": "GET",
+              "transport": "buffer",
+              "chain": ["rest"]
+            },
+            {
+              "pattern": "/v1/docs/:id",
+              "method": "GET",
+              "transport": "buffer",
+              "chain": ["store", "caller", "get"]
+            },
+            {
+              "pattern": "/v1/docs/latest",
+              "method": "GET",
+              "transport": "buffer",
+              "chain": ["latest"]
+            },
+            {
+              "pattern": "/v1/docs/events",
+              "method": "GET",
+              "transport": "sse",
+              "chain": ["events"]
+            },
+            {
+              "pattern": "/v1/docs/:id/live",
+              "method": "GET",
+              "transport": "ws",
+              "chain": ["store", "caller", "live"]
+            }
+          ]
+        },
+        "explain": [
+          {
+            "pattern": "/v1/docs/:id",
+            "value": {
+              "pattern": "/v1/docs/:id",
+              "method": "DELETE",
+              "transport": "buffer",
+              "chain": [
+                {
+                  "name": "remove",
+                  "kind": "handler",
+                  "origin": "module:DocsModule",
+                  "needs": [],
+                  "provides": []
+                }
+              ]
+            }
+          },
+          {
+            "pattern": "/v1/docs/latest",
+            "value": {
+              "pattern": "/v1/docs/latest",
+              "method": "GET",
+              "transport": "buffer",
+              "chain": [
+                {
+                  "name": "latest",
+                  "kind": "handler",
+                  "origin": "module:DocsModule",
+                  "needs": [],
+                  "provides": []
+                }
+              ]
+            }
+          },
+          {
+            "pattern": "/v1/docs/:rest*",
+            "value": {
+              "pattern": "/v1/docs/:rest*",
+              "method": "GET",
+              "transport": "buffer",
+              "chain": [
+                {
+                  "name": "rest",
+                  "kind": "handler",
+                  "origin": "module:DocsModule",
+                  "needs": [],
+                  "provides": []
+                }
+              ]
+            }
+          },
+          {
+            "pattern": "/v1/docs/:id/live",
+            "value": {
+              "pattern": "/v1/docs/:id/live",
+              "method": "GET",
+              "transport": "ws",
+              "chain": [
+                {
+                  "name": "store",
+                  "kind": "provider",
+                  "origin": "module:DocsModule",
+                  "needs": [],
+                  "provides": ["store"]
+                },
+                {
+                  "name": "caller",
+                  "kind": "step",
+                  "origin": "module:DocsModule",
+                  "needs": ["store"],
+                  "provides": ["caller"]
+                },
+                {
+                  "name": "live",
+                  "kind": "handler",
+                  "origin": "module:DocsModule",
+                  "needs": ["caller"],
+                  "provides": []
+                }
+              ]
+            }
+          },
+          {
+            "pattern": "/v1/docs/7",
+            "error": "no route: /v1/docs/7"
+          },
+          {
+            "pattern": "/v1/docs/latest/",
+            "error": "no route: /v1/docs/latest/"
+          },
+          {
+            "pattern": "/v1/missing",
+            "error": "no route: /v1/missing"
+          }
+        ],
+        "inspect": [
+          {
+            "pattern": "/v1/docs/:id",
+            "value": [
+              {
+                "name": "remove",
+                "kind": "handler",
+                "origin": "module:DocsModule"
+              }
+            ]
+          },
+          {
+            "pattern": "/v1/docs/latest",
+            "value": [
+              {
+                "name": "latest",
+                "kind": "handler",
+                "origin": "module:DocsModule"
+              }
+            ]
+          },
+          {
+            "pattern": "/v1/docs/:rest*",
+            "value": [
+              {
+                "name": "rest",
+                "kind": "handler",
+                "origin": "module:DocsModule"
+              }
+            ]
+          },
+          {
+            "pattern": "/v1/docs/:id/live",
+            "value": [
+              {
+                "name": "store",
+                "kind": "provider",
+                "origin": "module:DocsModule"
+              },
+              {
+                "name": "caller",
+                "kind": "step",
+                "origin": "module:DocsModule"
+              },
+              {
+                "name": "live",
+                "kind": "handler",
+                "origin": "module:DocsModule"
+              }
+            ]
+          },
+          {
+            "pattern": "/v1/docs/7",
+            "error": "no route: /v1/docs/7"
+          },
+          {
+            "pattern": "/v1/docs/latest/",
+            "error": "no route: /v1/docs/latest/"
+          },
+          {
+            "pattern": "/v1/missing",
+            "error": "no route: /v1/missing"
+          }
+        ],
+        "mermaid": "flowchart LR\n  n_store([\"store\"])\n  n_logger([\"logger\"])\n  n_rooms([\"rooms\"])\n  n_events([\"events\"])\n  n_caller[\"caller\"]\n  n_store --> n_caller\n  r__v1_docs__id{{\"DELETE /v1/docs/:id\"}}\n  r__v1_docs__rest_{{\"GET /v1/docs/:rest*\"}}\n  r__v1_docs__id{{\"GET /v1/docs/:id\"}}\n  n_store --> r__v1_docs__id\n  n_caller --> r__v1_docs__id\n  r__v1_docs_latest{{\"GET /v1/docs/latest\"}}\n  r__v1_docs_events{{\"GET /v1/docs/events\"}}\n  n_events --> r__v1_docs_events\n  r__v1_docs__id_live{{\"GET /v1/docs/:id/live\"}}\n  n_store --> r__v1_docs__id_live\n  n_caller --> r__v1_docs__id_live",
+        "openapi": {
+          "openapi": "3.1.0",
+          "info": {
+            "title": "Introspection",
+            "version": "1"
+          },
+          "paths": {
+            "/v1/docs/{id}": {
+              "delete": {
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "content": {
+                      "application/json": {
+                        "schema": {}
+                      }
+                    }
+                  },
+                  "500": {
+                    "description": "Internal Server Error"
+                  }
+                },
+                "parameters": [
+                  {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              },
+              "get": {
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "content": {
+                      "application/json": {
+                        "schema": {}
+                      }
+                    }
+                  },
+                  "500": {
+                    "description": "Internal Server Error"
+                  }
+                },
+                "parameters": [
+                  {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              }
+            },
+            "/v1/docs/{rest}": {
+              "get": {
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "content": {
+                      "application/json": {
+                        "schema": {}
+                      }
+                    }
+                  },
+                  "500": {
+                    "description": "Internal Server Error"
+                  }
+                },
+                "parameters": [
+                  {
+                    "name": "rest",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              }
+            },
+            "/v1/docs/latest": {
+              "get": {
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "content": {
+                      "application/json": {
+                        "schema": {}
+                      }
+                    }
+                  },
+                  "500": {
+                    "description": "Internal Server Error"
+                  }
+                }
+              }
+            },
+            "/v1/docs/events": {
+              "get": {
+                "responses": {
+                  "200": {
+                    "description": "Event stream",
+                    "content": {
+                      "text/event-stream": {}
+                    }
+                  },
+                  "500": {
+                    "description": "Internal Server Error"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "openapiNoInfo": {
+          "openapi": "3.1.0",
+          "info": {
+            "title": "green-tea API",
+            "version": "0.0.0"
+          },
+          "paths": {
+            "/v1/docs/{id}": {
+              "delete": {
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "content": {
+                      "application/json": {
+                        "schema": {}
+                      }
+                    }
+                  },
+                  "500": {
+                    "description": "Internal Server Error"
+                  }
+                },
+                "parameters": [
+                  {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              },
+              "get": {
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "content": {
+                      "application/json": {
+                        "schema": {}
+                      }
+                    }
+                  },
+                  "500": {
+                    "description": "Internal Server Error"
+                  }
+                },
+                "parameters": [
+                  {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              }
+            },
+            "/v1/docs/{rest}": {
+              "get": {
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "content": {
+                      "application/json": {
+                        "schema": {}
+                      }
+                    }
+                  },
+                  "500": {
+                    "description": "Internal Server Error"
+                  }
+                },
+                "parameters": [
+                  {
+                    "name": "rest",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              }
+            },
+            "/v1/docs/latest": {
+              "get": {
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "content": {
+                      "application/json": {
+                        "schema": {}
+                      }
+                    }
+                  },
+                  "500": {
+                    "description": "Internal Server Error"
+                  }
+                }
+              }
+            },
+            "/v1/docs/events": {
+              "get": {
+                "responses": {
+                  "200": {
+                    "description": "Event stream",
+                    "content": {
+                      "text/event-stream": {}
+                    }
+                  },
+                  "500": {
+                    "description": "Internal Server Error"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "fetchDev": {
+        "graphHtml": {
+          "status": 200,
+          "type": "text/html",
+          "sha256": "746f6094eaa9c2850c614190a116f34e4689fd4b07aba2dcd40545f6cdd763b7"
+        },
+        "graphText": {
+          "status": 200,
+          "type": "text/plain",
+          "body": "flowchart LR\n  n_store([\"store\"])\n  n_logger([\"logger\"])\n  n_rooms([\"rooms\"])\n  n_events([\"events\"])\n  n_caller[\"caller\"]\n  n_store --> n_caller\n  r__v1_docs__id{{\"DELETE /v1/docs/:id\"}}\n  r__v1_docs__rest_{{\"GET /v1/docs/:rest*\"}}\n  r__v1_docs__id{{\"GET /v1/docs/:id\"}}\n  n_store --> r__v1_docs__id\n  n_caller --> r__v1_docs__id\n  r__v1_docs_latest{{\"GET /v1/docs/latest\"}}\n  r__v1_docs_events{{\"GET /v1/docs/events\"}}\n  n_events --> r__v1_docs_events\n  r__v1_docs__id_live{{\"GET /v1/docs/:id/live\"}}\n  n_store --> r__v1_docs__id_live\n  n_caller --> r__v1_docs__id_live"
+        },
+        "openapi": {
+          "status": 200,
+          "type": "application/json",
+          "body": {
+            "openapi": "3.1.0",
+            "info": {
+              "title": "green-tea API",
+              "version": "0.0.0"
+            },
+            "paths": {
+              "/v1/docs/{id}": {
+                "delete": {
+                  "responses": {
+                    "200": {
+                      "description": "OK",
+                      "content": {
+                        "application/json": {
+                          "schema": {}
+                        }
+                      }
+                    },
+                    "500": {
+                      "description": "Internal Server Error"
+                    }
+                  },
+                  "parameters": [
+                    {
+                      "name": "id",
+                      "in": "path",
+                      "required": true,
+                      "schema": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "get": {
+                  "responses": {
+                    "200": {
+                      "description": "OK",
+                      "content": {
+                        "application/json": {
+                          "schema": {}
+                        }
+                      }
+                    },
+                    "500": {
+                      "description": "Internal Server Error"
+                    }
+                  },
+                  "parameters": [
+                    {
+                      "name": "id",
+                      "in": "path",
+                      "required": true,
+                      "schema": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                }
+              },
+              "/v1/docs/{rest}": {
+                "get": {
+                  "responses": {
+                    "200": {
+                      "description": "OK",
+                      "content": {
+                        "application/json": {
+                          "schema": {}
+                        }
+                      }
+                    },
+                    "500": {
+                      "description": "Internal Server Error"
+                    }
+                  },
+                  "parameters": [
+                    {
+                      "name": "rest",
+                      "in": "path",
+                      "required": true,
+                      "schema": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                }
+              },
+              "/v1/docs/latest": {
+                "get": {
+                  "responses": {
+                    "200": {
+                      "description": "OK",
+                      "content": {
+                        "application/json": {
+                          "schema": {}
+                        }
+                      }
+                    },
+                    "500": {
+                      "description": "Internal Server Error"
+                    }
+                  }
+                }
+              },
+              "/v1/docs/events": {
+                "get": {
+                  "responses": {
+                    "200": {
+                      "description": "Event stream",
+                      "content": {
+                        "text/event-stream": {}
+                      }
+                    },
+                    "500": {
+                      "description": "Internal Server Error"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "nodeDev": {
+        "graphHtml": {
+          "status": 200,
+          "type": "text/html",
+          "sha256": "746f6094eaa9c2850c614190a116f34e4689fd4b07aba2dcd40545f6cdd763b7"
+        },
+        "graphText": {
+          "status": 200,
+          "type": "text/plain",
+          "body": "flowchart LR\n  n_store([\"store\"])\n  n_logger([\"logger\"])\n  n_rooms([\"rooms\"])\n  n_events([\"events\"])\n  n_caller[\"caller\"]\n  n_store --> n_caller\n  r__v1_docs__id{{\"DELETE /v1/docs/:id\"}}\n  r__v1_docs__rest_{{\"GET /v1/docs/:rest*\"}}\n  r__v1_docs__id{{\"GET /v1/docs/:id\"}}\n  n_store --> r__v1_docs__id\n  n_caller --> r__v1_docs__id\n  r__v1_docs_latest{{\"GET /v1/docs/latest\"}}\n  r__v1_docs_events{{\"GET /v1/docs/events\"}}\n  n_events --> r__v1_docs_events\n  r__v1_docs__id_live{{\"GET /v1/docs/:id/live\"}}\n  n_store --> r__v1_docs__id_live\n  n_caller --> r__v1_docs__id_live"
+        },
+        "openapi": {
+          "status": 200,
+          "type": "application/json",
+          "body": {
+            "openapi": "3.1.0",
+            "info": {
+              "title": "green-tea API",
+              "version": "0.0.0"
+            },
+            "paths": {
+              "/v1/docs/{id}": {
+                "delete": {
+                  "responses": {
+                    "200": {
+                      "description": "OK",
+                      "content": {
+                        "application/json": {
+                          "schema": {}
+                        }
+                      }
+                    },
+                    "500": {
+                      "description": "Internal Server Error"
+                    }
+                  },
+                  "parameters": [
+                    {
+                      "name": "id",
+                      "in": "path",
+                      "required": true,
+                      "schema": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                },
+                "get": {
+                  "responses": {
+                    "200": {
+                      "description": "OK",
+                      "content": {
+                        "application/json": {
+                          "schema": {}
+                        }
+                      }
+                    },
+                    "500": {
+                      "description": "Internal Server Error"
+                    }
+                  },
+                  "parameters": [
+                    {
+                      "name": "id",
+                      "in": "path",
+                      "required": true,
+                      "schema": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                }
+              },
+              "/v1/docs/{rest}": {
+                "get": {
+                  "responses": {
+                    "200": {
+                      "description": "OK",
+                      "content": {
+                        "application/json": {
+                          "schema": {}
+                        }
+                      }
+                    },
+                    "500": {
+                      "description": "Internal Server Error"
+                    }
+                  },
+                  "parameters": [
+                    {
+                      "name": "rest",
+                      "in": "path",
+                      "required": true,
+                      "schema": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                }
+              },
+              "/v1/docs/latest": {
+                "get": {
+                  "responses": {
+                    "200": {
+                      "description": "OK",
+                      "content": {
+                        "application/json": {
+                          "schema": {}
+                        }
+                      }
+                    },
+                    "500": {
+                      "description": "Internal Server Error"
+                    }
+                  }
+                }
+              },
+              "/v1/docs/events": {
+                "get": {
+                  "responses": {
+                    "200": {
+                      "description": "Event stream",
+                      "content": {
+                        "text/event-stream": {}
+                      }
+                    },
+                    "500": {
+                      "description": "Internal Server Error"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "lookups": [
+        {
+          "method": "GET",
+          "path": "/v1/docs/latest",
+          "status": 200,
+          "allow": null,
+          "body": "{\"id\":\"latest\"}"
+        },
+        {
+          "method": "GET",
+          "path": "/v1/docs/7",
+          "status": 200,
+          "allow": null,
+          "body": "{\"id\":\"get\",\"param\":\"7\"}"
+        },
+        {
+          "method": "GET",
+          "path": "/v1/docs/a/b",
+          "status": 200,
+          "allow": null,
+          "body": "{\"id\":\"rest\",\"param\":\"a/b\"}"
+        },
+        {
+          "method": "DELETE",
+          "path": "/v1/docs/7",
+          "status": 200,
+          "allow": null,
+          "body": "{\"id\":\"remove\",\"param\":\"7\"}"
+        },
+        {
+          "method": "PUT",
+          "path": "/v1/docs/7",
+          "status": 405,
+          "allow": "GET, HEAD, DELETE, OPTIONS",
+          "body": "{\"error\":\"Method Not Allowed\"}"
+        }
+      ]
+    },
+    "mesh": {
+      "before": {
+        "graph": {
+          "error": "graph() unavailable until a mesh app has booted: a mesh graph is not knowable until its teapots are asked. Call `await app.ready()` first — it is a no-op on a non-mesh app"
+        },
+        "explain": {
+          "error": "explain() unavailable until a mesh app has booted: a mesh graph is not knowable until its teapots are asked. Call `await app.ready()` first — it is a no-op on a non-mesh app"
+        },
+        "inspect": {
+          "error": "inspect() unavailable until a mesh app has booted: a mesh graph is not knowable until its teapots are asked. Call `await app.ready()` first — it is a no-op on a non-mesh app"
+        },
+        "openapi": {
+          "value": {
+            "openapi": "3.1.0",
+            "info": {
+              "title": "green-tea API",
+              "version": "0.0.0"
+            },
+            "paths": {
+              "/api/local/{id}": {
+                "get": {
+                  "responses": {
+                    "200": {
+                      "description": "OK",
+                      "content": {
+                        "application/json": {
+                          "schema": {}
+                        }
+                      }
+                    },
+                    "500": {
+                      "description": "Internal Server Error"
+                    }
+                  },
+                  "parameters": [
+                    {
+                      "name": "id",
+                      "in": "path",
+                      "required": true,
+                      "schema": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                }
+              },
+              "/api/local/who": {
+                "get": {
+                  "responses": {
+                    "200": {
+                      "description": "OK",
+                      "content": {
+                        "application/json": {
+                          "schema": {}
+                        }
+                      }
+                    },
+                    "500": {
+                      "description": "Internal Server Error"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "after": {
+        "graph": {
+          "nodes": [
+            {
+              "name": "logger",
+              "kind": "provider",
+              "origin": "builtin",
+              "needs": [],
+              "provides": ["logger"]
+            },
+            {
+              "name": "rooms",
+              "kind": "provider",
+              "origin": "builtin",
+              "needs": [],
+              "provides": ["rooms"]
+            },
+            {
+              "name": "events",
+              "kind": "provider",
+              "origin": "builtin",
+              "needs": [],
+              "provides": ["events"]
+            },
+            {
+              "name": "config",
+              "kind": "step",
+              "origin": "mesh:<teapot>",
+              "needs": [],
+              "provides": ["config"]
+            }
+          ],
+          "routes": [
+            {
+              "pattern": "/api/local/:id",
+              "method": "GET",
+              "transport": "buffer",
+              "chain": ["byId"]
+            },
+            {
+              "pattern": "/api/local/who",
+              "method": "GET",
+              "transport": "buffer",
+              "chain": ["config", "who"]
+            }
+          ]
+        },
+        "explain": [
+          {
+            "pattern": "/api/local/who",
+            "value": {
+              "pattern": "/api/local/who",
+              "method": "GET",
+              "transport": "buffer",
+              "chain": [
+                {
+                  "name": "config",
+                  "kind": "step",
+                  "origin": "mesh:<teapot>",
+                  "needs": [],
+                  "provides": ["config"]
+                },
+                {
+                  "name": "who",
+                  "kind": "handler",
+                  "origin": "module:TeacupModule",
+                  "needs": ["config"],
+                  "provides": []
+                }
+              ]
+            }
+          },
+          {
+            "pattern": "/api/local/:id",
+            "value": {
+              "pattern": "/api/local/:id",
+              "method": "GET",
+              "transport": "buffer",
+              "chain": [
+                {
+                  "name": "byId",
+                  "kind": "handler",
+                  "origin": "module:TeacupModule",
+                  "needs": [],
+                  "provides": []
+                }
+              ]
+            }
+          },
+          {
+            "pattern": "/api/remote/ping",
+            "error": "no route: /api/remote/ping"
+          },
+          {
+            "pattern": "/api/local/7",
+            "error": "no route: /api/local/7"
+          }
+        ],
+        "mermaid": "flowchart LR\n  n_logger([\"logger\"])\n  n_rooms([\"rooms\"])\n  n_events([\"events\"])\n  n_config[\"config\"]\n  r__api_local__id{{\"GET /api/local/:id\"}}\n  r__api_local_who{{\"GET /api/local/who\"}}\n  n_config --> r__api_local_who",
+        "openapi": {
+          "openapi": "3.1.0",
+          "info": {
+            "title": "green-tea API",
+            "version": "0.0.0"
+          },
+          "paths": {
+            "/api/local/{id}": {
+              "get": {
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "content": {
+                      "application/json": {
+                        "schema": {}
+                      }
+                    }
+                  },
+                  "500": {
+                    "description": "Internal Server Error"
+                  }
+                },
+                "parameters": [
+                  {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "schema": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              }
+            },
+            "/api/local/who": {
+              "get": {
+                "responses": {
+                  "200": {
+                    "description": "OK",
+                    "content": {
+                      "application/json": {
+                        "schema": {}
+                      }
+                    }
+                  },
+                  "500": {
+                    "description": "Internal Server Error"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "dev": {
+        "graphHtml": {
+          "status": 200,
+          "type": "text/html",
+          "sha256": "7170130be7fa4ff3940eb35414f8d74b70a7d6b76fbc716552a26b581935d69a"
+        },
+        "graphText": {
+          "status": 200,
+          "type": "text/plain",
+          "body": "flowchart LR\n  n_logger([\"logger\"])\n  n_rooms([\"rooms\"])\n  n_events([\"events\"])\n  n_config[\"config\"]\n  r__api_local__id{{\"GET /api/local/:id\"}}\n  r__api_local_who{{\"GET /api/local/who\"}}\n  n_config --> r__api_local_who"
+        },
+        "openapi": {
+          "status": 200,
+          "type": "application/json",
+          "body": {
+            "openapi": "3.1.0",
+            "info": {
+              "title": "green-tea API",
+              "version": "0.0.0"
+            },
+            "paths": {
+              "/api/local/{id}": {
+                "get": {
+                  "responses": {
+                    "200": {
+                      "description": "OK",
+                      "content": {
+                        "application/json": {
+                          "schema": {}
+                        }
+                      }
+                    },
+                    "500": {
+                      "description": "Internal Server Error"
+                    }
+                  },
+                  "parameters": [
+                    {
+                      "name": "id",
+                      "in": "path",
+                      "required": true,
+                      "schema": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                }
+              },
+              "/api/local/who": {
+                "get": {
+                  "responses": {
+                    "200": {
+                      "description": "OK",
+                      "content": {
+                        "application/json": {
+                          "schema": {}
+                        }
+                      }
+                    },
+                    "500": {
+                      "description": "Internal Server Error"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "lookup": {
+        "path": "/api/remote/ping",
+        "status": 200,
+        "body": "{\"from\":\"teapot\"}"
+      }
+    }
+  }
+}
