@@ -15,14 +15,14 @@
  * Each router is a module exporting `resolveRoute` and `allowedMethods` with the `src/http/router.ts`
  * signatures. All routers are loaded into the same process and **interleaved**: per cell, every
  * router is warmed, then each round takes one sample from each router, alternating which goes first
- * (AB, BA, AB, ...). Every router after the first is reported against the first as the median of the
+ * (AB, BA, AB, ...). Fresh processes alternate the whole router order, warm-up included. Every router after the first is reported against the first as the median of the
  * per-round B/A ratios, with a bootstrap 95% CI. Interleaving puts drift and background load on both
  * sides of each ratio instead of on whichever ran later. With one router it reports absolute numbers
  * only. Do not edit the generator, the workloads or the defaults between a baseline and its
  * comparison: they are the method.
  *
  * Env: `LOOKUP_ROUTERS` (label=path list, default `live=src/http/router.ts`), `LOOKUP_RUNS` (4 fresh
- * processes, import order alternating), `LOOKUP_ROUNDS` (21 per cell per run, minimum 15), `LOOKUP_SAMPLE_MS` (25),
+ * processes, router order alternating), `LOOKUP_ROUNDS` (21 per cell per run, minimum 15), `LOOKUP_SAMPLE_MS` (25),
  * `LOOKUP_WARMUP_MS` (250 per router per cell), `LOOKUP_OUT` (bench/lookup-results.json). Any other
  * `LOOKUP_*` variable (e.g. `LOOKUP_HOST`, `LOOKUP_CPUSET`) is copied into the record as a note.
  */
@@ -159,13 +159,15 @@ function measureCell(loaded: Loaded, routes: Route[], w: Workload): Cell {
 }
 
 async function child(routers: Array<[string, string]>): Promise<void> {
-  // Import order alternates per run (LOOKUP_IMPORT_REVERSED): which copy V8 sees first can bias an
-  // in-process comparison of otherwise identical code, and alternating spreads that over both sides.
-  const imports = process.env.LOOKUP_IMPORT_REVERSED === '1' ? [...routers].reverse() : routers;
-  const modules = new Map<string, RouterModule>();
-  for (const [label, path] of imports)
-    modules.set(label, (await import(pathToFileURL(resolve(path)).href)) as RouterModule);
-  const loaded: Loaded = routers.map(([label]) => ({ label, router: modules.get(label)! }));
+  // Router order alternates per run (LOOKUP_IMPORT_REVERSED): import order, warm-up order and which
+  // router opens each cell's first round. Whichever router V8 sees first, in import or in the shared
+  // `lookup` call site, can bias an in-process comparison of otherwise identical code; alternating
+  // all of it spreads that over both sides. Reversing only the import order left an A/A bias of up
+  // to +8% on the second-listed router (CARD-10).
+  const ordered = process.env.LOOKUP_IMPORT_REVERSED === '1' ? [...routers].reverse() : routers;
+  const loaded: Loaded = [];
+  for (const [label, path] of ordered)
+    loaded.push({ label, router: (await import(pathToFileURL(resolve(path)).href)) as RouterModule });
 
   const cells: Cell[] = [];
   for (const count of ROUTE_COUNTS) {
