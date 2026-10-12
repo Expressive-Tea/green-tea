@@ -92,6 +92,22 @@ describe('radix index: local and remote trees', () => {
   });
 });
 
+describe('radix index: ranking across branches', () => {
+  it('lets an exact param route beat a catch-all the walk reached first through a static branch', () => {
+    // The static branch is walked first and yields the catch-all (rank 1); the param sibling still
+    // holds the rank-0 exact route, so pruning must not cut it, even by one.
+    for (const order of [
+      ['/a/:rest*', '/:x/b'],
+      ['/:x/b', '/a/:rest*'],
+    ]) {
+      const routes = order.map((pattern) => route('GET', pattern));
+      const expected = oracle.matchRoute(routes, 'GET', '/a/b');
+      expect(expected?.def.pattern).toBe('/:x/b');
+      expect(live.matchRoute(routes, 'GET', '/a/b')).toEqual(expected);
+    }
+  });
+});
+
 describe('radix index: lifetime', () => {
   it('rebuilds when the array it was built from changes length', () => {
     const routes = [route('GET', '/a')];
