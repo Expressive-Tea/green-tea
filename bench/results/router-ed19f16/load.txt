@@ -1,0 +1,3 @@
+d4 before: 2026-10-12T20:16:20Z  15:16:20 up 46 days, 15:05,  2 users,  load average: 0.89, 0.83, 0.44
+d4 after / aa before: 2026-10-12T20:21:20Z  15:21:20 up 46 days, 15:10,  2 users,  load average: 1.02, 0.97, 0.62
+aa after: 2026-10-12T20:26:20Z  15:26:20 up 46 days, 15:15,  2 users,  load average: 1.07, 1.03, 0.75

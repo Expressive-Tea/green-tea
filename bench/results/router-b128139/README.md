@@ -1,5 +1,7 @@
 # Radix router lookup evidence — `b128139` (CARD-10, D4)
 
+> **Superseded by `../router-ed19f16/`.** This run found the 10-route regression from `a2b71e2`, which #131 fixed, and the A/A order bias, which `ed19f16` fixed in `bench/lookup.ts`. It is kept as the record of both.
+
 The formal D4 comparison for the radix index (FPRD-001 CARD-10, #109): the radix router at
 `b128139` against the frozen pre-radix linear matcher, with the harness, host, cpuset and image of
 the baseline in `bench/baseline/router-ed47836/`. `b128139` is `develop` at `cb123e3` (CARD-07,
