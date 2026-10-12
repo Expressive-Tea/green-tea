@@ -126,6 +126,16 @@ describe('radix index: deep paths', () => {
   });
 });
 
+describe('radix index: malformed paths', () => {
+  it('leaves no frames on the shared walk stack when a segment fails to decode', () => {
+    // `/:rest*` pushes a pending catch-all frame before `/:id` decodes `%GG` and throws.
+    const routes = [route('GET', '/:id'), route('GET', '/:rest*')];
+    for (let i = 0; i < 3; i++) expect(() => live.matchRoute(routes, 'GET', '/%GG')).toThrow(URIError);
+    expect(live.walkStackSize()).toBe(0);
+    expect(live.matchRoute(routes, 'GET', '/a')?.params).toEqual({ id: 'a' });
+  });
+});
+
 describe('radix index: lifetime', () => {
   it('rebuilds when the array it was built from changes length', () => {
     const routes = [route('GET', '/a')];

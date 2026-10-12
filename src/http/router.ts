@@ -552,6 +552,9 @@ const stackNodes: RadixNode[] = [];
 const stackDepths: number[] = [];
 const POST = -1;
 
+/** @internal Pending frames left on the shared walk stack; zero between lookups. For tests. */
+export const walkStackSize = (): number => stackNodes.length;
+
 /**
  * Depth-first walk with backtracking: a static branch that dead-ends deeper falls back to its param,
  * constrained and catch-all siblings. Params are decoded after splitting, so `%2F` stays inside one
@@ -569,44 +572,50 @@ function walk(root: RadixNode, search: Search, segs: string[]): void {
   stackNodes.push(root);
   stackDepths.push(0);
 
-  while (stackNodes.length > base) {
-    const node = stackNodes.pop()!;
-    const depth = stackDepths.pop()!;
+  try {
+    while (stackNodes.length > base) {
+      const node = stackNodes.pop()!;
+      const depth = stackDepths.pop()!;
 
-    if (depth === POST) {
-      offer(search, node.catchAll);
-      continue;
+      if (depth === POST) {
+        offer(search, node.catchAll);
+        continue;
+      }
+
+      if (search.best && node.min >= search.best.rank) continue;
+
+      if (node.catchAll.length) {
+        stackNodes.push(node);
+        stackDepths.push(POST);
+      }
+
+      if (depth === segs.length) {
+        if (node.exact.length) offer(search, node.exact);
+        continue;
+      }
+
+      const segment = segs[depth];
+      const params = node.params;
+
+      for (let i = params.length - 1; i >= 0; i--) {
+        const edge = params[i];
+        const value = (search.decoded[depth] ??= decodeSegment(segment));
+        if (edge.constraint && !edge.constraint.test(value)) continue;
+        stackNodes.push(edge.node);
+        stackDepths.push(depth + 1);
+      }
+
+      const next = node.statics.size ? node.statics.get(segment) : undefined;
+
+      if (next) {
+        stackNodes.push(next);
+        stackDepths.push(depth + 1);
+      }
     }
-
-    if (search.best && node.min >= search.best.rank) continue;
-
-    if (node.catchAll.length) {
-      stackNodes.push(node);
-      stackDepths.push(POST);
-    }
-
-    if (depth === segs.length) {
-      if (node.exact.length) offer(search, node.exact);
-      continue;
-    }
-
-    const segment = segs[depth];
-    const params = node.params;
-
-    for (let i = params.length - 1; i >= 0; i--) {
-      const edge = params[i];
-      const value = (search.decoded[depth] ??= decodeSegment(segment));
-      if (edge.constraint && !edge.constraint.test(value)) continue;
-      stackNodes.push(edge.node);
-      stackDepths.push(depth + 1);
-    }
-
-    const next = node.statics.size ? node.statics.get(segment) : undefined;
-
-    if (next) {
-      stackNodes.push(next);
-      stackDepths.push(depth + 1);
-    }
+  } finally {
+    // A malformed `%` escape throws out of `decodeSegment` with frames still pending; drop them.
+    stackNodes.length = base;
+    stackDepths.length = base;
   }
 }
 
