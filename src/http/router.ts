@@ -544,34 +544,70 @@ function offer(search: Search, terminals: Terminal[]): void {
 }
 
 /**
+ * Pending walk frames, shared by every lookup. A frame is a node and its depth; `POST` marks the
+ * frame that offers a node's catch-alls once its children are done. The walk is synchronous and
+ * calls no user code, and each call pops only what it pushed, so sharing is safe.
+ */
+const stackNodes: RadixNode[] = [];
+const stackDepths: number[] = [];
+const POST = -1;
+
+/**
  * Depth-first walk with backtracking: a static branch that dead-ends deeper falls back to its param,
  * constrained and catch-all siblings. Params are decoded after splitting, so `%2F` stays inside one
  * segment. Every branch that could still hold a better rank is visited; `min` prunes the rest.
  *
+ * It runs on an explicit stack, not recursion, so a deep path that the linear matcher accepts cannot
+ * overflow the call stack. Frames pop in the order the recursive walk visited them: static child,
+ * then params in insertion order, then the node's catch-alls.
+ *
  * The indexed loops and the empty-collection guards are measured, not style: at 10 routes the old
  * linear scan is a handful of string compares, and these keep the walk within D4 of it (FPRD-001).
  */
-function walk(node: RadixNode, search: Search, segs: string[], depth: number): void {
-  if (search.best && node.min >= search.best.rank) return;
+function walk(root: RadixNode, search: Search, segs: string[]): void {
+  const base = stackNodes.length;
+  stackNodes.push(root);
+  stackDepths.push(0);
 
-  if (depth === segs.length) {
-    if (node.exact.length) offer(search, node.exact);
-  } else {
+  while (stackNodes.length > base) {
+    const node = stackNodes.pop()!;
+    const depth = stackDepths.pop()!;
+
+    if (depth === POST) {
+      offer(search, node.catchAll);
+      continue;
+    }
+
+    if (search.best && node.min >= search.best.rank) continue;
+
+    if (node.catchAll.length) {
+      stackNodes.push(node);
+      stackDepths.push(POST);
+    }
+
+    if (depth === segs.length) {
+      if (node.exact.length) offer(search, node.exact);
+      continue;
+    }
+
     const segment = segs[depth];
-    const next = node.statics.size ? node.statics.get(segment) : undefined;
-    if (next) walk(next, search, segs, depth + 1);
-
     const params = node.params;
 
-    for (let i = 0; i < params.length; i++) {
+    for (let i = params.length - 1; i >= 0; i--) {
       const edge = params[i];
       const value = (search.decoded[depth] ??= decodeSegment(segment));
       if (edge.constraint && !edge.constraint.test(value)) continue;
-      walk(edge.node, search, segs, depth + 1);
+      stackNodes.push(edge.node);
+      stackDepths.push(depth + 1);
+    }
+
+    const next = node.statics.size ? node.statics.get(segment) : undefined;
+
+    if (next) {
+      stackNodes.push(next);
+      stackDepths.push(depth + 1);
     }
   }
-
-  if (node.catchAll.length) offer(search, node.catchAll);
 }
 
 function searchTree(
@@ -585,7 +621,7 @@ function searchTree(
 
   const exact = tree.exactPaths.get(search.path);
   if (exact) offer(search, exact);
-  if (!search.best) walk(tree.root, search, segmentsOf(search), 0);
+  if (!search.best) walk(tree.root, search, segmentsOf(search));
   return search.best;
 }
 

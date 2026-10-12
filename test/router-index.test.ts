@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import * as live from '../src/http/router';
 import type { RouteDef } from '../src/http/types';
+import { buildFetch } from '../src/http/web';
 import * as oracle from './router-parity/oracle';
 import { runScenario, type MatcherImpl, type Scenario } from './router-parity/matcher';
 import { HAND_SCENARIOS, OWNER_SCENARIOS } from './router-parity/cases';
@@ -105,6 +106,23 @@ describe('radix index: ranking across branches', () => {
       expect(expected?.def.pattern).toBe('/:x/b');
       expect(live.matchRoute(routes, 'GET', '/a/b')).toEqual(expected);
     }
+  });
+});
+
+describe('radix index: deep paths', () => {
+  it('matches a param under 4,999 static segments without overflowing the call stack', async () => {
+    // Every static segment is one walk frame, so a recursive walk throws RangeError here.
+    const prefix = '/s'.repeat(4999);
+    const routes = [route('GET', `${prefix}/:x`)];
+    const path = `${prefix}/a`;
+
+    const expected = oracle.matchRoute(routes, 'GET', path);
+    expect(expected?.params).toEqual({ x: 'a' });
+    expect(live.matchRoute(routes, 'GET', path)).toEqual(expected);
+
+    const res = await buildFetch(routes, undefined)(new Request(`http://x${path}`));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(`${prefix}/:x`);
   });
 });
 
