@@ -50,6 +50,7 @@ import type { RequestEnvelope, RouteEntry } from '../mesh/protocol';
 import type { App, InspectLine, Explain, RoutePlan, MeshConfig } from './types';
 import { inspectRoute, buildGraphView, explainRoute } from './introspect';
 import { compilePattern, markRemoteRoute, normalizeRequestPath } from '../http/router';
+import { routeConflict, type Precedence, type RouteConflict } from '../http/route-conflicts';
 
 export type { App, InspectLine, ExplainNode, Explain, MeshConfig, Hooks } from './types';
 
@@ -535,13 +536,71 @@ function assertRouteAvailable(existing: RoutePlan[], candidate: RoutePlan): void
   const conflict = existing.find(
     (plan) => plan.method === candidate.method && compilePattern(plan.pattern).shape === compiled.shape,
   );
-  if (!conflict) return;
 
-  throw new Error(
-    `ambiguous route ${candidate.method} ${candidate.pattern} at ${candidate.declaration} conflicts with ` +
-      `${conflict.method} ${conflict.pattern} at ${conflict.declaration}`,
+  if (conflict) {
+    throw new Error(
+      `ambiguous route ${candidate.method} ${candidate.pattern} at ${candidate.declaration} conflicts with ` +
+        `${conflict.method} ${conflict.pattern} at ${conflict.declaration}`,
+    );
+  }
+
+  for (const plan of existing) if (plan.method === candidate.method) assertNoSiblingConflict(plan, candidate);
+}
+
+/** The lookup tables a plan is served from. `negotiate` sits in both (see buildHttpRoutes / buildWsRoutes). */
+const inHttpTable = (plan: RoutePlan): boolean => plan.transport !== 'ws';
+const inWsTable = (plan: RoutePlan): boolean => plan.transport === 'ws' || plan.transport === 'negotiate';
+
+/**
+ * Rejects a constrained param that can never be reached, or that ties with a sibling (CARD-13, #127).
+ * `earlier` was declared first. Each table is checked under its own precedence: HTTP ranks by
+ * specificity, WebSocket takes the first declared match. See `routeConflict` for the definitions.
+ */
+function assertNoSiblingConflict(earlier: RoutePlan, candidate: RoutePlan): void {
+  const tables: Array<[boolean, Precedence]> = [
+    [inHttpTable(earlier) && inHttpTable(candidate), 'specificity'],
+    [inWsTable(earlier) && inWsTable(candidate), 'registration'],
+  ];
+
+  for (const [shared, precedence] of tables) {
+    if (!shared) continue;
+    const conflict = routeConflict(compilePattern(earlier.pattern), compilePattern(candidate.pattern), precedence);
+    if (conflict) throw new Error(localConflictMessage(conflict, [earlier, candidate], precedence));
+  }
+}
+
+function localConflictMessage(conflict: RouteConflict, plans: [RoutePlan, RoutePlan], precedence: Precedence): string {
+  const label = (plan: RoutePlan) =>
+    `${plan.transport === 'ws' ? 'WS' : plan.method} ${plan.pattern} at ${plan.declaration}`;
+  const ws = precedence === 'registration';
+
+  if (conflict.kind === 'ambiguous') {
+    const [earlier, candidate] = plans;
+    return (
+      `ambiguous route ${label(candidate)} conflicts with ${label(earlier)}: ` +
+      `both match ${quoteWitness(conflict.segment)} (${ws ? 'WebSocket' : candidate.method} ${shorten(conflict.path)}), ` +
+      'so only declaration order would choose between them — give the constraints disjoint languages, or merge the routes'
+    );
+  }
+
+  const loser = plans[conflict.loser];
+  const winner = plans[1 - conflict.loser];
+  const reason = ws
+    ? 'WebSocket routes are matched in declaration order, and it is declared first'
+    : 'its constraint accepts every segment, and a constrained parameter outranks a plain one';
+  return (
+    `unreachable route ${label(loser)}: ${label(winner)} matches every request it would, and wins each one — ` +
+    `${reason}. Remove one of them, or narrow the constraint`
   );
 }
+
+/** Quotes a witness segment for an error message, escaping control characters and eliding long ones. */
+function quoteWitness(segment: string): string {
+  const shown = JSON.stringify(segment.length > 32 ? segment.slice(0, 32) : segment).slice(1, -1);
+  return segment.length > 32 ? `'${shown}…' (${segment.length} characters)` : `'${shown}'`;
+}
+
+const shorten = (path: string): string => (path.length > 80 ? `${path.slice(0, 80)}…` : path);
 
 /**
  * Resolves the response transformer for a route: `@Html` metadata builds an HTML transformer (after
@@ -872,6 +931,41 @@ function warnIfCleartext(url: string, logger: Logger): void {
   );
 }
 
+/** A route a teapot exported, and the teapot it came from. */
+interface RemoteRoute {
+  method: string;
+  pattern: string;
+  url: string;
+}
+
+/**
+ * The same sibling check local routes get (CARD-13, #127), between routes from teapots. They share the
+ * remote tree, ranked by specificity. A local route against a remote one is not checked here: the
+ * local one wins by design, and a same-shape pair is warned about below.
+ */
+function assertNoRemoteSiblingConflict(accepted: RemoteRoute[], route: RemoteRoute): void {
+  for (const prior of accepted) {
+    if (prior.method !== route.method) continue;
+    const conflict = routeConflict(compilePattern(prior.pattern), compilePattern(route.pattern), 'specificity');
+    if (!conflict) continue;
+    const show = (r: RemoteRoute) => `'${r.method} ${r.pattern}' from ${r.url}`;
+
+    if (conflict.kind === 'ambiguous') {
+      throw new Error(
+        `mesh: ambiguous remote route ${show(route)} conflicts with ${show(prior)}: ` +
+          `both match ${quoteWitness(conflict.segment)} (${route.method} ${shorten(conflict.path)}) — ` +
+          'green-tea will not choose one for you. Export only one of them, or give their constraints disjoint languages.',
+      );
+    }
+
+    const [loser, winner] = conflict.loser === 0 ? [prior, route] : [route, prior];
+    throw new Error(
+      `mesh: unreachable remote route ${show(loser)}: ${show(winner)} matches every request it would, and wins each one — ` +
+        'its constraint accepts every segment, and a constrained parameter outranks a plain one. Export only one of them.',
+    );
+  }
+}
+
 /** Connects the configured teapots, splices their remote steps into the registry, and returns their routes. */
 async function spliceRemoteScopes(
   mesh: MeshConfig,
@@ -883,6 +977,7 @@ async function spliceRemoteScopes(
   const meshLinks: Link[] = [];
   const absent: string[] = []; // urls of teapots that never connected within the boot budget
   const routeOwners = new Map<string, { url: string; pattern: string }>(); // "METHOD effective-shape" -> owner
+  const remoteAccepted: RemoteRoute[] = []; // every remote route spliced so far, in teapot order
 
   try {
     for (const teapot of mesh.teapots ?? []) {
@@ -933,6 +1028,12 @@ async function spliceRemoteScopes(
         }
 
         routeOwners.set(key, { url: teapot.url, pattern: route.pattern });
+        assertNoRemoteSiblingConflict(remoteAccepted, {
+          method: route.method,
+          pattern: route.pattern,
+          url: teapot.url,
+        });
+        remoteAccepted.push({ method: route.method, pattern: route.pattern, url: teapot.url });
 
         // Local routes are merged ahead of remote ones (see buildHttpRoutes), so a local twin
         // wins. That precedence is deliberate — your own code beats an imported one, and it is
