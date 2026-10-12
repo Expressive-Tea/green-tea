@@ -53,9 +53,14 @@ export const MUTANTS: Mutant[] = [
     edits: [
       {
         file: ROUTER,
-        from: `    if (next) walk(next, search, segs, depth + 1);`,
-        to: `    if (next && depth === 0) return walk(next, search, segs, depth + 1);
-    if (next) walk(next, search, segs, depth + 1);`,
+        from: `    const segment = segs[depth];\n`,
+        to: `    const segment = segs[depth];
+    const first = depth === 0 ? node.statics.get(segment) : undefined;
+    if (first) {
+      stackNodes.push(first);
+      stackDepths.push(1);
+      continue;
+    }\n`,
       },
     ],
   },
@@ -116,8 +121,8 @@ export const MUTANTS: Mutant[] = [
     edits: [
       {
         file: ROUTER,
-        from: `  if (node.catchAll.length) offer(search, node.catchAll);`,
-        to: `  if (node.catchAll.length && depth < segs.length) offer(search, node.catchAll);`,
+        from: `    if (node.catchAll.length) {`,
+        to: `    if (node.catchAll.length && depth < segs.length) {`,
       },
     ],
   },
@@ -242,8 +247,8 @@ export const MUTANTS: Mutant[] = [
     edits: [
       {
         file: ROUTER,
-        from: `  if (search.best && node.min >= search.best.rank) return;`,
-        to: `  if (search.best && node.min + 1 >= search.best.rank) return;`,
+        from: `    if (search.best && node.min >= search.best.rank) continue;`,
+        to: `    if (search.best && node.min + 1 >= search.best.rank) continue;`,
       },
     ],
   },
@@ -311,8 +316,8 @@ export const MUTANTS: Mutant[] = [
     edits: [
       {
         file: ROUTER,
-        from: `    if (node.exact.length) offer(search, node.exact);\n  } else {`,
-        to: `    if (node.exact.length) offer(search, node.exact);\n    if (node.statics.size) return;\n  } else {`,
+        from: `    if (node.catchAll.length) {`,
+        to: `    if (node.catchAll.length && !(depth === segs.length && node.statics.size)) {`,
       },
     ],
   },
