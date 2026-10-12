@@ -612,10 +612,13 @@ function walk(root: RadixNode, search: Search, segs: string[]): void {
         stackDepths.push(depth + 1);
       }
     }
-  } finally {
+  } catch (error) {
     // A malformed `%` escape throws out of `decodeSegment` with frames still pending; drop them.
+    // Not in a `finally`: a normal walk already ends at `base`, and writing `length` on every lookup
+    // drops the arrays' storage, which cost D4 at 10 routes (FPRD-001 CARD-10).
     stackNodes.length = base;
     stackDepths.length = base;
+    throw error;
   }
 }
 
