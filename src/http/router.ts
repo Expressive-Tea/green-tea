@@ -139,8 +139,19 @@ function segmentShape(segment: CompiledSegment): string {
   return segment.constraintSource ? `r:${segment.constraintSource}` : 'p';
 }
 
+/**
+ * Calls into the compile and index-build seams. `compilePattern` is called inside this module, where a
+ * spy on the export cannot see it, so the counts are kept here; they let a test prove that misses
+ * after the index is built recompile nothing and rebuild nothing (FPRD-001 CARD-10).
+ */
+const seamCounts = { compilePattern: 0, indexBuilds: 0 };
+
+/** @internal Calls so far to `compilePattern` (cache hits included) and route-index builds. For tests. */
+export const routerSeamCounts = (): Readonly<typeof seamCounts> => ({ ...seamCounts });
+
 /** Compiles and validates one route pattern. Results are cached by source string. */
 export function compilePattern(pattern: string): CompiledPattern {
+  seamCounts.compilePattern++;
   const cached = compiledCache.get(pattern);
   if (cached) return cached;
   if (!pattern.startsWith('/')) throw new Error(`invalid route pattern '${pattern}': pattern must start with '/'`);
@@ -490,6 +501,7 @@ function routeIndex(routes: RouteDef[]): RouteIndex {
   const cached = routeIndexCache.get(routes);
   if (cached?.size === routes.length) return cached;
 
+  seamCounts.indexBuilds++;
   const local: Array<{ def: RouteDef; order: number }> = [];
   const remote: Array<{ def: RouteDef; order: number }> = [];
   routes.forEach((def, order) => (remoteRouteDefs.has(def) ? remote : local).push({ def, order }));
