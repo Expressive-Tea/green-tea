@@ -325,65 +325,350 @@ function moreSpecific(a: CompiledPattern, b: CompiledPattern): number {
   return 0;
 }
 
-/** One route with its pattern already compiled. Built once per table, ordered within its method. */
-interface IndexedRoute {
+/**
+ * One route at a terminal of the index.
+ *
+ * `rank` is the route's place in its method's specificity order — exactly the order the linear
+ * matcher sorted its bucket into: `moreSpecific` first, declaration order on ties. Lower wins. The
+ * tree only decides which routes *can* match; this number alone decides which one *does*, so the
+ * shape of the tree can never override the global ranking (two overlapping constraints, a catch-all
+ * at one depth against a param at another, an equal-rank tie).
+ */
+interface Terminal {
   def: RouteDef;
   compiled: CompiledPattern;
+  rank: number;
+  /** Position in the route array the index was built from. Breaks a tie between the two trees. */
+  order: number;
+  /** Every segment static: the route has no params to collect. */
+  allStatic: boolean;
+}
+
+/** A `:param` edge. Plain params share one edge; constrained ones share an edge per constraint source. */
+interface ParamEdge {
+  constraintSource: string | undefined;
+  constraint: RegExp | undefined;
+  node: RadixNode;
+}
+
+// ponytail: a segment trie — one edge per whole path segment, no compression of single-child static
+// chains. Lookup cost already follows path depth, not route count; compressing would save a few map
+// hops on long static prefixes and costs a split/merge routine nobody has measured a need for.
+interface RadixNode {
+  statics: Map<string, RadixNode>;
+  params: ParamEdge[];
+  /** Routes whose last segment ends at this node, by rank. */
+  exact: Terminal[];
+  /** Catch-all routes whose fixed prefix ends at this node, by rank. They match zero or more segments. */
+  catchAll: Terminal[];
+  /** Lowest rank anywhere below this node: a branch that cannot beat the best match so far is skipped. */
+  min: number;
+}
+
+/** One method's routes: the tree, plus its all-static routes by exact path. */
+interface MethodTree {
+  root: RadixNode;
+  /**
+   * All-static routes keyed by their normalized pattern, by rank. A hit here is the tree's best
+   * match for that path: any other non-catch-all route matching it has as many segments, none of
+   * them more specific than static, and every catch-all ranks below every exact route. So a static
+   * request is answered without splitting the path. A miss proves nothing and falls through to the
+   * walk, as does a path spelled differently from its pattern (`/a/`, `/a//b` on a direct call).
+   */
+  exactPaths: Map<string, Terminal[]>;
 }
 
 /**
- * Compiled, method-bucketed, specificity-ordered route tables, keyed by the identity of the array
- * they were built from.
+ * The lookup index for one route array: a tree per HTTP method, local and remote kept apart.
+ *
+ * Mesh-spliced remote routes get their own trees so they can later be rebuilt alone when peers come
+ * and go. Precedence stays the single list's: both trees answer, the more specific match wins, and
+ * a tie goes to the earlier declaration — a local one, since local routes come first.
+ */
+interface RouteIndex {
+  /** Length of the array at build time; a cached index for an array that has since grown or shrunk is rebuilt. */
+  size: number;
+  local: Map<string, MethodTree>;
+  /** Absent for an app without mesh routes, which then does a single lookup. */
+  remote: Map<string, MethodTree> | undefined;
+  /** Every method with at least one route, in either tree. */
+  methods: string[];
+}
+
+/** The routes a mesh teacup spliced in from its teapots. Identity-keyed, so a route is remote wherever it travels. */
+const remoteRouteDefs = new WeakSet<RouteDef>();
+
+/** Marks a route as spliced in from a mesh teapot, so the index files it in the remote tree. */
+export function markRemoteRoute<T extends RouteDef>(def: T): T {
+  remoteRouteDefs.add(def);
+  return def;
+}
+
+/**
+ * Route indexes keyed by the identity of the array they were built from.
  *
  * A server hands the same array to every request, so this is built once and collected with the
- * table it describes. A table assembled fresh — mesh splicing a teapot's exports in at boot — is a
- * different array and gets its own index, so nothing has to remember to invalidate anything.
+ * table it describes. Both callers (`buildAppFetch` and `listen()`) assemble that array after boot,
+ * from local, remote and dev routes, and never touch it again. A table assembled fresh is a
+ * different array and gets its own index.
  */
-const routeIndexCache = new WeakMap<RouteDef[], Map<string, IndexedRoute[]>>();
+const routeIndexCache = new WeakMap<RouteDef[], RouteIndex>();
 
-function routeIndex(routes: RouteDef[]): Map<string, IndexedRoute[]> {
-  const cached = routeIndexCache.get(routes);
-  if (cached) return cached;
+function newNode(): RadixNode {
+  return { statics: new Map(), params: [], exact: [], catchAll: [], min: Infinity };
+}
 
-  const byMethod = new Map<string, IndexedRoute[]>();
-
-  for (const def of routes) {
-    const entry: IndexedRoute = { def, compiled: compilePattern(def.pattern) };
-    const bucket = byMethod.get(def.method);
-    if (bucket) bucket.push(entry);
-    else byMethod.set(def.method, [entry]);
+function childFor(node: RadixNode, segment: Exclude<CompiledSegment, { kind: 'catchAll' }>): RadixNode {
+  if (segment.kind === 'static') {
+    let next = node.statics.get(segment.value);
+    if (!next) node.statics.set(segment.value, (next = newNode()));
+    return next;
   }
 
-  // Most specific first, so the first match *is* the answer. `sort` is stable, so equal patterns
-  // keep registration order — which is exactly what the old scan did by refusing to replace its
-  // best on a tie.
-  for (const bucket of byMethod.values()) bucket.sort((a, b) => moreSpecific(b.compiled, a.compiled));
+  let edge = node.params.find((candidate) => candidate.constraintSource === segment.constraintSource);
 
-  routeIndexCache.set(routes, byMethod);
-  return byMethod;
+  if (!edge) {
+    edge = { constraintSource: segment.constraintSource, constraint: segment.constraint, node: newNode() };
+    node.params.push(edge);
+  }
+
+  return edge.node;
 }
+
+/** Files one terminal. Insertion runs in rank order, so every list stays sorted and `min` is set once. */
+function insert(tree: MethodTree, terminal: Terminal): void {
+  let node = tree.root;
+  if (node.min === Infinity) node.min = terminal.rank;
+
+  for (const segment of terminal.compiled.segments) {
+    if (segment.kind === 'catchAll') {
+      node.catchAll.push(terminal);
+      return;
+    }
+
+    node = childFor(node, segment);
+    if (node.min === Infinity) node.min = terminal.rank;
+  }
+
+  node.exact.push(terminal);
+
+  if (terminal.allStatic) {
+    const key = terminal.compiled.normalized;
+    const same = tree.exactPaths.get(key);
+    if (same) same.push(terminal);
+    else tree.exactPaths.set(key, [terminal]);
+  }
+}
+
+/** Builds one tree per method from `(route, array position)` pairs, ranked as the linear matcher sorted them. */
+function buildTrees(entries: Array<{ def: RouteDef; order: number }>): Map<string, MethodTree> {
+  const byMethod = new Map<string, Terminal[]>();
+
+  for (const { def, order } of entries) {
+    const compiled = compilePattern(def.pattern);
+    const allStatic = compiled.segments.every((segment) => segment.kind === 'static');
+    const terminal: Terminal = { def, compiled, rank: 0, order, allStatic };
+    const bucket = byMethod.get(def.method);
+    if (bucket) bucket.push(terminal);
+    else byMethod.set(def.method, [terminal]);
+  }
+
+  const trees = new Map<string, MethodTree>();
+
+  for (const [method, bucket] of byMethod) {
+    // `sort` is stable, so equal patterns keep registration order.
+    bucket.sort((a, b) => moreSpecific(b.compiled, a.compiled));
+    const tree: MethodTree = { root: newNode(), exactPaths: new Map() };
+    bucket.forEach((terminal, rank) => insert(tree, Object.assign(terminal, { rank })));
+    trees.set(method, tree);
+  }
+
+  return trees;
+}
+
+function routeIndex(routes: RouteDef[]): RouteIndex {
+  const cached = routeIndexCache.get(routes);
+  if (cached?.size === routes.length) return cached;
+
+  const local: Array<{ def: RouteDef; order: number }> = [];
+  const remote: Array<{ def: RouteDef; order: number }> = [];
+  routes.forEach((def, order) => (remoteRouteDefs.has(def) ? remote : local).push({ def, order }));
+
+  const index: RouteIndex = {
+    size: routes.length,
+    local: buildTrees(local),
+    remote: remote.length ? buildTrees(remote) : undefined,
+    methods: [...new Set(routes.map((route) => route.method))],
+  };
+  routeIndexCache.set(routes, index);
+  return index;
+}
+
+/**
+ * One request's lookup state, shared by every tree it searches: the path, its segments (split only
+ * if a walk needs them), decoded values memoized by position, and the current search's filter and
+ * best terminal. One object per call rather than one per tree keeps the small-table cost down.
+ */
+interface Search {
+  path: string;
+  segs: string[] | undefined;
+  decoded: Array<string | undefined>;
+  accept: ((def: RouteDef) => boolean) | undefined;
+  best: Terminal | undefined;
+}
+
+/** Placeholder until a walk splits the path; nothing reads or writes it before then. */
+const NO_DECODED: Array<string | undefined> = [];
+
+function newSearch(path: string): Search {
+  return { path, segs: undefined, decoded: NO_DECODED, accept: undefined, best: undefined };
+}
+
+function segmentsOf(search: Search): string[] {
+  if (search.segs) return search.segs;
+  const segs = splitPath(search.path);
+  search.segs = segs;
+  search.decoded = new Array(segs.length);
+  return segs;
+}
+
+/** Takes the best-ranked acceptable terminal of a rank-ordered list, if it beats the best so far. */
+function offer(search: Search, terminals: Terminal[]): void {
+  for (let i = 0; i < terminals.length; i++) {
+    const terminal = terminals[i];
+    if (search.best && terminal.rank >= search.best.rank) return;
+    if (search.accept && !search.accept(terminal.def)) continue;
+    search.best = terminal;
+    return;
+  }
+}
+
+/**
+ * Pending walk frames, shared by every lookup. A frame is a node and its depth; `POST` marks the
+ * frame that offers a node's catch-alls once its children are done. The walk is synchronous and
+ * calls no user code, and each call pops only what it pushed, so sharing is safe.
+ */
+const stackNodes: RadixNode[] = [];
+const stackDepths: number[] = [];
+const POST = -1;
+
+/** @internal Pending frames left on the shared walk stack; zero between lookups. For tests. */
+export const walkStackSize = (): number => stackNodes.length;
+
+/**
+ * Depth-first walk with backtracking: a static branch that dead-ends deeper falls back to its param,
+ * constrained and catch-all siblings. Params are decoded after splitting, so `%2F` stays inside one
+ * segment. Every branch that could still hold a better rank is visited; `min` prunes the rest.
+ *
+ * It runs on an explicit stack, not recursion, so a deep path that the linear matcher accepts cannot
+ * overflow the call stack. Frames pop in the order the recursive walk visited them: static child,
+ * then params in insertion order, then the node's catch-alls.
+ *
+ * The indexed loops and the empty-collection guards are measured, not style: at 10 routes the old
+ * linear scan is a handful of string compares, and these keep the walk within D4 of it (FPRD-001).
+ */
+function walk(root: RadixNode, search: Search, segs: string[]): void {
+  const base = stackNodes.length;
+  stackNodes.push(root);
+  stackDepths.push(0);
+
+  try {
+    while (stackNodes.length > base) {
+      const node = stackNodes.pop()!;
+      const depth = stackDepths.pop()!;
+
+      if (depth === POST) {
+        offer(search, node.catchAll);
+        continue;
+      }
+
+      if (search.best && node.min >= search.best.rank) continue;
+
+      if (node.catchAll.length) {
+        stackNodes.push(node);
+        stackDepths.push(POST);
+      }
+
+      if (depth === segs.length) {
+        if (node.exact.length) offer(search, node.exact);
+        continue;
+      }
+
+      const segment = segs[depth];
+      const params = node.params;
+
+      for (let i = params.length - 1; i >= 0; i--) {
+        const edge = params[i];
+        const value = (search.decoded[depth] ??= decodeSegment(segment));
+        if (edge.constraint && !edge.constraint.test(value)) continue;
+        stackNodes.push(edge.node);
+        stackDepths.push(depth + 1);
+      }
+
+      const next = node.statics.size ? node.statics.get(segment) : undefined;
+
+      if (next) {
+        stackNodes.push(next);
+        stackDepths.push(depth + 1);
+      }
+    }
+  } finally {
+    // A malformed `%` escape throws out of `decodeSegment` with frames still pending; drop them.
+    stackNodes.length = base;
+    stackDepths.length = base;
+  }
+}
+
+function searchTree(
+  tree: MethodTree | undefined,
+  search: Search,
+  accept: ((def: RouteDef) => boolean) | undefined,
+): Terminal | undefined {
+  if (!tree) return undefined;
+  search.accept = accept;
+  search.best = undefined;
+
+  const exact = tree.exactPaths.get(search.path);
+  if (exact) offer(search, exact);
+  if (!search.best) walk(tree.root, search, segmentsOf(search));
+  return search.best;
+}
+
+/** Looks a method up in both trees. The more specific match wins; an equal one goes to the earlier declaration. */
+function findRoute(
+  index: RouteIndex,
+  method: string,
+  search: Search,
+  accept?: (def: RouteDef) => boolean,
+): Terminal | undefined {
+  const local = searchTree(index.local.get(method), search, accept);
+  if (!index.remote) return local;
+
+  const remote = searchTree(index.remote.get(method), search, accept);
+  if (!local || !remote) return local ?? remote;
+
+  const order = moreSpecific(local.compiled, remote.compiled);
+  if (order !== 0) return order > 0 ? local : remote;
+  return local.order < remote.order ? local : remote;
+}
+
+/** Collects the winning route's own param names and values. The walk already proved it matches. */
+function paramsOf(terminal: Terminal, search: Search): Record<string, string> {
+  return terminal.allStatic ? {} : matchCompiled(terminal.compiled, segmentsOf(search), search.decoded)!;
+}
+
+const isBuffered = (def: RouteDef): boolean => def.transport === 'buffer';
 
 /**
  * Finds the most specific route matching both method and path; ties keep registration order.
  *
- * The ranking is settled when the table is built, not per request: the answer cannot change between
- * requests, and re-deriving it charged every request for a scan to the end plus a `moreSpecific`
- * call — two `compilePattern` lookups each — per candidate. Both scaled with the size of the route
- * table. What is left here is a walk that stops at the first match.
+ * The ranking is settled when the index is built, not per request. What is left here is a walk down
+ * the method's tree that visits only the branches the path can follow.
  */
 export function matchRoute(routes: RouteDef[], method: string, path: string): MatchedRoute | undefined {
-  const candidates = routeIndex(routes).get(method);
-  if (!candidates) return undefined;
-
-  const pathSegs = splitPath(path);
-  const decoded: Array<string | undefined> = new Array(pathSegs.length);
-
-  for (const { def, compiled } of candidates) {
-    const params = matchCompiled(compiled, pathSegs, decoded);
-    if (params) return { params, def };
-  }
-
-  return undefined;
+  const search = newSearch(path);
+  const hit = findRoute(routeIndex(routes), method, search);
+  return hit && { params: paramsOf(hit, search), def: hit.def };
 }
 
 /** Route resolution adds the one HTTP fallback the matcher supports: buffered GET serves HEAD. */
@@ -392,29 +677,37 @@ export interface ResolvedRoute extends MatchedRoute {
 }
 
 export function resolveRoute(routes: RouteDef[], method: string, path: string): ResolvedRoute | undefined {
-  const explicit = matchRoute(routes, method, path);
-  if (explicit) return { ...explicit, implicitHead: false };
+  const index = routeIndex(routes);
+  const search = newSearch(path);
+
+  const explicit = findRoute(index, method, search);
+  if (explicit) return { params: paramsOf(explicit, search), def: explicit.def, implicitHead: false };
   if (method !== 'HEAD') return undefined;
 
-  const fallback = matchRoute(
-    routes.filter((route) => route.transport === 'buffer'),
-    'GET',
-    path,
-  );
-  return fallback ? { ...fallback, implicitHead: true } : undefined;
+  // Only a buffered GET can answer HEAD. The filter applies inside the ranking, so a higher-ranked
+  // streaming GET is passed over for a lower-ranked buffered one rather than ending the search.
+  const fallback = findRoute(index, 'GET', search, isBuffered);
+  return fallback ? { params: paramsOf(fallback, search), def: fallback.def, implicitHead: true } : undefined;
 }
 
 const METHOD_ORDER = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
 
-/** Lists the distinct HTTP methods whose pattern matches the path — used to build a 405 `Allow` header. */
+/**
+ * Lists the distinct HTTP methods whose pattern matches the path — used to build a 405 `Allow` header.
+ *
+ * One lookup per registered method over the union of both trees. Nothing is recompiled or rescanned
+ * on a miss.
+ */
 export function allowedMethods(routes: RouteDef[], path: string): string[] {
-  const pathSegs = splitPath(path);
+  const index = routeIndex(routes);
+  const search = newSearch(path);
   const methods = new Set<string>();
 
-  for (const route of routes) {
-    if (!matchCompiled(compilePattern(route.pattern), pathSegs)) continue;
-    methods.add(route.method);
-    if (route.method === 'GET' && route.transport === 'buffer') methods.add('HEAD');
+  for (const method of index.methods) {
+    // A buffered GET answers both GET and HEAD, so it is looked for first; only a GET path served
+    // by streaming routes alone needs the second lookup.
+    if (method === 'GET' && findRoute(index, method, search, isBuffered)) methods.add('GET').add('HEAD');
+    else if (findRoute(index, method, search)) methods.add(method);
   }
 
   if (methods.size) methods.add('OPTIONS');

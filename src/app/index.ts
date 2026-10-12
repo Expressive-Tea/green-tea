@@ -49,7 +49,7 @@ import type { MeshControl } from '../http';
 import type { RequestEnvelope, RouteEntry } from '../mesh/protocol';
 import type { App, InspectLine, Explain, RoutePlan, MeshConfig } from './types';
 import { inspectRoute, buildGraphView, explainRoute } from './introspect';
-import { compilePattern, normalizeRequestPath } from '../http/router';
+import { compilePattern, markRemoteRoute, normalizeRequestPath } from '../http/router';
 
 export type { App, InspectLine, ExplainNode, Explain, MeshConfig, Hooks } from './types';
 
@@ -952,24 +952,27 @@ async function spliceRemoteScopes(
           );
         }
 
-        remoteRoutes.push({
-          method: route.method,
-          pattern: route.pattern,
-          transport: 'buffer',
-          // Built explicitly rather than cast from the handler argument. The cast put the whole
-          // internal request on the wire — `ip` and `protocol` included — and sent fields the
-          // protocol never declared, so a teapot could come to rely on something we never promised.
-          handler: async (req) =>
-            route.handler({
-              method: req.method,
-              params: req.params,
-              query: req.query,
-              body: req.body,
-              headers: req.headers,
-              url: req.url,
-              correlation: { requestId: req.requestId, traceId: req.traceId },
-            }),
-        });
+        // Marked so the router files it in the remote tree; precedence is unchanged by the split.
+        remoteRoutes.push(
+          markRemoteRoute({
+            method: route.method,
+            pattern: route.pattern,
+            transport: 'buffer',
+            // Built explicitly rather than cast from the handler argument. The cast put the whole
+            // internal request on the wire — `ip` and `protocol` included — and sent fields the
+            // protocol never declared, so a teapot could come to rely on something we never promised.
+            handler: async (req) =>
+              route.handler({
+                method: req.method,
+                params: req.params,
+                query: req.query,
+                body: req.body,
+                headers: req.headers,
+                url: req.url,
+                correlation: { requestId: req.requestId, traceId: req.traceId },
+              }),
+          }),
+        );
       }
     }
   } catch (err) {

@@ -37,6 +37,18 @@ npm treats versions as semver and semver forbids leading zeros.
   about `maxConnections × maxWsQueue × maxWsMessageBytes`, ≈ 15.6 GiB at the Node defaults; Deno and
   Bun have no connection cap, so set one at the platform or proxy there.
 
+### Changed
+
+- **HTTP route lookup uses a radix index** (#109). The router used to scan a specificity-sorted
+  list per method, and on every 404 and 405 it recompiled and matched every route to build `Allow`.
+  It now walks a tree per method, built once from the route table, with mesh routes from teapots
+  in a tree of their own. This is internal and changes no behaviour: the same route wins, with the
+  same params, `Allow`, implicit `HEAD` and 404/405, checked against the frozen parity corpus.
+  `graph()`, `explain()` and `openapi()` still read the declared routes, not the tree. Median lookup
+  time against the old matcher (jarvis, `bench:lookup`): at 500 routes, static hit −54%, late
+  param hit −88%, method miss −94%, path miss −96%; at 10 routes, every cell is within noise or
+  faster (late param hit +3.4%, 95% CI −5.0…+12.6%).
+
 ### Fixed
 
 - **`static` no longer serves files outside its root through a symlink** (#106). The traversal guard
