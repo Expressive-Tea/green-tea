@@ -266,7 +266,7 @@ Because that subset is linear, constraints are also compared at boot. Two routes
 
 A constraint next to a plain param is still the fallback pattern: with `/u/:id(\d+)` + `/u/:slug`, digits go to `:id` and everything else goes to `:slug`. An unescaped `.` does not match a line terminator, so `(.*)` does not cover every segment. WebSocket routes follow the same rules, except that they match in declaration order, so a plain WS param declared before a constrained one makes the constrained one unreachable. Mesh routes exported by different teapots are checked against each other; a local route still overrides a remote one, with a warning.
 
-Matching is still a linear scan — fine for typical route tables. A radix tree for very large tables remains post-beta work.
+Lookup uses a radix tree per method, built once from the final route table, so a request only walks the branches its path can follow. Precedence is the same as above, and so are `Allow`, 405 and OPTIONS.
 
 ## Two layers
 
