@@ -26,6 +26,38 @@ npm treats versions as semver and semver forbids leading zeros.
   handler that never reads `inbound` at all: on Node those frames used to be discarded, and they
   now count. Raise the bound with `limits.maxWsQueue`.
 
+- **A constrained route param that ties with a sibling, or makes one unreachable, now fails boot**
+  (#127). Before, the router picked by registration order, and nothing reported it.
+  Two routes of the same method that branch at the same segment under the same prefix fail
+  `createApp` when:
+
+  - both are constrained, their constraints accept a common segment, and the rest of both patterns
+    can match one request. The error names both declarations and a witness:
+    `/u/:id(\d+)` + `/u/:n(\d{1,3})` → `both match '0' (GET /u/0)`. Different spellings of one
+    language (`\d+` and `[0-9]+`) count. `/u/:id(\d+)/a` + `/u/:n(\d{1,3})/b` share digits but
+    no request, so they still boot.
+  - a plain param is next to a constraint that accepts every segment (`[^]*`, `[\s\S]+`) and
+    outranks it. The error names the dead route and the one that wins.
+
+  A plain param next to a constraint that leaves some segments over is the fallback pattern and
+  still boots: `/u/:id(\d+)` + `/u/:slug` routes digits to `:id` and everything else to `:slug`. An
+  unescaped `.` does not match line terminators, so `/algo/:a(.*)` leaves `/algo/%0A` to a plain
+  sibling, and that pair boots too.
+
+  WebSocket routes are checked under their own precedence, which is declaration order. So a plain
+  WS param declared before a constrained one now fails as unreachable. A `@Stream` route sits in
+  both tables and is checked under both. Mesh routes exported by different teapots are checked
+  against each other. A local route against a remote one keeps the deliberate local override and
+  its warning.
+
+  The check is exact. The safe subset makes every constraint a sequence of (character set, min,
+  max) blocks, and the check walks the product of two such sequences. It costs
+  O(|A|·|B|·(|A|+|B|)·K) per pair, with K ≤ 2048. Measured at under 0.1 ms for `\d{0,2048}`
+  against `[0-9]{0,2048}`, and about 90 ms for the largest product the 128-character limit allows.
+  It runs once at boot, and lookup is unchanged. One case is not compared yet: two *different*
+  constraints at a later segment of an otherwise unreachable route. The route then boots, as
+  before.
+
 ### Added
 
 - **`limits.maxWsMessageBytes` and `limits.maxWsQueue`** (#107): per-connection bounds on inbound

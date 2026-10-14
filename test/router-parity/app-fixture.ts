@@ -32,7 +32,11 @@ class ParityHttp {
   @Get('/n/:num(\\d+)') nNum(@param() p: Record<string, string>) {
     return reply('nNum', p);
   }
-  @Get('/n/:code([0-9a-f]+)') nCode(@param() p: Record<string, string>) {
+  // Was `[0-9a-f]+`, overlapping `\d+` above: an equal-rank tie settled by registration order.
+  // CARD-13 (#127) makes that pair a boot error, so the app can no longer declare it; the tie stays
+  // covered at matcher level (`matcher-hand.json`), which never boots an app. `[a-f]+` keeps both
+  // frozen requests — `/n/42` and `/n/ff` — answered exactly as captured.
+  @Get('/n/:code([a-f]+)') nCode(@param() p: Record<string, string>) {
     return reply('nCode', p);
   }
   @Get('/files') files(@param() p: Record<string, string>) {

@@ -259,7 +259,14 @@ Patterns match by segment: static, constrained params such as `:id(\d+)`, plain 
 
 `@Head` and `@Options` provide explicit handlers. Otherwise a buffered GET can serve HEAD without a body, and OPTIONS on an existing path returns `204` with canonical `Allow`; other method mismatches return `405`. `/path` and `/path/` are equivalent, while repeated slashes and malformed encoding return `400` rather than being normalized ambiguously. Constraints use a deliberately safe regex subset. See the full [routing guide](https://green-tea.expressive-tea.io/docs/guides/routing/).
 
-Matching is still a linear scan — fine for typical route tables. A radix tree for very large tables remains post-beta work.
+Because that subset is linear, constraints are also compared at boot. Two routes that branch at the same segment, under the same prefix and method, fail `createApp`:
+
+- **ambiguous**: two constrained params accept a common segment and the rest of both patterns can match one request. The error names both routes and a segment both accept, such as `/u/:id(\d+)` + `/u/:n(\d{1,3})`, which both match `'0'`. Different spellings of one language (`\d+`, `[0-9]+`) count.
+- **unreachable**: a plain `:param` whose constrained sibling accepts every segment, such as `[^]*`, and wins every request the plain one could take.
+
+A constraint next to a plain param is still the fallback pattern: with `/u/:id(\d+)` + `/u/:slug`, digits go to `:id` and everything else goes to `:slug`. An unescaped `.` does not match a line terminator, so `(.*)` does not cover every segment. WebSocket routes follow the same rules, except that they match in declaration order, so a plain WS param declared before a constrained one makes the constrained one unreachable. Mesh routes exported by different teapots are checked against each other; a local route still overrides a remote one, with a warning.
+
+Lookup uses a radix tree per method, built once from the final route table, so a request only walks the branches its path can follow. Precedence is the same as above, and so are `Allow`, 405 and OPTIONS.
 
 ## Two layers
 

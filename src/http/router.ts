@@ -33,13 +33,21 @@ interface ConstraintToken {
   separator: boolean;
 }
 
+/**
+ * One atom of the safe constraint subset, and the quantifier that may follow it. Shared with
+ * `route-conflicts.ts`, which reads accepted constraints back as (character set, min, max) blocks, so
+ * the two cannot disagree about what an atom is.
+ */
+export const CONSTRAINT_ATOM = /^(?:\\[dDsSwW]|\\[.\-_/]|[A-Za-z0-9_.-]|\[(?:\\.|[^\]\\])+\])/u;
+export const CONSTRAINT_QUANTIFIER = /^(?:[+*?]|\{\d+(?:,\d*)?\})/u;
+
 /** Reads one atom plus its optional quantifier from the deliberately small safe-regex subset. */
 function readConstraintToken(source: string): ConstraintToken | undefined {
-  const atom = /^(?:\\[dDsSwW]|\\[.\-_/]|[A-Za-z0-9_.-]|\[(?:\\.|[^\]\\])+\])/u.exec(source)?.[0];
+  const atom = CONSTRAINT_ATOM.exec(source)?.[0];
   if (!atom) return undefined;
 
   const rest = source.slice(atom.length);
-  const quantifier = /^(?:[+*?]|\{\d+(?:,\d*)?\})/u.exec(rest)?.[0] ?? '';
+  const quantifier = CONSTRAINT_QUANTIFIER.exec(rest)?.[0] ?? '';
   if (quantifier.startsWith('{')) assertBoundedQuantifier(quantifier);
 
   return {
