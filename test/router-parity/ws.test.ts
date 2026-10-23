@@ -3,7 +3,8 @@
  * with no specificity ranking, an HTTP route at the same path never takes the upgrade, and the mesh
  * control path is checked before WS route matching. Captured through both upgrade entry points —
  * `app.upgrade` (Deno/Bun/edge) and the Node `server.on('upgrade')` listener — because they are
- * separate code paths and do not agree on everything (see the reserved-path rows in the fixture).
+ * separate code paths. They used to disagree on the reserved mesh path; since CARD-21 (D17) both refuse
+ * it with the same 1008 close.
  */
 import 'reflect-metadata';
 import type { AddressInfo } from 'net';
@@ -40,10 +41,8 @@ class ParityWs {
   @Stream('/feed') feed() {
     return announce('feed', {});
   }
-  // A user route on the reserved mesh path, on an app with no mesh: the two adapters disagree here.
-  @Ws('/__mesh__/control') reserved(@param() p: Record<string, string>) {
-    return announce('reserved', p);
-  }
+  // No route on the reserved mesh path: since CARD-21 (D17) the boot refuses one. The path stays in
+  // UPGRADE_PATHS so both adapters' refusal on an app with no mesh is captured; they now agree.
 }
 
 @Module({ mountpoint: '/', controllers: [ParityWs] })
