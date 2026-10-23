@@ -3,7 +3,7 @@
 // under node-compat on both; edge/workerd is out of scope (see the cross-runtime spec).
 import crypto from 'node:crypto';
 import type { Bus } from '../bus';
-import type { WsSocket } from '../http/ws-core';
+import { HELLO_FRAME_BYTES, widenInbound, type WsSocket } from '../http/ws-core';
 import type { ResponseShape } from '../pipeline';
 import { isHttpError } from '../signals';
 import {
@@ -41,18 +41,34 @@ export const MESH_CONTROL_DISABLED_REASON =
  */
 const HANDSHAKE_TIMEOUT_MS = 10_000;
 
+/** `limits.maxBodyBytes`'s default, which a teapot without one is sized for. */
+const DEFAULT_MAX_BODY_BYTES = 1_000_000;
+
 /**
- * Largest control frame the teapot will parse, in characters.
- *
- * `decode` runs `JSON.parse` on peer-controlled input, and until the handshake succeeds that peer
- * is *unauthenticated* — so without a cap, anyone who can reach the port can make the process parse
- * as much as its WebSocket layer will accept (100 MiB under the `ws` package's defaults, and no
- * documented ceiling on the platform sockets Deno and Bun provide).
- *
- * Sized above the 1 MB default body limit an RPC can legitimately carry, with room for the JSON
- * overhead of the envelope around it.
+ * The most a body byte can grow inside an `rpc-req` envelope. The envelope is JSON, and a text
+ * body travels as a JSON string, so a control character (`\u0001`) becomes the six characters of its
+ * escape. Nothing a body can hold grows more: a `"` or backslash doubles, a JSON number such as
+ * `1e20` re-encodes to about five times its length, a multipart `Buffer` to at most four, and
+ * non-ASCII text is not escaped at all.
  */
-const MAX_FRAME_CHARS = 4_000_000;
+const WORST_ESCAPE = 6;
+
+/** Room in a frame for everything but the body: headers, params, query, url and the envelope. */
+const ENVELOPE_HEADROOM = 1_048_576;
+
+/**
+ * Largest control frame a teapot accepts, in characters, when the largest body it may be sent is
+ * `maxBodyBytes` (#120): the body at its worst escaping plus {@link ENVELOPE_HEADROOM}, so any body
+ * within the limit fits. 7,048,576 at the 1 MB default.
+ *
+ * `decode` runs `JSON.parse` on peer-controlled input, so the parse is capped by this figure — and
+ * an unauthenticated peer never gets near it: until its `hello` is accepted, the channel takes only
+ * hello-sized frames (`HELLO_FRAME_BYTES`, `controlBounds` in `ws-core`). Applies to the control
+ * channel only: user WebSocket routes keep `limits.maxWsMessageBytes`.
+ */
+export function controlFrameLimit(maxBodyBytes = DEFAULT_MAX_BODY_BYTES): number {
+  return WORST_ESCAPE * maxBodyBytes + ENVELOPE_HEADROOM;
+}
 
 /** Assemble a {@link Manifest} from exported step tokens and buffered routes. */
 export function buildManifest(args: { steps: string[]; routes: RouteEntry[] }): Manifest {
@@ -73,6 +89,11 @@ export interface MeshControlDeps {
   resolveScope: (name: string, env: RequestEnvelope) => Promise<unknown>;
   resolveRoute: (name: string, env: RequestEnvelope) => Promise<ResponseShape>;
   bus?: Bus;
+  /**
+   * The largest request body this teapot accepts, which sizes the control frames it parses
+   * ({@link controlFrameLimit}). Defaults to the 1 MB body default.
+   */
+  maxBodyBytes?: number;
 }
 
 /** The rpc-req member of the {@link Frame} union. */
@@ -113,6 +134,9 @@ function handleHandshake(socket: WsSocket, frame: Frame, deps: MeshControlDeps):
     return false;
   }
 
+  // The peer holds the secret now: lift the hello-sized bounds its socket was given to the ones
+  // that carry RPC bodies (#120, #148). A socket bounded without a second phase is left as it is.
+  widenInbound(socket);
   socket.send(
     encode({
       type: 'manifest',
@@ -187,6 +211,7 @@ async function serveFrames(
   deps: MeshControlDeps,
   exportedScopes: Set<string>,
   exportedRoutes: Set<string>,
+  maxFrameChars: number,
 ): Promise<void> {
   let authed = false;
   // Armed before the loop, and cleared by the handshake. An unauthenticated peer that simply
@@ -200,8 +225,9 @@ async function serveFrames(
     for await (const data of socket.inbound) {
       const raw = String(data);
 
-      // Checked before `decode`, because decoding is the expensive part being defended.
-      if (raw.length > MAX_FRAME_CHARS) {
+      // Checked before `decode`, because decoding is the expensive part being defended. Until the
+      // handshake, nothing larger than a hello is parsed, whatever the socket in front allowed.
+      if (raw.length > (authed ? maxFrameChars : HELLO_FRAME_BYTES)) {
         socket.close(1009, 'mesh frame too large');
         break;
       }
@@ -244,13 +270,22 @@ async function serveFrames(
 /** Build a control handler that authenticates peers and serves scope/route RPCs from the manifest. */
 export function createMeshControl(deps: MeshControlDeps): {
   path: string;
+  maxFrameBytes: number;
   handle: (socket: WsSocket) => Promise<void>;
 } {
   const exportedScopes = new Set(deps.manifest.steps);
   const exportedRoutes = new Set(deps.manifest.routes.map((route) => `${route.method} ${route.pattern}`));
+  const maxFrameChars = controlFrameLimit(deps.maxBodyBytes);
 
   return {
     path: MESH_CONTROL_PATH,
+    /**
+     * The inbound bound a server puts on this channel's WebSocket in place of
+     * `limits.maxWsMessageBytes` (#120). The same figure as the character check below: the two agree
+     * on ASCII, and on other text the byte bound is the one that binds — a body measured in bytes by
+     * `maxBodyBytes` stays about that many bytes inside the envelope, so it still fits.
+     */
+    maxFrameBytes: maxFrameChars,
     /**
      * Resolves when the connection ends, mirroring `runWsConnection` — so `app.upgrade` can await
      * the control channel's lifetime the same way it awaits a regular ws route's.
@@ -258,7 +293,7 @@ export function createMeshControl(deps: MeshControlDeps): {
      * does synchronously, so the loop is live before any frame can arrive.
      */
     handle(socket: WsSocket): Promise<void> {
-      return serveFrames(socket, deps, exportedScopes, exportedRoutes);
+      return serveFrames(socket, deps, exportedScopes, exportedRoutes, maxFrameChars);
     },
   };
 }

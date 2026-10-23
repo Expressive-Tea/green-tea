@@ -227,6 +227,36 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Fixed
 
+- **A mesh RPC whose body is within `maxBodyBytes` reaches the teapot again** (#120). The 1 MiB
+  WebSocket cap from #107 also bounded the mesh control channel, so a request body that fit the
+  HTTP limit could still exceed it once the teacup wrapped it in an RPC frame. A text body near
+  1 MB was enough, because JSON escaping doubles every `"` and backslash, and any body limit raised
+  above 1 MiB was capped at 1 MiB on the channel. Either way the teapot closed the whole channel
+  with `1009`, and every request through that link failed with `503` until it reconnected.
+
+  The control channel is now bounded by the teapot's `limits.maxBodyBytes`: six times the body
+  limit, the most JSON escaping can grow a body (a control character becomes `\u0001`), plus 1 MiB
+  for headers and the rest of the envelope. That is 7,048,576 bytes at the 1 MB default, up from
+  the frame parser's former fixed 4,000,000. `limits.maxWsMessageBytes` still governs every user
+  `@Ws` route, unchanged. On Bun, which takes one native payload limit for all sockets, a teapot
+  raises that limit to the control channel's bound, so an oversized frame on a user route is
+  refused by the framework instead: still `1009`, on every Bun version, where Bun before 1.4
+  refused natively by dropping the connection (`1006`).
+
+- **More than 16 mesh RPCs in flight on one link no longer drop the control channel** (#148). The
+  16-frame inbound queue from #107 (`limits.maxWsQueue`) also applied to the control channel. On
+  Node, `ws` delivers every frame of one socket read at once, so a teacup sending a burst of RPCs
+  got the channel closed with `1013`, and every pending request failed with `503`. The control
+  channel now has its own queue bound of 4,096 frames, or `maxWsQueue` if that is larger, which is
+  more than one socket read can carry. User `@Ws` routes keep closing `1013` at `maxWsQueue`. Deno
+  and Bun deliver frames one at a time and did not hit this, but they now share the same bound.
+
+  Both larger bounds, this one and the frame size from #120, **apply only once the peer's `hello`
+  is accepted**. Until then the control channel takes frames of at most 64 KiB and queues at most
+  16, and closes with `1009` or `1013` past that. An unauthenticated peer can therefore make a
+  teapot hold about 1 MiB per connection, including while `app.upgrade` waits for a slow boot,
+  instead of thousands of multi-megabyte frames.
+
 - **Edge HTTP fills `ctx.ip` from `cf-connecting-ip` under `trustProxy`** (#119). `edgeHandler`
   never read the header for HTTP, so IP-keyed plugins such as rate-limit saw `''`, one bucket for
   every client. Under `trustProxy: true` the header now sets `ctx.ip`, and it wins over
