@@ -78,8 +78,12 @@ export { flow, Flow } from './flow';
 export type { StepFn, CompiledFlow } from './flow';
 
 // Parameter decorators
-export { needs, ctx, param, query, body, headers, header, inbound, abort } from './params';
+export { needs, ctx, param, query, body, headers, header, cookies, cookie, inbound, abort } from './params';
 export type { Query, Headers, Context, ArgSpec, ArgDecorator } from './params';
+
+// Cookies
+export { setCookie, parseCookies } from './cookies';
+export type { CookieOptions } from './cookies';
 
 // Observability
 export { createDefaultLogger, logRequests, withConsoleFallback } from './logger';

@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import type { Ctor } from './metadata';
 import { isStandardSchema, type StandardSchemaV1 } from './standard-schema';
 import { ValidationError } from './signals';
+import { parseCookies } from './cookies';
 
 /** Parsed URL query string as flat key/value pairs. */
 export type Query = Record<string, string>;
@@ -10,7 +11,7 @@ export type Headers = Record<string, string | string[] | undefined>;
 /** Per-request bag that accumulates values produced by steps and providers. */
 export type Context = Record<string, unknown>;
 
-type ArgSource = 'ctx' | 'needs' | 'params' | 'query' | 'body' | 'headers' | 'inbound' | 'abort';
+type ArgSource = 'ctx' | 'needs' | 'params' | 'query' | 'body' | 'headers' | 'cookies' | 'inbound' | 'abort';
 /** Describes how a single handler parameter is sourced and (optionally) validated. */
 export interface ArgSpec {
   index: number;
@@ -71,6 +72,14 @@ export const body: ArgDecorator = envelope('body');
 export const headers: ArgDecorator = envelope('headers');
 /** Inject a single request header by name (singular alias of {@link headers}); accepts a schema to validate it. */
 export const header: ArgDecorator = envelope('headers');
+/**
+ * Inject request cookies, parsed from the `Cookie` header: no arg for the whole map (`{}` when the
+ * request has none), a key to pick one, an array to pick several. Accepts a schema to validate.
+ * First value wins for a repeated name, `%`-sequences are decoded, malformed pairs are skipped.
+ */
+export const cookies: ArgDecorator = envelope('cookies');
+/** Inject a single request cookie by name (singular alias of {@link cookies}); `undefined` when absent. */
+export const cookie: ArgDecorator = envelope('cookies');
 
 /** Inject a value produced upstream by a step or provider, addressed by key. */
 export function needs(key: string): ParameterDecorator {
@@ -126,10 +135,11 @@ export async function resolveArgs(specs: ArgSpec[], context: Context): Promise<u
 
 function resolveOne(spec: ArgSpec, context: Context): unknown {
   if (spec.source === 'ctx') return context;
-  if (spec.source === 'needs') return context[spec.key as string];
+  // `cookies` is a seed token like `headers`, but parsed on demand rather than seeded on every request.
+  if (spec.source === 'needs') return spec.key === 'cookies' ? cookiesOf(context) : context[spec.key as string];
   if (spec.source === 'inbound') return context.inbound;
   if (spec.source === 'abort') return context.abort;
-  const bag = context[spec.source];
+  const bag = spec.source === 'cookies' ? cookiesOf(context) : context[spec.source];
   if (typeof bag !== 'object' || bag === null) return bag; // can't pick from a non-object; return as-is
   const values = bag as Record<string, unknown>;
 
@@ -141,4 +151,18 @@ function resolveOne(spec: ArgSpec, context: Context): unknown {
 
   if (spec.key !== undefined) return values[spec.key];
   return values;
+}
+
+/**
+ * The request's cookie map, parsed on first use and cached on the context, so a route that never
+ * declares a cookie argument never parses the header and one that declares several parses it once.
+ * Serves `@cookie`, `@cookies` and `@needs('cookies')` alike.
+ */
+function cookiesOf(context: Context): unknown {
+  if (context.cookies === undefined) {
+    const headers = context.headers as Headers | undefined;
+    context.cookies = parseCookies(headers?.cookie);
+  }
+
+  return context.cookies;
 }

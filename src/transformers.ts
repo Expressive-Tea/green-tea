@@ -6,7 +6,8 @@ import type { Logger } from './logger';
 /** A ready-to-send HTTP response. */
 export interface ErrorResponse {
   status: number;
-  headers: Record<string, string>;
+  /** A value may be an array: `set-cookie` arrays are sent one line per element, others joined with `, `. */
+  headers: Record<string, string | string[]>;
   body: string;
 }
 

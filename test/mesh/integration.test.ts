@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createApp, Step, Route, Get, Module, needs } from '../../src/index';
+import { createApp, Step, Route, Get, Module, Transformer, needs } from '../../src/index';
 
 const SECRET = 's3cr3t';
 
@@ -279,5 +279,35 @@ describe('mesh skeleton integration', () => {
     const teacup = createApp({ modules: [TeacupModule], experimental: true, mesh: { teapots: [{ url: `ws://127.0.0.1:${tPort}/__mesh__/control`, secret: 'WRONG' }], timeoutMs: 800 } });
     await expect(teacup.listen(0)).rejects.toThrow();
     tServer.close();
+  });
+});
+
+describe('mesh: Set-Cookie arrays (CARD-14, T10)', () => {
+  it('a remote route that returns two cookies reaches the teacup client as two lines', async () => {
+    @Route('/jar')
+    class JarCtl {
+      @Get('/two', { export: true })
+      @Transformer(() => ({ headers: { 'set-cookie': ['a=1; Path=/', 'b=2; Path=/'] }, body: '{}' }))
+      two() {
+        return null;
+      }
+    }
+    @Module({ mountpoint: '/api', controllers: [JarCtl] })
+    class JarTeapotModule {}
+
+    const teapot = createApp({ modules: [JarTeapotModule], experimental: true, mesh: { secret: SECRET } });
+    const tServer = await teapot.listen(0);
+    const url = `ws://127.0.0.1:${(tServer.address() as any).port}/__mesh__/control`;
+    const teacup = createApp({ modules: [PlainTeacupModule], experimental: true, mesh: { teapots: [{ url, secret: SECRET }] } });
+    const cServer = await teacup.listen(0);
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${(cServer.address() as any).port}/api/jar/two`);
+      expect(res.status).toBe(200);
+      expect(res.headers.getSetCookie()).toEqual(['a=1; Path=/', 'b=2; Path=/']);
+    } finally {
+      tServer.close();
+      cServer.close();
+    }
   });
 });

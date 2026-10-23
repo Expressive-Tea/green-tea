@@ -19,7 +19,10 @@ export function mergeInjectedHeaders(
       const lowerKey = key.toLowerCase();
 
       if (lowerKey === 'vary') {
-        handlerVary = handlerHeaders[key];
+        // A header value may be an array (D11). `mergeVary` splits on commas, so joining first keeps
+        // every token a handler listed instead of stringifying the array by accident.
+        const value = handlerHeaders[key];
+        handlerVary = Array.isArray(value) ? value.join(', ') : value;
         continue;
       }
 
@@ -39,4 +42,46 @@ export function mergeInjectedHeaders(
   if (injected['vary']) merged['vary'] = mergeVary(handlerVary, injected['vary']);
   else if (handlerVary !== undefined) merged['vary'] = handlerVary;
   return merged;
+}
+
+/**
+ * Prepares merged headers for Node's `writeHead`, which writes one header line per array element
+ * for *any* header. That is right for `set-cookie`, the one header whose values cannot be
+ * comma-joined (an `Expires` date carries a comma), and wrong for every other: RFC 9110 §5.3 makes a
+ * list header's repeated lines equivalent to one comma-joined line, and joining keeps all four
+ * adapters sending the same bytes. So every other array is joined with `, ` here, before
+ * `writeHead`. Returns the input untouched when it holds no array, which is nearly every response.
+ */
+export function joinListHeaders<T extends Record<string, unknown>>(headers: T): T {
+  let out: Record<string, unknown> | undefined;
+
+  for (const key of Object.keys(headers)) {
+    const value = headers[key];
+    if (!Array.isArray(value) || key.toLowerCase() === 'set-cookie') continue;
+    out ??= { ...headers };
+    out[key] = value.join(', ');
+  }
+
+  return (out as T | undefined) ?? headers;
+}
+
+/**
+ * Builds a web `Headers` from merged headers. A plain record cannot be handed to `new Response`:
+ * the Fetch spec stringifies an array value to `a,b`, which for `set-cookie` is one broken cookie.
+ * `set-cookie` elements are appended one by one, so each reaches the client as its own line;
+ * every other array is joined with `, `, exactly as {@link joinListHeaders} does for Node.
+ */
+export function toWebHeaders(headers: Record<string, unknown>): Headers {
+  const out = new Headers();
+
+  for (const key of Object.keys(headers)) {
+    const value = headers[key];
+    if (value === undefined) continue;
+
+    if (!Array.isArray(value)) out.set(key, String(value));
+    else if (key.toLowerCase() === 'set-cookie') for (const cookie of value) out.append(key, String(cookie));
+    else out.set(key, value.join(', '));
+  }
+
+  return out;
 }
