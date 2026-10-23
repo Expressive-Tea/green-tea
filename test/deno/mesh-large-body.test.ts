@@ -105,6 +105,18 @@ Deno.test('mesh on Deno: a text body that JSON escaping doubles still reaches th
   }
 });
 
+Deno.test('mesh on Deno: a text body of control characters, escaped 6x, still reaches the teapot (T1c)', async () => {
+  const { post, close } = await pair();
+  try {
+    const res = await post('\u0001'.repeat(999_000), 'text/plain');
+    assertEquals(res.status, 200);
+    assertEquals(await res.json(), { length: 999_000 });
+    assertEquals((await post('ok', 'text/plain')).status, 200);
+  } finally {
+    await close();
+  }
+});
+
 Deno.test('mesh on Deno: a body over maxBodyBytes is 413, and the channel stays open (T2)', async () => {
   const { post, close } = await pair();
   try {

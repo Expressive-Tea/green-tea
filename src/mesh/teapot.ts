@@ -41,34 +41,31 @@ export const MESH_CONTROL_DISABLED_REASON =
  */
 const HANDSHAKE_TIMEOUT_MS = 10_000;
 
-/**
- * Largest control frame the teapot will parse, in characters.
- *
- * `decode` runs `JSON.parse` on peer-controlled input, and until the handshake succeeds that peer
- * is *unauthenticated* — so without a cap, anyone who can reach the port can make the process parse
- * as much as its WebSocket layer will accept (100 MiB under the `ws` package's defaults, and no
- * documented ceiling on the platform sockets Deno and Bun provide).
- *
- * Sized for the 1 MB default body limit an RPC can legitimately carry, with room for the JSON
- * overhead of the envelope around it. That overhead is not a constant: a JSON body re-encodes to
- * about its own size, but a text body doubles wherever it holds a `"` or a backslash, since the
- * envelope escapes it as a JSON string. {@link controlFrameLimit} scales this figure with a raised
- * limit.
- */
-const MAX_FRAME_CHARS = 4_000_000;
-
-/** The body limit {@link MAX_FRAME_CHARS} is sized for: `limits.maxBodyBytes`'s default. */
+/** `limits.maxBodyBytes`'s default, which a teapot without one is sized for. */
 const DEFAULT_MAX_BODY_BYTES = 1_000_000;
 
 /**
- * Largest control frame a teapot accepts when the largest body it may be sent is `maxBodyBytes`
- * (#120): {@link MAX_FRAME_CHARS}, scaled by the same ratio for a body limit raised above the
- * default. Never below it, because the frame also carries headers, params and query, which do not
- * shrink with a lowered body limit. Applies to the control channel only: user WebSocket routes keep
- * `limits.maxWsMessageBytes`.
+ * The most a body byte can grow inside an `rpc-req` envelope. The envelope is JSON, and a text
+ * body travels as a JSON string, so a control character (`\u0001`) becomes the six characters of its
+ * escape. Nothing a body can hold grows more: a `"` or backslash doubles, a JSON number such as
+ * `1e20` re-encodes to about five times its length, a multipart `Buffer` to at most four, and
+ * non-ASCII text is not escaped at all.
+ */
+const WORST_ESCAPE = 6;
+
+/** Room in a frame for everything but the body: headers, params, query, url and the envelope. */
+const ENVELOPE_HEADROOM = 1_048_576;
+
+/**
+ * Largest control frame a teapot accepts, in characters, when the largest body it may be sent is
+ * `maxBodyBytes` (#120): the body at its worst escaping plus {@link ENVELOPE_HEADROOM}, so any body
+ * within the limit fits. 7,048,576 at the 1 MB default.
+ *
+ * `decode` runs `JSON.parse` on peer-controlled input, so the parse is capped by this figure.
+ * Applies to the control channel only: user WebSocket routes keep `limits.maxWsMessageBytes`.
  */
 export function controlFrameLimit(maxBodyBytes = DEFAULT_MAX_BODY_BYTES): number {
-  return Math.max(MAX_FRAME_CHARS, Math.ceil((MAX_FRAME_CHARS / DEFAULT_MAX_BODY_BYTES) * maxBodyBytes));
+  return WORST_ESCAPE * maxBodyBytes + ENVELOPE_HEADROOM;
 }
 
 /** Assemble a {@link Manifest} from exported step tokens and buffered routes. */

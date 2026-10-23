@@ -234,13 +234,14 @@ npm treats versions as semver and semver forbids leading zeros.
   above 1 MiB was capped at 1 MiB on the channel. Either way the teapot closed the whole channel
   with `1009`, and every request through that link failed with `503` until it reconnected.
 
-  The control channel is now bounded by the teapot's `limits.maxBodyBytes`: 4,000,000 bytes at the
-  1 MB default, the figure its frame parser already used, and four times the body limit when that
-  is raised. `limits.maxWsMessageBytes` still governs every user `@Ws` route, unchanged. On Bun,
-  which takes one native payload limit for all sockets, a teapot raises that limit to the control
-  channel's bound, so an oversized frame on a user route is refused by the framework instead: still
-  `1009`, on every Bun version, where Bun before 1.4 refused natively by dropping the connection
-  (`1006`).
+  The control channel is now bounded by the teapot's `limits.maxBodyBytes`: six times the body
+  limit, the most JSON escaping can grow a body (a control character becomes `\u0001`), plus 1 MiB
+  for headers and the rest of the envelope. That is 7,048,576 bytes at the 1 MB default, up from
+  the frame parser's former fixed 4,000,000. `limits.maxWsMessageBytes` still governs every user
+  `@Ws` route, unchanged. On Bun, which takes one native payload limit for all sockets, a teapot
+  raises that limit to the control channel's bound, so an oversized frame on a user route is
+  refused by the framework instead: still `1009`, on every Bun version, where Bun before 1.4
+  refused natively by dropping the connection (`1006`).
 
 - **More than 16 mesh RPCs in flight on one link no longer drop the control channel** (#148). The
   16-frame inbound queue from #107 (`limits.maxWsQueue`) also applied to the control channel. On

@@ -98,6 +98,18 @@ test('mesh on Bun: a text body that JSON escaping doubles still reaches the teap
   }
 });
 
+test('mesh on Bun: a text body of control characters, escaped 6x, still reaches the teapot (T1c)', async () => {
+  const { post, close } = await pair();
+  try {
+    const res = await post('\u0001'.repeat(999_000), 'text/plain');
+    expect(res.status).toEqual(200);
+    expect(await res.json()).toEqual({ length: 999_000 });
+    expect((await post('ok', 'text/plain')).status).toEqual(200);
+  } finally {
+    await close();
+  }
+});
+
 test('mesh on Bun: a body over maxBodyBytes is 413, and the channel stays open (T2)', async () => {
   const { post, close, teacup } = await pair();
   try {

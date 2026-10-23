@@ -91,6 +91,19 @@ describe('mesh RPC body near maxBodyBytes (#120)', () => {
     }
   });
 
+  it('a text body of control characters, escaped 6x, still reaches the teapot (T1c)', async () => {
+    const { post, close } = await pair();
+    try {
+      // `\u0001` re-encodes as the six characters `\u0001`: the worst escaping a body can get.
+      const res = await post('\u0001'.repeat(999_000), 'text/plain');
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ length: 999_000 });
+      expect((await post('ok', 'text/plain')).status).toBe(200);
+    } finally {
+      await close();
+    }
+  });
+
   it('a body over maxBodyBytes is refused 413 by the teacup, and the channel stays open (T2)', async () => {
     const { post, close } = await pair();
     try {

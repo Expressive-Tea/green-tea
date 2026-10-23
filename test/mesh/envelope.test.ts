@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { WebSocketServer } from 'ws';
 import { connectLink } from '../../src/mesh/link';
 import { envelopeFrom } from '../../src/mesh/teacup';
-import { createMeshControl } from '../../src/mesh/teapot';
+import { controlFrameLimit, createMeshControl } from '../../src/mesh/teapot';
 import { encode, decode, MESH_PROTOCOL_VERSION, type RequestEnvelope } from '../../src/mesh/protocol';
 import { Bus } from '../../src/bus';
 import { createApp, Step, Route, Get, Module, needs } from '../../src/index';
@@ -139,7 +139,7 @@ describe('teapot hardening', () => {
     const fake = fakeSocket();
     const running = control().handle(fake.socket as never);
 
-    fake.feed(`{"type":"hello","v":${V},"secret":"${'a'.repeat(4_000_001)}"}`);
+    fake.feed(`{"type":"hello","v":${V},"secret":"${'a'.repeat(controlFrameLimit() + 1)}"}`);
     await running;
 
     expect(fake.closes[0]?.code).toBe(1009);
