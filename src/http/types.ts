@@ -7,6 +7,7 @@ import type { WsRequest, WsSocket } from './ws-core';
 import type { StaticResolver } from '../views';
 import type { Bus } from '../bus';
 import type { Logger } from '../logger';
+import type { CompressionConfig } from './compression';
 
 /** Per-request and per-server resource ceilings applied by the server. */
 export interface RequestLimits {
@@ -70,6 +71,8 @@ export interface HttpOptions {
   health?: HealthProbe;
   /** Weak ETags + `304` for buffered `200` GET/HEAD handler responses (`createApp({ etag })`). */
   etag?: boolean;
+  /** Resolved `createApp({ compression })`; absent when compression is off. */
+  compression?: CompressionConfig;
 }
 
 /** Handler for a matched HTTP route; receives a normalized request and resolves to a pipeline result. */

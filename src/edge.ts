@@ -1,6 +1,7 @@
 import type { App } from './app/types';
 import { eventSocket, toWsRequest, upgradeSafely, type EventfulSocket } from './http/ws-adapter';
 import { setProxyClient } from './http/peer';
+import { MARK_EDGE } from './http/compression';
 
 // Minimal ambient for the Cloudflare Workers globals we use — avoids @cloudflare/workers-types.
 // Declares only what we call; mirrors the real workerd signatures.
@@ -23,10 +24,15 @@ declare const WebSocketPair: { new (): { 0: EdgeWebSocket; 1: EdgeWebSocket } };
  * to release something is therefore *silently* inert on the edge, which is why this says so rather
  * than a best-effort call on an event that does not exist. Anything that must be released belongs in
  * the request that acquired it, or in a platform binding that manages its own lifetime.
+ *
+ * **`compression` never encodes here.** Cloudflare compresses in front of the Worker, so core sets
+ * only `Vary: Accept-Encoding`; wrapping the app in `edgeHandler` marks it as edge explicitly.
  */
 export function edgeHandler(
   app: App,
 ): (request: Request, env?: unknown, ctx?: EdgeCtx) => Response | Promise<Response> {
+  (app as { [MARK_EDGE]?: () => void })[MARK_EDGE]?.();
+
   return (request, _env, ctx) => {
     if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
       const [client, server] = Object.values(new WebSocketPair()) as [EdgeWebSocket, EdgeWebSocket];

@@ -98,6 +98,7 @@ export type { StreamEncoder, SseEvent, SseFields } from './encoders';
 
 // HTTP, security & validation
 export type { RequestLimits } from './http';
+export type { CompressionOptions } from './http/compression';
 export { UNMATCHED_ROUTE } from './http/core';
 export type { TlsOptions, CorsOptions, SecurityOptions } from './security';
 export type { UploadedFile, MultipartBody } from './multipart';

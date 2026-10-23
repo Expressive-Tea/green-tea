@@ -8,6 +8,7 @@ import { pickEncoder } from './stream';
 import { acquireBody, type BodyReader } from './body';
 import { bodyEtag, findHeader, isNotModified, notModifiedHeaders, staticEtag } from './conditional';
 import type { StaticHit } from '../views';
+import type { Encoding } from './compression';
 import type { RouteDef, HttpOptions } from './types';
 import type { StreamEncoder } from '../encoders';
 import type { Bus } from '../bus';
@@ -95,6 +96,8 @@ export type NeutralOutcome =
       encoder: StreamEncoder;
       /** The matched route's pattern, for naming the stream lifecycle events. */
       route: string;
+      /** Set by `compressOutcome`: the adapter encodes each frame with it and flushes. */
+      encoding?: Encoding;
     };
 
 /** {@link handle}'s result for a normal (non-preflight) request. */

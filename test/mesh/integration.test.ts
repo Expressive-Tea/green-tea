@@ -311,3 +311,53 @@ describe('mesh: Set-Cookie arrays (CARD-14, T10)', () => {
     }
   });
 });
+
+describe('mesh: compression of remote routes (CARD-16)', () => {
+  it('a remote buffered response is compressed by the teacup like a local one', async () => {
+    const { gunzipSync } = await import('node:zlib');
+    const http = await import('node:http');
+    const payload = { rows: Array.from({ length: 200 }, (_, i) => ({ i, name: `row ${i}` })) };
+
+    @Route('/big')
+    class BigCtl {
+      @Get('/json', { export: true })
+      json() {
+        return payload;
+      }
+    }
+    @Module({ mountpoint: '/api', controllers: [BigCtl] })
+    class BigTeapotModule {}
+
+    const teapot = createApp({ modules: [BigTeapotModule], experimental: true, mesh: { secret: SECRET } });
+    const tServer = await teapot.listen(0);
+    const url = `ws://127.0.0.1:${(tServer.address() as any).port}/__mesh__/control`;
+    const teacup = createApp({
+      modules: [PlainTeacupModule],
+      experimental: true,
+      compression: true,
+      mesh: { teapots: [{ url, secret: SECRET }] },
+    });
+    const cServer = await teacup.listen(0);
+
+    try {
+      const raw = await new Promise<{ headers: Record<string, unknown>; bytes: Buffer }>((resolve, reject) => {
+        http
+          .get(
+            { port: (cServer.address() as any).port, path: '/api/big/json', headers: { 'accept-encoding': 'gzip' } },
+            (res) => {
+              const chunks: Buffer[] = [];
+              res.on('data', (c) => chunks.push(c));
+              res.on('end', () => resolve({ headers: res.headers, bytes: Buffer.concat(chunks) }));
+            },
+          )
+          .on('error', reject);
+      });
+      expect(raw.headers['content-encoding']).toBe('gzip');
+      expect(String(raw.headers.vary)).toMatch(/Accept-Encoding/);
+      expect(JSON.parse(gunzipSync(raw.bytes).toString())).toEqual(payload);
+    } finally {
+      tServer.close();
+      cServer.close();
+    }
+  });
+});
