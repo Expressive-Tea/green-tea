@@ -78,6 +78,20 @@ async function main() {
     const readCookie = await mf.dispatchFetch('http://localhost/rt/cookie', { headers: { cookie: 'a=1; b=%41' } });
     assert.deepEqual(await readCookie.json(), { b: 'A' });
 
+    // CARD-15 (#114), T5/T11: handler ETag round-trip on workerd. Static is a boot error there (N/A).
+    const tag1 = await mf.dispatchFetch('http://etag/rt/hello');
+    await tag1.arrayBuffer();
+    const etag = tag1.headers.get('etag');
+    assert.match(String(etag), /^W\/"\w+-\w+"$/);
+    const tag2 = await mf.dispatchFetch('http://etag/rt/hello', { headers: { 'if-none-match': String(etag) } });
+    assert.equal(tag2.status, 304);
+    assert.equal(await tag2.text(), '');
+    assert.equal(tag2.headers.get('etag'), etag);
+    assert.equal(tag2.headers.get('content-type'), null);
+    const untagged = await mf.dispatchFetch('http://localhost/rt/hello');
+    await untagged.arrayBuffer();
+    assert.equal(untagged.headers.get('etag'), null, 'etag off: no ETag');
+
     // Body limits (#105): the same statuses as app.fetch, Deno and Bun. workerd may drop a
     // chunked upload's content-length, so the streamed case is enforced by the read count alone.
     const LIMIT = 1000; // the route's maxBodyBytes, see worker.ts
@@ -203,7 +217,7 @@ async function main() {
     assert.equal(ready.headers.get('cache-control'), 'no-store');
 
     console.log(
-      'edge (workerd via miniflare): HTTP 200 + cookies + body limits 413/413/200/413 + WS echo:hi + ws limits + cf-connecting-ip under trustProxy + reserved path + health — PASS',
+      'edge (workerd via miniflare): HTTP 200 + cookies + etag/304 + body limits 413/413/200/413 + WS echo:hi + ws limits + cf-connecting-ip under trustProxy + reserved path + health — PASS',
     );
   } finally {
     await mf.dispose();

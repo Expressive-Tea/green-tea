@@ -77,14 +77,62 @@ function readViewFile(views: string | undefined, path: string): string {
   }
 }
 
-/** A static-file hit: the raw bytes and the content-type to send. */
+/**
+ * A static-file hit: what the `stat` already knows, and a `read()` for the bytes.
+ *
+ * The bytes are behind a function so the caller can answer a conditional request from `size` and
+ * `mtimeMs` alone: a `304` never reads the file (CARD-15). `read()` reads the confined real path the
+ * resolver checked, so deferring it does not reopen the path to a different target.
+ */
 export interface StaticHit {
-  body: Buffer;
   contentType: string;
+  size: number;
+  mtimeMs: number;
+  /** `Cache-Control` for this hit (and its `304`): `no-cache` unless `static.cacheControl` says otherwise. */
+  cacheControl: string;
+  read(): Promise<Buffer>;
 }
 
 /** Resolves a URL path to a static file under a fixed root, or `undefined` for a miss. */
 export type StaticResolver = (urlPath: string) => Promise<StaticHit | undefined>;
+
+/**
+ * The public `static` option: `true` (→ `./public`), a directory, or `{ dir?, cacheControl? }`.
+ * `cacheControl` defaults to `'no-cache'`, so a browser always revalidates — cheap, since a match is a
+ * `304` that never reads the file — and never reuses a file heuristically from `Last-Modified`
+ * (RFC 9111 §4.2.2). Hashed assets can opt into `'public, max-age=31536000, immutable'`.
+ */
+export type StaticOption = boolean | string | { dir?: string; cacheControl?: string };
+
+const STATIC_KEYS = new Set(['dir', 'cacheControl']);
+
+/**
+ * Validates and normalises the `static` option at boot. Throws on an unknown key in the object form
+ * (a misspelt `cachecontrol` silently doing nothing is the bug this prevents), on a non-string
+ * `dir`/`cacheControl`, and on a `cacheControl` carrying CR or LF (header injection).
+ */
+export function normalizeStatic(
+  option: StaticOption | undefined,
+): { root: string | true; cacheControl: string } | undefined {
+  if (option === undefined || option === false) return undefined;
+  if (option === true || typeof option === 'string') return { root: option, cacheControl: 'no-cache' };
+
+  if (typeof option !== 'object' || option === null)
+    throw new TypeError('createApp({ static }): expected a boolean, a directory string or { dir?, cacheControl? }');
+
+  for (const key of Object.keys(option))
+    if (!STATIC_KEYS.has(key))
+      throw new TypeError(`createApp({ static }): unknown key '${key}' — expected 'dir' and/or 'cacheControl'`);
+
+  const { dir, cacheControl = 'no-cache' } = option;
+  if (dir !== undefined && typeof dir !== 'string')
+    throw new TypeError('createApp({ static: { dir } }): expected a string');
+
+  if (typeof cacheControl !== 'string' || /[\r\n]/.test(cacheControl))
+    throw new TypeError('createApp({ static: { cacheControl } }): expected a string without CR or LF');
+
+  return { root: dir ?? true, cacheControl };
+}
 
 /** The real path of `path` when it is `root` or lies beneath it, else `undefined`. Rejects on ENOENT.
  * The separator suffix keeps a sibling such as `root-evil` out of `root`. */
@@ -93,26 +141,39 @@ async function confine(fs: typeof import('node:fs'), sep: string, root: string, 
   return real === root || real.startsWith(root + sep) ? real : undefined;
 }
 
-/** Reads `full` (or its `index.html` when a directory) if its real path stays inside the real `root`. */
-async function readConfined(
+/** Stats `full` (or its `index.html` when a directory) if its real path stays inside the real `root`. */
+async function statConfined(
   fs: typeof import('node:fs'),
   nodePath: typeof import('node:path'),
   root: string,
   full: string,
+  cacheControl: string,
 ): Promise<StaticHit | undefined> {
   let real = await confine(fs, nodePath.sep, root, full);
   if (!real) return undefined;
-  const isDir = (await fs.promises.stat(real)).isDirectory();
+  let stat = await fs.promises.stat(real);
+  const isDir = stat.isDirectory();
+
   // `index.html` is a second resolution and can itself be a link, so it is confined on its own.
-  if (isDir) real = await confine(fs, nodePath.sep, root, nodePath.join(real, 'index.html'));
-  if (!real) return undefined;
-  // ponytail: a link swapped between `realpath` and `readFile` can still escape. Exploiting it needs
-  // write access inside the served root, which already owns the app; closing it needs `O_NOFOLLOW`
-  // on every path component, which Node, Deno and Bun do not offer portably.
-  const body = await fs.promises.readFile(real);
+  if (isDir) {
+    real = await confine(fs, nodePath.sep, root, nodePath.join(real, 'index.html'));
+    if (!real) return undefined;
+    stat = await fs.promises.stat(real);
+  }
+
+  const path = real;
   // The content-type follows the requested name, not the link target (`app.js -> app.3f2a.js`).
   const target = isDir ? nodePath.join(full, 'index.html') : full;
-  return { body, contentType: contentTypeFor(nodePath.extname(target)) };
+  return {
+    contentType: contentTypeFor(nodePath.extname(target)),
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+    cacheControl,
+    // ponytail: a link swapped between `realpath` and `readFile` can still escape. Exploiting it needs
+    // write access inside the served root, which already owns the app; closing it needs `O_NOFOLLOW`
+    // on every path component, which Node, Deno and Bun do not offer portably.
+    read: () => fs.promises.readFile(path),
+  };
 }
 
 /**
@@ -121,7 +182,7 @@ async function readConfined(
  * and so is a symlink whose real target lies outside the root's real path (#106). Escapes are misses
  * (404), not 403, so a probe cannot tell "exists outside the root" from "does not exist".
  */
-export function buildStaticResolver(root: string | true): StaticResolver {
+export function buildStaticResolver(root: string | true, cacheControl = 'no-cache'): StaticResolver {
   let fs: typeof import('node:fs');
   let nodePath: typeof import('node:path');
 
@@ -165,7 +226,7 @@ export function buildStaticResolver(root: string | true): StaticResolver {
     if (!rootReal) return undefined;
 
     try {
-      return await readConfined(fs, nodePath, rootReal, full);
+      return await statConfined(fs, nodePath, rootReal, full, cacheControl);
     } catch {
       return undefined; // includes ENOENT from `realpath` on a dangling link: a miss, never a rejection
     }
