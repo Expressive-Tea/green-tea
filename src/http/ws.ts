@@ -8,6 +8,7 @@ import {
   boundInbound,
   controlBounds,
   wsMessageBytes,
+  WS_HIGH_WATER_MARK,
   type WsSocket,
   type WsRequest,
 } from './ws-core';
@@ -95,10 +96,21 @@ function nodeWsRequest(req: http.IncomingMessage): WsRequest {
 function nodeSocket(ws: any): WsSocket {
   const inbound = channel<unknown>();
   const ac = new AbortController();
+  // `drained` callers waiting for the send buffer to fall to the mark (#41). Released by a send
+  // callback, which `ws` runs once that frame is written to the TCP socket, or by the close.
+  const waiters: Array<() => void> = [];
+  const release = () => waiters.splice(0).forEach((resolve) => resolve());
+  const backedUp = () => ws.readyState === 1 && ws.bufferedAmount > WS_HIGH_WATER_MARK;
+
+  const written = () => {
+    if (!backedUp()) release();
+  };
+
   ws.on('message', (data: Buffer) => inbound.push(data.toString()));
   ws.on('close', () => {
     inbound.close();
     ac.abort();
+    release();
   });
   ws.on('error', (err: unknown) => inbound.fail(err));
   return {
@@ -107,7 +119,8 @@ function nodeSocket(ws: any): WsSocket {
     get isOpen() {
       return ws.readyState === 1; // 1 = OPEN
     },
-    send: (data) => ws.send(data),
+    send: (data) => ws.send(data, written),
+    drained: () => (backedUp() ? new Promise<void>((resolve) => waiters.push(resolve)) : Promise.resolve()),
     close: (code, reason) => {
       try {
         ws.close(code, reason);

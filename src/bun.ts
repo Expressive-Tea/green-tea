@@ -1,7 +1,13 @@
 import { channel } from './channel';
 import type { Channel } from './channel';
 import type { App } from './app/types';
-import { WS_MAX_MESSAGE_BYTES, DEFAULT_MAX_WS_MESSAGE_BYTES, type WsSocket, type WsRequest } from './http/ws-core';
+import {
+  WS_MAX_MESSAGE_BYTES,
+  DEFAULT_MAX_WS_MESSAGE_BYTES,
+  WS_HIGH_WATER_MARK,
+  type WsSocket,
+  type WsRequest,
+} from './http/ws-core';
 import { beginDrain } from './http/health';
 import { decodeMessage, neutralSocket, toWsRequest, upgradeSafely } from './http/ws-adapter';
 import { closeWithDeadline } from './http/shutdown';
@@ -15,12 +21,15 @@ interface BunServerWebSocket {
   send(data: string): number;
   close(code?: number, reason?: string): void;
   terminate?(): void;
+  /** Bytes queued and not yet written; Bun's counterpart to `WebSocket.bufferedAmount`. */
+  getBufferedAmount?(): number;
 }
 interface BunWebSocketHandler {
   maxPayloadLength?: number;
   open?(ws: BunServerWebSocket): void;
   message(ws: BunServerWebSocket, message: string | Uint8Array): void;
   close?(ws: BunServerWebSocket, code: number, reason: string): void;
+  drain?(ws: BunServerWebSocket): void;
   error?(ws: BunServerWebSocket, error?: unknown): void;
 }
 interface BunServer {
@@ -58,6 +67,13 @@ interface BunConnData {
   wsReq: WsRequest;
   inbound: Channel<unknown>;
   ac: AbortController;
+  /** `drained` callers waiting for Bun's `drain` callback or the close (#41). */
+  drainWaiters: Array<() => void>;
+}
+
+/** Wakes every `drained` caller; each rechecks the buffer and waits again if it is still over. */
+function releaseDrain(ws: BunServerWebSocket): void {
+  (ws.data as BunConnData).drainWaiters.splice(0).forEach((resolve) => resolve());
 }
 
 /**
@@ -66,9 +82,17 @@ interface BunConnData {
  * created during the upgrade and stashed on ws.data — there is nothing here to wire up.
  */
 function bunSocket(ws: BunServerWebSocket): WsSocket {
-  const { inbound, ac } = ws.data as BunConnData;
+  const { inbound, ac, drainWaiters } = ws.data as BunConnData;
 
-  return neutralSocket(ws, inbound, ac);
+  // Bun has no `bufferedAmount` property, so the generic poll would never wait. It has better: a
+  // `getBufferedAmount()` to read and a server-level `drain` callback to wait on, no timer needed.
+  const drained = async (): Promise<void> => {
+    while (!ac.signal.aborted && (ws.getBufferedAmount?.() ?? 0) > WS_HIGH_WATER_MARK) {
+      await new Promise<void>((resolve) => drainWaiters.push(resolve));
+    }
+  };
+
+  return Object.assign(neutralSocket(ws, inbound, ac), { drained });
 }
 
 /**
@@ -98,7 +122,7 @@ export async function serveBun(app: App, options?: BunServeShortOptions): Promis
         const inbound = channel();
         const ac = new AbortController();
         const wsReq = toWsRequest(request, server.requestIP(request)?.address ?? '');
-        const data: BunConnData = { wsReq, inbound, ac };
+        const data: BunConnData = { wsReq, inbound, ac, drainWaiters: [] };
         if (server.upgrade(request, { data })) return undefined;
         return new Response('WebSocket upgrade failed', { status: 400 });
       }
@@ -126,15 +150,20 @@ export async function serveBun(app: App, options?: BunServeShortOptions): Promis
 
         inbound.push(decodeMessage(message));
       },
+      drain(ws) {
+        releaseDrain(ws);
+      },
       close(ws) {
         const { inbound, ac } = ws.data as BunConnData;
         inbound.close();
         ac.abort();
+        releaseDrain(ws);
       },
       error(ws) {
         const { inbound, ac } = ws.data as BunConnData;
         inbound.fail(new Error('websocket error'));
         ac.abort();
+        releaseDrain(ws);
       },
     },
   });

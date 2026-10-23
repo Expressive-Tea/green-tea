@@ -152,3 +152,106 @@ describe('runWsConnection correlation', () => {
     expect(open.transport).toBe('ws');
   });
 });
+
+describe('runWsConnection outbound backpressure (#41)', () => {
+  /** A fake socket with a send buffer that only empties when the test says so. */
+  function bufferedSocket(mark: number) {
+    const fake = fakeSocket();
+    let buffered = 0;
+    let wake: (() => void) | null = null;
+    const socket: WsSocket = Object.assign(Object.create(fake.socket), {
+      send: (d: string) => {
+        fake.sent.push(d);
+        buffered += d.length;
+      },
+      drained: () =>
+        buffered <= mark || fake.ac.signal.aborted
+          ? Promise.resolve()
+          : new Promise<void>((resolve) => {
+              wake = resolve;
+              fake.ac.signal.addEventListener('abort', () => resolve(), { once: true });
+            }),
+    });
+    const flush = () => {
+      buffered = 0;
+      wake?.();
+      wake = null;
+    };
+    return { ...fake, socket, flush, buffered: () => buffered };
+  }
+
+  const flood = (count: number, size: number, onPull: () => void, onReturn = () => {}) => ({
+    pattern: '/ws',
+    open: async () =>
+      (async function* () {
+        try {
+          for (let i = 0; i < count; i++) {
+            onPull();
+            yield String(i).padStart(size, '0');
+          }
+        } finally {
+          onReturn();
+        }
+      })(),
+  });
+
+  it('pulls nothing more once the buffer is over the mark: it peaks at the mark plus one frame (T1)', async () => {
+    let pulled = 0;
+    const { socket, flush, buffered, sent } = bufferedSocket(10);
+    const run = runWsConnection(socket, req, { def: flood(100, 4, () => pulled++), params: {} });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(pulled).toBe(3); // 4 + 4 + 4 = 12 > 10: waits after the third frame
+    expect(buffered()).toBeLessThanOrEqual(10 + 4);
+
+    while (pulled < 100) {
+      flush();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    flush();
+    await run;
+    expect(sent.map(Number)).toEqual([...Array(100).keys()]);
+  });
+
+  it('ends the wait on close and calls the iterator return(), without an unhandled rejection (T2)', async () => {
+    let pulled = 0;
+    let returned = false;
+    const unhandled: unknown[] = [];
+    const onUnhandled = (err: unknown) => unhandled.push(err);
+    process.on('unhandledRejection', onUnhandled);
+
+    try {
+      const { socket, ac } = bufferedSocket(0);
+      const run = runWsConnection(socket, req, {
+        def: flood(100, 4, () => pulled++, () => (returned = true)),
+        params: {},
+      });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(pulled).toBe(1);
+
+      ac.abort(); // the peer went away
+      await run;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(returned).toBe(true);
+      expect(pulled).toBe(1);
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  it('never waits below the mark: drained() answers at once and every frame goes out (T3)', async () => {
+    let waits = 0;
+    const { socket, sent } = fakeSocket();
+    const counted: WsSocket = Object.assign(Object.create(socket), {
+      drained: () => {
+        waits++;
+        return Promise.resolve();
+      },
+    });
+    await runWsConnection(counted, req, { def: flood(50, 4, () => {}), params: {} });
+    expect(sent).toHaveLength(50);
+    expect(waits).toBe(51); // once before each pull, the last one being the pull that ends it
+  });
+});

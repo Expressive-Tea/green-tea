@@ -170,6 +170,11 @@ npm treats versions as semver and semver forbids leading zeros.
   about `maxConnections × maxWsQueue × maxWsMessageBytes`, ≈ 15.6 GiB at the Node defaults; Deno and
   Bun have no connection cap, so set one at the platform or proxy there.
 
+- **`WsSocket.drained()`** (#41): an optional method an adapter's socket provides so the outbound
+  pump can wait for its send buffer. It resolves once the buffer is at or below the adapter's
+  high-water mark, or the socket has closed, and at once when it already is. The built-in adapters
+  all provide it. A socket built without it is never waited on, as before.
+
 ### Changed
 
 - **Static files are revalidated, not re-downloaded** (#114, D12). Every static hit carries a weak
@@ -226,6 +231,22 @@ npm treats versions as semver and semver forbids leading zeros.
   in the one case where a teapot exports the same path at the same specificity, the dev route wins.
 
 ### Fixed
+
+- **WebSocket outbound respects backpressure** (#41). A `@Ws` handler's async iterator was pulled
+  as fast as it could yield, whatever the peer read, so a fast producer and a slow client grew the
+  send buffer without limit: 10,000 frames of 64 KiB put 640 MiB in memory at once. The pump now
+  waits before each pull while the socket's buffer is over 1 MiB, an internal mark rather than an
+  option, so a slow peer holds at most about that plus one frame. A peer that keeps up never makes
+  it wait. If the peer goes away while the pump waits, the wait ends and the iterator's `return()`
+  runs, as on any other close. Each runtime signals in its own way: Node uses `ws`'s
+  `bufferedAmount` and send callback, Bun uses `getBufferedAmount()` and its `drain` callback, and
+  Deno polls `bufferedAmount`, since its `WebSocket` has no drain event. **workerd reports no
+  buffered amount**, so on the edge the pump never waits and buffering is left to the platform.
+
+- **On Deno, a `@Ws` handler that yields at once no longer loses the connection.** Deno hands the
+  socket over before it is open. A value yielded in that window was pulled, the pump found the
+  socket not open, and it gave up: the client got no frame and a close without a code (`1005`).
+  The pump now waits for the socket to open, as part of the same backpressure wait.
 
 - **A mesh RPC whose body is within `maxBodyBytes` reaches the teapot again** (#120). The 1 MiB
   WebSocket cap from #107 also bounded the mesh control channel, so a request body that fit the

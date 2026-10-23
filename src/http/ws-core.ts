@@ -21,7 +21,23 @@ export interface WsSocket {
   send(data: string): void;
   close(code?: number, reason?: string): void;
   terminate(): void;
+  /**
+   * Resolves once the socket's send buffer is at or below the adapter's high-water mark, or the
+   * socket has closed — at once when it already is (#41). The outbound pump awaits it before
+   * pulling the next value, so a fast producer cannot grow the buffer without limit.
+   *
+   * Optional: a socket without it is never waited on, which is how every socket behaved before.
+   * The mark is the adapter's; {@link WS_HIGH_WATER_MARK} is what the built-in adapters use.
+   */
+  drained?(): Promise<void>;
 }
+
+/**
+ * Send-buffer level, in bytes, above which the built-in adapters report a socket as backed up
+ * (#41). Internal, not an option: it bounds what one slow peer can make the process hold, and
+ * a frame is sent whole, so the buffer peaks at this plus one frame.
+ */
+export const WS_HIGH_WATER_MARK = 1_048_576;
 
 /** Default for `limits.maxWsMessageBytes`: 1 MiB. */
 export const DEFAULT_MAX_WS_MESSAGE_BYTES = 1_048_576;
@@ -345,9 +361,18 @@ function trackConnection(socket: WsSocket, streams?: Set<() => void>): { closer:
   return { closer };
 }
 
-/** Drives the outbound async iterator, sending each yielded value until done or the socket closes. */
+/**
+ * Drives the outbound async iterator, sending each yielded value until done or the socket closes.
+ * Waits for {@link WsSocket.drained} before each pull (#41): a value pulled while the peer is
+ * backed up has nowhere to go but the send buffer, so it is not pulled until there is room.
+ */
 async function pumpOutbound(socket: WsSocket, iterator: AsyncIterator<unknown>): Promise<void> {
   while (true) {
+    if (socket.drained) await socket.drained();
+    // Closed while waiting: stop before pulling a value nobody can receive. The abort listener in
+    // `runWsConnection` has already called the iterator's `return()`. `abort`, not `isOpen`: Deno
+    // hands a socket over still CONNECTING, which is not open yet and not closed either.
+    if (socket.abort.aborted) break;
     const { value, done } = await iterator.next();
     if (done) break;
     if (!socket.isOpen) break;
