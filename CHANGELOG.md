@@ -63,8 +63,8 @@ npm treats versions as semver and semver forbids leading zeros.
 - **`limits.maxWsMessageBytes` and `limits.maxWsQueue`** (#107): per-connection bounds on inbound
   WebSocket messages, in bytes and in unread messages, server-wide on every runtime. `createApp`
   throws a `TypeError` for anything but a positive integer. Node and Bun refuse an oversized message
-  before buffering it; Bun does so by dropping the connection, so its peer sees `1006` rather than
-  `1009`. Deno and workerd expose no such option, so there the message is received in full and then
+  before buffering it; Bun before 1.4 does so by dropping the connection, so its peer sees `1006`
+  rather than `1009` (Bun 1.4 and later send `1009`). Deno and workerd expose no such option, so there the message is received in full and then
   refused, and its memory is bounded by the platform's own cap. Worst-case buffered inbound memory is
   about `maxConnections × maxWsQueue × maxWsMessageBytes`, ≈ 15.6 GiB at the Node defaults; Deno and
   Bun have no connection cap, so set one at the platform or proxy there.

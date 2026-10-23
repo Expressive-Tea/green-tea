@@ -108,8 +108,8 @@ export async function serveBun(app: App, options?: BunServeShortOptions): Promis
     },
     websocket: {
       // The pre-buffer half of `limits.maxWsMessageBytes`: Bun refuses an oversized frame before
-      // assembling it. It drops the connection without a close frame, so the peer sees 1006 rather
-      // than 1009 — verified on Bun 1.3, and the price of not buffering the message at all.
+      // assembling it. Up to Bun 1.3 it dropped the connection without a close frame, so the peer
+      // saw 1006 rather than 1009 — the price of not buffering the message at all. Bun 1.4 sends 1009.
       // `app.upgrade` checks the same bound again on the decoded text.
       maxPayloadLength:
         (app as { [WS_MAX_MESSAGE_BYTES]?: number })[WS_MAX_MESSAGE_BYTES] ?? DEFAULT_MAX_WS_MESSAGE_BYTES,

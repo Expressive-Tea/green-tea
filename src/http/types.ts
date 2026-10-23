@@ -22,8 +22,8 @@ export interface RequestLimits {
    * a fragmented message counts as a whole. Must be a positive integer, or `createApp` throws.
    *
    * Node and Bun refuse an oversized frame before buffering it (`ws`'s `maxPayload`, Bun's
-   * `maxPayloadLength`). Bun then drops the connection without a close frame, so on Bun the peer
-   * sees `1006` instead of `1009`. Deno and the edge offer no such option: there the runtime
+   * `maxPayloadLength`). Before Bun 1.4, Bun then drops the connection without a close frame, so
+   * the peer sees `1006` instead of `1009`; Bun 1.4 and later send `1009`. Deno and the edge offer no such option: there the runtime
    * receives the whole message first, so its memory is bounded by the platform's own cap, and this
    * limit is checked after receipt — the connection still closes `1009`.
    *
