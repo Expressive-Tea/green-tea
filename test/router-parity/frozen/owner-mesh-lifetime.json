@@ -101,17 +101,17 @@
       "phase": "B2 teapot up after boot",
       "method": "GET",
       "path": "/api/remote/ping",
-      "status": 404,
+      "status": 200,
       "allow": null,
-      "body": "{\"error\":\"Not Found\"}"
+      "body": "{\"from\":\"teapot\"}"
     },
     {
       "phase": "B2 teapot up after boot",
       "method": "POST",
       "path": "/api/remote/ping",
-      "status": 404,
-      "allow": null,
-      "body": "{\"error\":\"Not Found\"}"
+      "status": 405,
+      "allow": "GET, HEAD, OPTIONS",
+      "body": "{\"error\":\"Method Not Allowed\"}"
     },
     {
       "phase": "B2 teapot up after boot",

@@ -88,15 +88,30 @@ const teacupFor = (port: number) =>
       teapots: [{ url: `ws://127.0.0.1:${port}/__mesh__/control`, secret: SECRET }],
       bootTimeoutMs: 300,
       timeoutMs: 500,
-      reconnect: false,
+      // Reconnect on (CARD-19, D15): a dropped teapot is "reconnecting" and keeps its routes (A2),
+      // and one absent at boot is retried in the background (B). Captured at ed47836 with
+      // `reconnect: false`, when neither depended on it. Fast backoff keeps the test short.
+      reconnect: { initialDelayMs: 20, maxDelayMs: 60 },
     },
+  });
+
+/** Resolves on the teacup's next `mesh:routes` event: its remote table changed. */
+const routesChanged = (app: App) =>
+  new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('no mesh:routes within 5s')), 5000);
+    const off = app.bus.on('mesh:routes', () => {
+      clearTimeout(timer);
+      off();
+      resolve();
+    });
   });
 
 /**
  * Two lifetimes. A: the teapot is up at boot, then goes away. B: the teapot is absent at boot and
- * comes up afterwards. The current code builds the HTTP table once, at boot, and never changes it:
- * routes spliced at boot stay in the table after their peer leaves, and a peer that arrives late
- * is never spliced in. CARD-10 can reuse this to assert the index is not rebuilt per request.
+ * comes up afterwards. At ed47836 the HTTP table was built once, at boot, and never changed, so B2
+ * answered 404. Since CARD-19 (D15, owner approval) the remote routes follow membership: a teapot
+ * that is reconnecting keeps its routes and answers 503 (A2), and a late one is spliced in when it
+ * connects (B2). CARD-10 can reuse this to assert the index is not rebuilt per request.
  */
 async function meshLifetimes() {
   const results = [];
@@ -118,7 +133,9 @@ async function meshLifetimes() {
   const teapotB = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
   try {
     results.push(...(await probe(teacupB, 'B1 teapot absent at boot')));
+    const spliced = routesChanged(teacupB);
     await teapotB.listen(portB);
+    await spliced;
     results.push(...(await probe(teacupB, 'B2 teapot up after boot')));
   } finally {
     await teacupB.close();
