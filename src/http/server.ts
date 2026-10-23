@@ -20,6 +20,7 @@ import type { BodyFailure, BodyReader } from './body';
 import type { RouteDef, WsRouteDef, MeshControl, HttpOptions } from './types';
 import type { Logger } from '../logger';
 import { nodeRequire } from '../node-require';
+import { answerProbe } from './health';
 
 interface HandlerConfig {
   routes: RouteDef[];
@@ -116,6 +117,8 @@ function createRequestHandler(cfg: HandlerConfig) {
     const injected = computeInjected(opts, { secure, headers: req.headers });
     patchResponseHeaders(res, injected);
 
+    if (writeProbe(req, res, opts)) return;
+
     let result: HandleResult | Preflight;
     let acquired = false;
     const watching = watchingRequests(bus);
@@ -201,6 +204,20 @@ function createRequestHandler(cfg: HandlerConfig) {
     res.writeHead(result.outcome.status, result.outcome.headers);
     res.end(result.outcome.body);
   }
+}
+
+/**
+ * Answers a health probe and returns true, or returns false for any other request. Runs before the
+ * gate, so shedding never refuses a probe, and before `handle()`, so no step, plugin or lifecycle
+ * event sees one. Written through the patched writeHead, so the security headers still land.
+ */
+function writeProbe(req: http.IncomingMessage, res: http.ServerResponse, opts: HttpOptions | undefined): boolean {
+  const probe = opts?.health && answerProbe(req.method ?? 'GET', req.url ?? '/', opts.health);
+  if (!probe) return false;
+
+  res.writeHead(probe.status, probe.headers);
+  res.end(probe.body);
+  return true;
 }
 
 /**

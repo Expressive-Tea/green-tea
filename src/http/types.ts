@@ -1,4 +1,5 @@
 import type { Transport } from '../metadata';
+import type { HealthProbe } from './health';
 import type { PipelineResult } from '../pipeline';
 import type { ErrorRenderer } from '../transformers';
 import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
@@ -62,6 +63,11 @@ export interface HttpOptions {
   bodyDuplicates?: 'array' | 'last';
   onError?: ErrorRenderer;
   static?: StaticResolver;
+  /**
+   * Answers `/__live__` and `/__ready__` ahead of the gate and the route table (`createApp({ health })`).
+   * Absent when health is off, so no path is intercepted.
+   */
+  health?: HealthProbe;
 }
 
 /** Handler for a matched HTTP route; receives a normalized request and resolves to a pipeline result. */

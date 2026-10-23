@@ -68,6 +68,8 @@ const handlers: Record<string, ReturnType<typeof edgeHandler>> = {
   default: edgeHandler(app),
   limited: edgeHandler(limited),
   trusted: edgeHandler(trusted),
+  // CARD-17 T10: health probes, reached through the `health` host. Never booted by anything but probes.
+  health: edgeHandler(createApp({ modules: [M], health: true })),
 };
 
 // CARD-21 (D17): a route on the reserved mesh path must fail createApp inside workerd too. Built per

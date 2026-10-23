@@ -121,3 +121,29 @@ Deno.test('serveDeno rejects when a provider fails, instead of binding a port th
     throw new Error(`expected serveDeno to reject with the provider's error, got: ${message || '<resolved>'}`);
   }
 });
+
+// CARD-17 T5 (D14): close() marks the app draining before the server shuts down, and the drain window
+// keeps the listener open long enough for a probe to read the 503.
+Deno.test('serveDeno close() with health.drainDelayMs: /__ready__ 503 draining, in-flight request 200', async () => {
+  const app = createApp({ modules: [M], health: { drainDelayMs: 300 } });
+  const server = await serveDeno(app, { port: 0, onListen: () => {} });
+  const base = `http://127.0.0.1:${portOf(server)}`;
+
+  const ready = await fetch(`${base}/__ready__`);
+  if (ready.status !== 200) throw new Error(`ready before close: ${ready.status}`);
+  await ready.body?.cancel();
+
+  const inFlight = fetch(`${base}/slow`).then((r) => r.json());
+  await new Promise((r) => setTimeout(r, 50));
+
+  const closing = server.close({ timeoutMs: 5000 });
+  const probe = await fetch(`${base}/__ready__`);
+  const body = await probe.json();
+  if (probe.status !== 503 || body.status !== 'draining') {
+    throw new Error(`probe during close: ${probe.status} ${JSON.stringify(body)}`);
+  }
+
+  const done = await inFlight;
+  if (done.ok !== true) throw new Error(`in-flight request was cut: ${JSON.stringify(done)}`);
+  await closing;
+});

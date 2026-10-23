@@ -171,8 +171,27 @@ async function main() {
     assert.equal(reservedRes.status, 500);
     assert.match(await reservedRes.text(), /^route @Ws \/__mesh__\/control at Claims\.control uses the reserved path/);
 
+    // CARD-17 T10: live 200; ready booting → ok, with only probes reaching the isolate. There is no
+    // close() on workerd, so draining is never reported here (documented, not tested for). Any probe
+    // starts the boot, so ready is asked first to see `booting`.
+    const first = await mf.dispatchFetch('http://health/__ready__');
+    assert.equal(first.status, 503);
+    assert.deepEqual(await first.json(), { status: 'booting' });
+    const live = await mf.dispatchFetch('http://health/__live__');
+    assert.equal(live.status, 200);
+    assert.deepEqual(await live.json(), { status: 'ok' });
+    let ready = await mf.dispatchFetch('http://health/__ready__');
+    for (let i = 0; i < 20 && ready.status !== 200; i++) {
+      await ready.arrayBuffer();
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      ready = await mf.dispatchFetch('http://health/__ready__');
+    }
+    assert.equal(ready.status, 200);
+    assert.deepEqual(await ready.json(), { status: 'ok' });
+    assert.equal(ready.headers.get('cache-control'), 'no-store');
+
     console.log(
-      'edge (workerd via miniflare): HTTP 200 + body limits 413/413/200/413 + WS echo:hi + ws limits + cf-connecting-ip under trustProxy + reserved path — PASS',
+      'edge (workerd via miniflare): HTTP 200 + body limits 413/413/200/413 + WS echo:hi + ws limits + cf-connecting-ip under trustProxy + reserved path + health — PASS',
     );
   } finally {
     await mf.dispose();
