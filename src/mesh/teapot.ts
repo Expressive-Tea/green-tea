@@ -17,8 +17,20 @@ import {
   type Frame,
 } from './protocol';
 
-/** WebSocket path where a teapot exposes its mesh control channel. */
+/**
+ * WebSocket path where a teapot exposes its mesh control channel.
+ *
+ * Reserved in every app, mesh or not (D17): `createApp` refuses a route that claims it, and an upgrade
+ * to it on an app without a control channel closes `1008` on every adapter.
+ */
 export const MESH_CONTROL_PATH = '/__mesh__/control';
+
+/**
+ * Close reason for an upgrade to {@link MESH_CONTROL_PATH} on an app with no control channel. One
+ * string shared by `app.upgrade` and the Node listener, so every adapter refuses it identically (D17).
+ */
+export const MESH_CONTROL_DISABLED_REASON =
+  'mesh control channel not enabled: this app exports nothing, or has no mesh.secret';
 
 /**
  * How long an unauthenticated peer may hold the control channel open before it is hung up on.

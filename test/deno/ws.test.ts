@@ -181,3 +181,43 @@ Deno.test('serveDeno: ws message size default is 1 MiB', async () => {
     await server.shutdown();
   }
 });
+
+// CARD-21 (D17): the reserved mesh path is refused the way the Node listener refuses it, and a route
+// that claims it fails createApp here too.
+Deno.test('serveDeno: /__mesh__/control without a control channel closes 1008; a route there fails createApp', async () => {
+  @Route('/')
+  class Claims {
+    @Ws('/__mesh__/control')
+    control() {
+      return (async function* () {})();
+    }
+  }
+  @Module({ mountpoint: '/', controllers: [Claims] })
+  class ClaimsModule {}
+  let message = '';
+  try {
+    createApp({ modules: [ClaimsModule] });
+  } catch (error) {
+    message = (error as Error).message;
+  }
+  assertEquals(message.startsWith('route @Ws /__mesh__/control at Claims.control uses the reserved path'), true);
+
+  const app = createApp({ modules: [M] });
+  let port = 0;
+  const server = await serveDeno(app, {
+    port: 0,
+    onListen: (addr) => {
+      port = addr.port;
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  try {
+    assertEquals((await exchange(port, '/__mesh__/control', [])).close, {
+      code: 1008,
+      reason: 'mesh control channel not enabled: this app exports nothing, or has no mesh.secret',
+    });
+  } finally {
+    await server.shutdown();
+  }
+});

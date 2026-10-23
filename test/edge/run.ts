@@ -161,8 +161,18 @@ async function main() {
     assert.equal(await wsIp('localhost', cf), 'ip:', 'T4 edge WS without trustProxy');
     assert.equal(await wsIp('trusted', cf), 'ip:1.2.3.4', 'T5 edge WS under trustProxy');
 
+    // CARD-21 (D17): the reserved mesh path closes 1008 with the Node listener's reason, and a route
+    // that claims it fails createApp.
+    assert.deepEqual((await exchange(mf, 'http://localhost/__mesh__/control', [])).close, {
+      code: 1008,
+      reason: 'mesh control channel not enabled: this app exports nothing, or has no mesh.secret',
+    });
+    const reservedRes = await mf.dispatchFetch('http://reserved/');
+    assert.equal(reservedRes.status, 500);
+    assert.match(await reservedRes.text(), /^route @Ws \/__mesh__\/control at Claims\.control uses the reserved path/);
+
     console.log(
-      'edge (workerd via miniflare): HTTP 200 + body limits 413/413/200/413 + WS echo:hi + ws limits + cf-connecting-ip under trustProxy — PASS',
+      'edge (workerd via miniflare): HTTP 200 + body limits 413/413/200/413 + WS echo:hi + ws limits + cf-connecting-ip under trustProxy + reserved path — PASS',
     );
   } finally {
     await mf.dispose();

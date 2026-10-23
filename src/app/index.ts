@@ -45,13 +45,14 @@ import { connectLink, isPermanentRefusal, type Link } from '../mesh/link';
 import { Rooms } from '../rooms';
 import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
 import { buildRemote } from '../mesh/teacup';
-import { buildManifest, createMeshControl, MESH_CONTROL_PATH } from '../mesh/teapot';
+import { buildManifest, createMeshControl, MESH_CONTROL_DISABLED_REASON, MESH_CONTROL_PATH } from '../mesh/teapot';
 import type { MeshControl } from '../http';
 import type { RequestEnvelope, RouteEntry } from '../mesh/protocol';
 import type { App, InspectLine, Explain, RoutePlan, MeshConfig } from './types';
 import { inspectRoute, buildGraphView, explainRoute } from './introspect';
 import { compilePattern, markRemoteRoute, normalizeRequestPath } from '../http/router';
 import { routeConflict, type Precedence, type RouteConflict } from '../http/route-conflicts';
+import { assertNotReserved, type ReservedPath } from '../http/reserved-paths';
 
 export type { App, InspectLine, ExplainNode, Explain, MeshConfig, Hooks } from './types';
 
@@ -221,6 +222,8 @@ export function createApp(opts: {
   const viewsCtx: ViewsContext = { views: opts.views, viewEngine: opts.viewEngine };
   const registry = collectModules(opts.modules, viewsCtx);
   const { providerNodes, stepNodes, runners, providerMeta, routePlans } = registry;
+  const reserved = reservedPaths();
+  assertNoReservedRoutes(routePlans, reserved);
   const teardown = buildTeardownRegistry(opts.hooks, opts.teardownTimeoutMs, opts.shutdownTimeoutMs);
   mountPlugins(opts.plugins, bus, registry, teardown);
   provideBuiltins(registry, logger, bus);
@@ -252,7 +255,7 @@ export function createApp(opts: {
   // can only be built here, after finalize(), and never at construction time.
   const prepareGraph = async (): Promise<void> => {
     if (opts.mesh && !booted) {
-      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry, logger);
+      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry, logger, reserved);
       remoteRoutes = spliced.remoteRoutes;
       meshLinks.push(...spliced.meshLinks);
       // Without this the error is `missing dependency: auth needed by getUser` and says nothing
@@ -632,6 +635,24 @@ function resolveTransformer(
   return buildHtmlTransformer(html, viewsCtx);
 }
 
+/**
+ * The paths this app answers itself, ahead of the route table (D17).
+ *
+ * `/__mesh__/control` is reserved in every app, mesh or not: whether a route there is served must not
+ * depend on the runtime or on whether a mesh happens to be configured.
+ */
+function reservedPaths(): ReservedPath[] {
+  return [{ path: MESH_CONTROL_PATH, purpose: 'the mesh control channel' }];
+}
+
+/** Fails the boot when a declared route claims a reserved path (see {@link assertNotReserved}). */
+function assertNoReservedRoutes(routePlans: RoutePlan[], reserved: readonly ReservedPath[]): void {
+  for (const plan of routePlans) {
+    const kind = plan.transport === 'ws' ? '@Ws' : plan.transport === 'negotiate' ? '@Stream' : plan.method;
+    assertNotReserved(plan.pattern, `route ${kind} ${plan.pattern} at ${plan.declaration}`, reserved);
+  }
+}
+
 /** Reads every module's metadata into a fresh {@link Registry} of graph nodes, runners and exports. */
 function collectModules(modules: Ctor[], viewsCtx: ViewsContext): Registry {
   const registry = emptyRegistry();
@@ -976,6 +997,7 @@ async function spliceRemoteScopes(
   bus: Bus,
   registry: Registry,
   logger: Logger,
+  reserved: readonly ReservedPath[],
 ): Promise<{ remoteRoutes: RouteDef[]; meshLinks: Link[]; absent: string[] }> {
   const remoteRoutes: RouteDef[] = [];
   const meshLinks: Link[] = [];
@@ -1015,6 +1037,9 @@ async function spliceRemoteScopes(
 
       for (const route of routes) {
         const display = `${route.method} ${route.pattern}`;
+        // A teapot's own boot refuses such a route, but the manifest is whatever arrives on the wire:
+        // an older or foreign teapot could still advertise one, and the teacup must not splice it.
+        assertNotReserved(route.pattern, `mesh: remote route '${display}' from ${teapot.url}`, reserved);
         const key = `${route.method} ${compilePattern(route.pattern).shape}`;
         const owner = routeOwners.get(key);
 
@@ -1431,7 +1456,7 @@ function buildAppUpgrade(
       // an explicit refusal, not "no matching ws route": the path is reserved either way, and a
       // peer that reached a teapot with nothing exported deserves to be told which it was
       if (!meshControl) {
-        ready.close(1008, 'mesh control channel not enabled: this app exports nothing, or has no mesh.secret');
+        ready.close(1008, MESH_CONTROL_DISABLED_REASON);
         return;
       }
 

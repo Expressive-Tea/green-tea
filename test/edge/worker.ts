@@ -70,7 +70,31 @@ const handlers: Record<string, ReturnType<typeof edgeHandler>> = {
   trusted: edgeHandler(trusted),
 };
 
+// CARD-21 (D17): a route on the reserved mesh path must fail createApp inside workerd too. Built per
+// request on the `reserved` host so a regression answers with a status instead of breaking the worker.
+@Route('/')
+class Claims {
+  @Ws('/__mesh__/control')
+  control() {
+    return (async function* () {})();
+  }
+}
+@Module({ mountpoint: '/', controllers: [Claims] })
+class ClaimsModule {}
+
+function reservedBoot(): Response {
+  try {
+    createApp({ modules: [ClaimsModule] });
+  } catch (error) {
+    return new Response((error as Error).message, { status: 500 });
+  }
+  return new Response('booted', { status: 200 });
+}
+
 export default {
-  fetch: (request: Request, env?: unknown, ctx?: Parameters<ReturnType<typeof edgeHandler>>[2]) =>
-    (handlers[new URL(request.url).hostname] ?? handlers.default)(request, env, ctx),
+  fetch: (request: Request, env?: unknown, ctx?: Parameters<ReturnType<typeof edgeHandler>>[2]) => {
+    const host = new URL(request.url).hostname;
+    if (host === 'reserved') return reservedBoot();
+    return (handlers[host] ?? handlers.default)(request, env, ctx);
+  },
 };
