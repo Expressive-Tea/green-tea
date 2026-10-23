@@ -139,6 +139,33 @@ npm treats versions as semver and semver forbids leading zeros.
   `?` and before `#`, if there is one: `q: 'what?now'`, and `/search?a=1&b=?` gives `b: '?'`. URLs
   with a single `?` parse as before. Path extraction is unchanged.
 
+- **Mesh (alpha): a teacup's remote routes follow which teapots are connected** (#124, D15). The
+  route table used to be built once at boot: a teapot that started late was never served, and a
+  teapot that was gone for good stayed advertised. Now:
+
+  - A teapot that missed `bootTimeoutMs` is retried in the background with the `reconnect` backoff.
+    When it connects, its routes are served, with no restart. Its steps are not added, because the
+    graph was validated at boot without them. With `reconnect: false` it is not retried.
+  - While a link is reconnecting, its routes stay and answer `503`, now with `retry-after` (the
+    seconds until the next attempt). `Allow` keeps them.
+  - A link that gives up for good has its routes removed: they answer `404` and leave `Allow`. That
+    is a link dropped with `reconnect: false`, or one refused permanently (a wrong secret, a protocol
+    mismatch) while reconnecting. A refused reconnect used to retry forever. It now stops.
+  - A returning teapot's routes replace its old ones: a route it added is served, one it dropped
+    answers `404`. A returning manifest is still refused for a missing **step**
+    (`onManifestChange: 'refuse'`), but no longer for a missing route.
+  - A late route that conflicts with another teapot's (same shape, or a CARD-13 sibling conflict)
+    is refused and logged, and the rest keep serving. At boot the same conflict still fails boot.
+  - A late or returning route on a reserved path (`/__mesh__/control`, and `/__live__`/`/__ready__`
+    with `health` on) is refused and logged the same way. At boot it still fails boot.
+  - Every change emits `mesh:routes` with `{ url, added, removed }` (new `EventPayload` fields).
+
+  Membership changes publish a new table. A request in flight routes against the old one or the
+  new one, never a mix. Only the remote route trees are rebuilt. `listen()` now reads the same
+  table as `app.fetch`, and `createHttpServer` accepts a getter as well as an array. Dev
+  introspection routes (`devGraph`, `devOpenapi`) now sit before remote routes in that table, so
+  in the one case where a teapot exports the same path at the same specificity, the dev route wins.
+
 ### Fixed
 
 - **Edge HTTP fills `ctx.ip` from `cf-connecting-ip` under `trustProxy`** (#119). `edgeHandler`

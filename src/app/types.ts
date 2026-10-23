@@ -144,6 +144,13 @@ export interface MeshConfig {
    * `false` restores that fail-once behaviour. An object tunes the backoff, which doubles from
    * `initialDelayMs` (500ms) up to `maxDelayMs` (30s) with jitter, so teacups that went down
    * together do not come back in lockstep.
+   *
+   * It also decides what a dropped teapot's routes do (D15). While a link is reconnecting its routes
+   * stay in the table and answer `503` with `retry-after`, and `Allow` keeps them. A link that gives
+   * up for good — dropped with `reconnect: false`, or refused permanently (a wrong secret, a
+   * protocol mismatch) while reconnecting — has its routes removed: they answer `404` and leave
+   * `Allow`. Each change emits `mesh:routes` with `{ url, added, removed }`. A teapot that missed
+   * `bootTimeoutMs` is retried in the background with this backoff, unless it is `false`.
    */
   reconnect?: boolean | { initialDelayMs?: number; maxDelayMs?: number };
   /**
@@ -154,6 +161,9 @@ export interface MeshConfig {
    * Serving against a manifest that no longer backs the graph would surface as a 500 that looks
    * like application code. A future `'reconcile'` will rebuild the graph instead; it is named here
    * rather than left implicit so that arriving is additive rather than a change of default.
+   *
+   * Only steps count. Routes are not part of the graph, so a returning teapot's routes replace its
+   * old ones: a route it added is served, one it dropped answers `404` (D15).
    */
   onManifestChange?: 'refuse';
   /**
@@ -169,6 +179,10 @@ export interface MeshConfig {
    * its steps or routes are registered: its routes 404 rather than 503, and a local node that needs
    * one of its tokens still fails the boot, naming it. A permanent refusal — a wrong secret, a
    * protocol mismatch — fails at once without spending the grace.
+   *
+   * After boot, such a teapot keeps being retried in the background with the `reconnect` backoff
+   * (not with `reconnect: false`). When it connects, its routes are added to the table and served;
+   * its steps are not, because the graph was validated at boot without them (D15).
    *
    * `0` means one attempt and no grace. That is the attempt count boot used to have, and nothing
    * more: exhausting it no longer fails the boot, so a single unreachable teapot still warns and

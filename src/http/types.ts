@@ -97,6 +97,13 @@ export interface RouteDef {
   maxParts?: number; // per-route override of the server's multipart maxParts
 }
 
+/**
+ * A route table: a fixed array, or a getter the server reads once per request. A mesh teacup passes
+ * a getter, because its remote routes change as teapots come and go (CARD-19); each change publishes
+ * a new array, so a request sees the whole old table or the whole new one.
+ */
+export type RouteTable = RouteDef[] | (() => RouteDef[]);
+
 /** Result of matching a request path against a route: extracted params plus the matched definition. */
 export interface MatchedRoute {
   params: Record<string, string>;

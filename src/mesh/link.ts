@@ -2,7 +2,6 @@ import type { Bus } from '../bus';
 import type { Logger } from '../logger';
 import { HttpError } from '../signals';
 import { connectSocket, type SocketCtor } from '../http/ws-adapter';
-import { compilePattern } from '../http/router';
 import type { WsSocket } from '../http/ws-core';
 import { encode, decode, MESH_PROTOCOL_VERSION, type Manifest, type RequestEnvelope, type Frame } from './protocol';
 
@@ -64,6 +63,8 @@ interface LinkState {
   socket: WsSocket | undefined;
   closed: boolean;
   retry: ReturnType<typeof setTimeout> | undefined;
+  /** When the scheduled reconnect attempt fires (epoch ms), for the `retry-after` a 503 carries. */
+  retryAt: number | undefined;
 }
 
 /** One established connection: its socket, the manifest it announced, and its heartbeat. */
@@ -81,10 +82,10 @@ const DEFAULT_MAX_DELAY_MS = 30_000;
  * 503, not a bare Error: a dead upstream is not "this service broke", and the status is what
  * tells a caller it may retry and an operator where to look. A bare Error renders as a 500.
  */
-function rejectAllPending(pending: Map<string, PendingEntry>, reason: string): void {
+function rejectAllPending(pending: Map<string, PendingEntry>, reason: string, headers?: Record<string, string>): void {
   for (const [, entry] of pending) {
     clearTimeout(entry.timer);
-    entry.reject(new HttpError(503, reason));
+    entry.reject(new HttpError(503, reason, undefined, headers));
   }
 
   pending.clear();
@@ -99,13 +100,14 @@ function sendRpc(
   name: string,
   ctx: RequestEnvelope,
   timeoutMs: number,
+  downHeaders?: Record<string, string>,
 ): Promise<unknown> {
   // Answer now rather than in timeoutMs. A closed socket cannot deliver the frame, so waiting
   // would make every request to a downed teapot hang for the full timeout (30s by default)
   // before failing anyway — the caller pays for a verdict already known. This is also the
   // window a reconnecting link sits in: down, and answering immediately.
   if (!socket?.isOpen) {
-    return Promise.reject(new HttpError(503, `mesh link is down: cannot resolve '${name}'`));
+    return Promise.reject(new HttpError(503, `mesh link is down: cannot resolve '${name}'`, undefined, downHeaders));
   }
 
   return new Promise((resolveCall, rejectCall) => {
@@ -329,37 +331,109 @@ function stepKeys(manifest: Manifest): Set<string> {
 }
 
 /**
- * Route keys by method plus *effective shape*, the same comparison `spliceRemoteScopes` uses to
- * detect ambiguity — so `/:id` renamed to `/:name` is the same route and does not trip the refusal.
- */
-function routeKeys(manifest: Manifest): Set<string> {
-  return new Set(manifest.routes.map((route) => `${route.method} ${compilePattern(route.pattern).shape}`));
-}
-
-/**
- * What the boot manifest had that a returning one does not.
+ * The steps the boot manifest had that a returning one does not.
  *
- * The graph was validated at boot against the first manifest and is already serving. A token that
- * vanished cannot be validated away after the fact, so a manifest missing anything this link
- * contributed is refused rather than accepted — see `ManifestPolicy`. Extra exports are *not*
- * missing and are ignored: the graph is fixed at boot and nothing new is spliced into it.
+ * The graph was validated at boot against the first manifest and is already serving. A step token
+ * that vanished cannot be validated away after the fact, so a manifest missing one is refused
+ * rather than accepted — see `ManifestPolicy`. Extra steps are ignored: the graph is fixed at boot
+ * and nothing new is spliced into it.
+ *
+ * Routes are not compared. They are not part of the graph, so a returning teapot's routes replace
+ * the old ones instead (D15): a route it added is served, one it dropped is removed.
  */
 export function missingFromManifest(booted: Manifest, returned: Manifest): string[] {
   const steps = stepKeys(returned);
-  const routes = routeKeys(returned);
   const missing: string[] = [];
 
   for (const step of booted.steps) {
     if (!steps.has(step)) missing.push(`step '${step}'`);
   }
 
-  for (const route of booted.routes) {
-    if (!routes.has(`${route.method} ${compilePattern(route.pattern).shape}`)) {
-      missing.push(`route '${route.method} ${route.pattern}'`);
-    }
+  return missing;
+}
+
+/**
+ * `retry-after` for a 503 while the link is down and will try again: the seconds until the next
+ * attempt, at least 1. Nothing when it will not try again, so a client is not told to come back to
+ * a link that has given up.
+ */
+function retryAfter(state: LinkState, reconnects: boolean): Record<string, string> | undefined {
+  if (state.closed || !reconnects) return undefined;
+  const waitMs = state.retryAt === undefined ? 0 : state.retryAt - Date.now();
+
+  return { 'retry-after': String(Math.max(1, Math.ceil(waitMs / 1000))) };
+}
+
+/** A session dropped with reconnection off: the link is gone for good, if it was ever up. */
+function dropWithoutReconnect(adopted: boolean, giveUp: () => void): void {
+  if (adopted) giveUp();
+}
+
+/** Stop a link for good and say so: a drop with reconnection off, or a permanent refusal (D15). */
+function stopForGood(state: LinkState, onGone: (() => void) | undefined): void {
+  if (state.closed) return;
+  state.closed = true;
+  clearTimeout(state.retry);
+  state.retry = undefined;
+  onGone?.();
+}
+
+/**
+ * Whether a failed reconnect attempt was the teapot refusing this peer on purpose, in which case the
+ * link gives up. Retrying reaches the same answer forever, so the link stops and its routes go (D15),
+ * the same verdict boot gives a refusal.
+ */
+function refusedWhileReconnecting(
+  url: string,
+  error: unknown,
+  logger: Logger | undefined,
+  giveUp: () => void,
+): boolean {
+  if (!isPermanentRefusal(error)) return false;
+  logger?.warn(`mesh: ${url} refused this peer while reconnecting (${(error as Error).message}) — giving up on it.`);
+  giveUp();
+
+  return true;
+}
+
+/**
+ * Hang up on a session whose manifest no longer backs the graph, and return the fingerprint now logged.
+ *
+ * Logged once per distinct manifest, not once per attempt: at the 30s ceiling this would otherwise be
+ * ~2,880 identical lines a day. A rollback can still fix it, which is why the link keeps retrying
+ * rather than giving up.
+ */
+function refuseSession(
+  session: Session,
+  missing: string[],
+  logged: string,
+  url: string,
+  logger: Logger | undefined,
+): string {
+  session.heartbeat.stop();
+  session.socket.close();
+  const fingerprint = missing.join('|');
+
+  if (fingerprint !== logged) {
+    logger?.warn(
+      `mesh: refusing to reconnect to ${url} — its manifest no longer exports ${missing.join(', ')}, ` +
+        'which the graph was validated against at boot. Retrying in case this is a partial deploy.',
+    );
   }
 
-  return missing;
+  return fingerprint;
+}
+
+/** A session was adopted. When it is a returning one: keep the boot steps, take its routes (D15), and tell the caller. */
+function reconnected(
+  returning: boolean,
+  link: Link,
+  returned: Manifest,
+  onReconnect: ((manifest: Manifest) => void) | undefined,
+): void {
+  if (!returning) return;
+  link.manifest = { steps: link.manifest.steps, routes: returned.routes };
+  onReconnect?.(link.manifest);
 }
 
 /** Resolved backoff bounds, or `undefined` when the caller turned reconnection off. */
@@ -394,19 +468,36 @@ export function connectLink(args: {
   /** What to do when a returning teapot's manifest no longer backs the graph (default: `'refuse'`). */
   onManifestChange?: ManifestPolicy;
   logger?: Logger;
+  /**
+   * Called each time a dropped link reconnects and its session is adopted, after `link.manifest`
+   * has taken the returning manifest's routes. Not called for the first connection: the caller
+   * has the link, and its manifest, when the returned promise resolves.
+   */
+  onReconnect?: (manifest: Manifest) => void;
+  /**
+   * Called once when the link gives up for good: its session dropped with `reconnect: false`, or a
+   * reconnect attempt was refused permanently (a wrong secret, a protocol mismatch). Not called by
+   * `close()`, which is the application hanging up, not the teapot going away.
+   */
+  onGone?: () => void;
 }): Promise<Link> {
   const timeoutMs = args.timeoutMs ?? 30_000;
   const heartbeatMs = args.heartbeatMs ?? HEARTBEAT_MS;
   const bounds = backoffBounds(args.reconnect);
   const pending = new Map<string, PendingEntry>();
-  const state: LinkState = { socket: undefined, closed: false, retry: undefined };
+  const state: LinkState = { socket: undefined, closed: false, retry: undefined, retryAt: undefined };
   let refusalLogged = '';
+  let adopted = false; // a session was adopted at least once, so the link has something to lose
+
+  const downHeaders = (): Record<string, string> | undefined => retryAfter(state, bounds !== undefined);
+  const giveUp = (): void => stopForGood(state, args.onGone);
 
   const link: Link = {
-    // replaced with the real manifest before this object escapes; a reconnect never changes it,
-    // because the graph is fixed at boot and only the *boot* manifest describes what it holds.
+    // replaced with the real manifest before this object escapes. A reconnect keeps the boot
+    // manifest's steps, because the graph is fixed at boot, and takes the returning one's routes.
     manifest: { steps: [], routes: [] },
-    rpc: (kind, name, ctx) => sendRpc(state.socket, pending, String(counter++), kind, name, ctx, timeoutMs),
+    rpc: (kind, name, ctx) =>
+      sendRpc(state.socket, pending, String(counter++), kind, name, ctx, timeoutMs, downHeaders()),
     close: () => {
       // Terminal, by contract. `closeLinks` runs on shutdown, and a link that reconnected after
       // the application hung up would leave a process that cannot exit.
@@ -438,6 +529,8 @@ export function connectLink(args: {
     // the teapot the moment it returns.
     const delay = Math.round(capped / 2 + Math.random() * (capped / 2));
 
+    clearTimeout(state.retry);
+    state.retryAt = Date.now() + delay;
     state.retry = setTimeout(() => void attemptReconnect(attempt + 1), delay);
     state.retry.unref?.();
   };
@@ -446,8 +539,12 @@ export function connectLink(args: {
   const endSession = (attempt: number): void => {
     state.socket = undefined;
     args.bus?.emit('mesh:disconnect', { name: args.url });
-    rejectAllPending(pending, `mesh link to ${args.url} is down`);
+    // Scheduled before the rejection, so the 503s carry the real wait in `retry-after`.
     scheduleRetry(attempt);
+    rejectAllPending(pending, `mesh link to ${args.url} is down`, downHeaders());
+    // With reconnection off, a link that was up and dropped is gone for good (D15). `adopted`
+    // keeps a first connect that never succeeded out of this: that link never escaped.
+    if (!bounds) dropWithoutReconnect(adopted, giveUp);
   };
 
   /** Adopt an established session, or refuse it when its manifest no longer backs the graph. */
@@ -455,27 +552,16 @@ export function connectLink(args: {
     const missing = missingFromManifest(link.manifest, session.manifest);
 
     if (missing.length > 0) {
-      session.heartbeat.stop();
-      session.socket.close();
-      // Logged once per distinct manifest, not once per attempt: at the 30s ceiling this would
-      // otherwise be ~2,880 identical lines a day. A rollback can still fix it, which is why the
-      // link keeps retrying rather than giving up.
-      const fingerprint = missing.join('|');
-
-      if (fingerprint !== refusalLogged) {
-        refusalLogged = fingerprint;
-        args.logger?.warn(
-          `mesh: refusing to reconnect to ${args.url} — its manifest no longer exports ${missing.join(', ')}, ` +
-            'which the graph was validated against at boot. Retrying in case this is a partial deploy.',
-        );
-      }
-
+      refusalLogged = refuseSession(session, missing, refusalLogged, args.url, args.logger);
       return false;
     }
 
     refusalLogged = '';
     state.socket = session.socket;
+    const returning = adopted;
+    adopted = true;
     args.bus?.emit('mesh:connect', { name: args.url });
+    reconnected(returning, link, session.manifest, args.onReconnect);
 
     return true;
   };
@@ -492,10 +578,12 @@ export function connectLink(args: {
       }
 
       if (!adopt(session)) scheduleRetry(attempt);
-    } catch {
-      // openSession's own abort listener already scheduled the retry through `onEnd`; a rejection
-      // that never opened a socket (a bad URL, DNS) needs one scheduled here instead.
-      if (!state.socket && !state.retry) scheduleRetry(attempt);
+    } catch (error) {
+      // A permanent refusal ends the link. Otherwise: openSession's own abort listener already
+      // scheduled the retry through `onEnd`; a rejection that never opened a socket (a bad URL,
+      // DNS) needs one scheduled here instead.
+      if (!refusedWhileReconnecting(args.url, error, args.logger, giveUp) && !state.socket && !state.retry)
+        scheduleRetry(attempt);
     }
   };
 

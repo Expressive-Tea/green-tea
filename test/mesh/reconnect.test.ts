@@ -143,7 +143,7 @@ describe('missingFromManifest', () => {
     expect(missingFromManifest(booted, booted)).toEqual([]);
   });
 
-  it('accepts extra exports — the graph is fixed at boot and nothing new is spliced', () => {
+  it('accepts extra exports — extra steps are ignored, since the graph is fixed at boot', () => {
     const wider: Manifest = {
       steps: [...booted.steps, 'billing'],
       routes: [...booted.routes, { method: 'POST', pattern: '/svc/new' }],
@@ -161,8 +161,10 @@ describe('missingFromManifest', () => {
     expect(missingFromManifest(booted, shrunk)).toEqual(["step 'auth'"]);
   });
 
-  it('reports a missing route by method and pattern', () => {
+  // D15 (CARD-19): routes are not part of the graph, so a returning teapot's routes replace the old
+  // ones (a dropped route is removed from the remote table) instead of refusing the reconnect.
+  it('does not report a missing route — routes follow the returning manifest', () => {
     const routeless: Manifest = { steps: booted.steps, routes: [] };
-    expect(missingFromManifest(booted, routeless)).toEqual(["route 'GET /svc/:id'"]);
+    expect(missingFromManifest(booted, routeless)).toEqual([]);
   });
 });

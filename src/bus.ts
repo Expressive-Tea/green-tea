@@ -45,6 +45,9 @@ export type LifecycleEvent =
   // Separate from `mesh:disconnect`, which is a link that was up and went away — this one never
   // came up, and a deploy watching for trouble wants to tell those apart.
   | 'mesh:boot:retry'
+  // A teacup's remote routes changed after boot (D15): a late teapot connected, a returning one
+  // exported a different set, or a link gave up for good. Carries `url`, `added` and `removed`.
+  | 'mesh:routes'
   | 'plugin:mounted'
   // Paired: see the guarantee above. `request:start` has no status and no duration — it says a
   // request arrived, not that it routed.
@@ -125,6 +128,12 @@ export interface EventPayload {
    * framework does not know what was sent, and will not guess.
    */
   status?: number;
+  /** `mesh:routes`: the teapot whose routes changed. */
+  url?: string;
+  /** `mesh:routes`: routes added to the remote table, as `'METHOD /pattern'`. */
+  added?: string[];
+  /** `mesh:routes`: routes removed from the remote table, as `'METHOD /pattern'`. */
+  removed?: string[];
 }
 
 /**
