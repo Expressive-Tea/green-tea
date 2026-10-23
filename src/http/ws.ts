@@ -6,7 +6,7 @@ import {
   matchWsRoute,
   trackUntil,
   boundInbound,
-  controlLimits,
+  controlBounds,
   wsMessageBytes,
   type WsSocket,
   type WsRequest,
@@ -51,10 +51,10 @@ function handleMeshUpgrade(
     return true;
   }
 
-  // An RPC carries a whole request body, so the channel is bounded by the teapot's body limit
-  // rather than `maxWsMessageBytes` (#120). `wss` is built with that bound as `maxPayload`, and
-  // `boundInbound` repeats it on the decoded text, as it does for every route.
-  const bounds = controlLimits(limits, meshControl.maxFrameBytes);
+  // An RPC carries a whole request body, so once the peer authenticates the channel is bounded by
+  // the teapot's body limit rather than `maxWsMessageBytes` (#120). `wss` is built with that bound
+  // as `maxPayload`; until the hello is accepted, `boundInbound` holds the peer to hello size.
+  const bounds = controlBounds(limits, meshControl.maxFrameBytes);
 
   // nodeSocket, not the raw ws: the control channel is the last consumer that spoke the
   // `ws` EventEmitter API directly. It now takes the same neutral socket every route does.
@@ -62,7 +62,7 @@ function handleMeshUpgrade(
   // an untracked control channel leaves the teapot's server.close() waiting on it forever.
   // serveFrames swallows its own failures, so the floating promise cannot reject.
   wss.handleUpgrade(req, socket, head, (ws: any) => {
-    const neutral = boundInbound(nodeSocket(ws), bounds);
+    const neutral = boundInbound(nodeSocket(ws), bounds.preAuth, bounds.authed);
 
     void trackUntil(neutral, meshControl.handle(neutral), streams);
   });
@@ -139,7 +139,7 @@ export function attachWs(
     WebSocketServer && meshControl
       ? new WebSocketServer({
           noServer: true,
-          maxPayload: controlLimits(limits, meshControl.maxFrameBytes).maxWsMessageBytes,
+          maxPayload: controlBounds(limits, meshControl.maxFrameBytes).authed.maxWsMessageBytes,
         })
       : null;
   server.on('upgrade', (req, socket, head) => {

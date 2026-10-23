@@ -251,6 +251,12 @@ npm treats versions as semver and semver forbids leading zeros.
   more than one socket read can carry. User `@Ws` routes keep closing `1013` at `maxWsQueue`. Deno
   and Bun deliver frames one at a time and did not hit this, but they now share the same bound.
 
+  Both larger bounds, this one and the frame size from #120, **apply only once the peer's `hello`
+  is accepted**. Until then the control channel takes frames of at most 64 KiB and queues at most
+  16, and closes with `1009` or `1013` past that. An unauthenticated peer can therefore make a
+  teapot hold about 1 MiB per connection, including while `app.upgrade` waits for a slow boot,
+  instead of thousands of multi-megabyte frames.
+
 - **Edge HTTP fills `ctx.ip` from `cf-connecting-ip` under `trustProxy`** (#119). `edgeHandler`
   never read the header for HTTP, so IP-keyed plugins such as rate-limit saw `''`, one bucket for
   every client. Under `trustProxy: true` the header now sets `ctx.ip`, and it wins over

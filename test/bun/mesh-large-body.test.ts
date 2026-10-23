@@ -192,3 +192,17 @@ test('mesh on Bun: a user ws route on the same teapot still closes 1013 at maxWs
     await close();
   }
 });
+
+test('mesh on Bun: an unauthenticated peer sending a frame over hello size is closed 1009', async () => {
+  const { close, tPort } = await pair();
+  try {
+    const code = await new Promise<number>((resolve) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${tPort}/__mesh__/control`);
+      ws.onopen = () => ws.send('x'.repeat(1_000_000));
+      ws.onclose = (e) => resolve(e.code);
+    });
+    expect(code).toEqual(1009);
+  } finally {
+    await close();
+  }
+});

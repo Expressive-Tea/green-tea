@@ -3,7 +3,7 @@
 // under node-compat on both; edge/workerd is out of scope (see the cross-runtime spec).
 import crypto from 'node:crypto';
 import type { Bus } from '../bus';
-import type { WsSocket } from '../http/ws-core';
+import { HELLO_FRAME_BYTES, widenInbound, type WsSocket } from '../http/ws-core';
 import type { ResponseShape } from '../pipeline';
 import { isHttpError } from '../signals';
 import {
@@ -61,8 +61,10 @@ const ENVELOPE_HEADROOM = 1_048_576;
  * `maxBodyBytes` (#120): the body at its worst escaping plus {@link ENVELOPE_HEADROOM}, so any body
  * within the limit fits. 7,048,576 at the 1 MB default.
  *
- * `decode` runs `JSON.parse` on peer-controlled input, so the parse is capped by this figure.
- * Applies to the control channel only: user WebSocket routes keep `limits.maxWsMessageBytes`.
+ * `decode` runs `JSON.parse` on peer-controlled input, so the parse is capped by this figure — and
+ * an unauthenticated peer never gets near it: until its `hello` is accepted, the channel takes only
+ * hello-sized frames (`HELLO_FRAME_BYTES`, `controlBounds` in `ws-core`). Applies to the control
+ * channel only: user WebSocket routes keep `limits.maxWsMessageBytes`.
  */
 export function controlFrameLimit(maxBodyBytes = DEFAULT_MAX_BODY_BYTES): number {
   return WORST_ESCAPE * maxBodyBytes + ENVELOPE_HEADROOM;
@@ -132,6 +134,9 @@ function handleHandshake(socket: WsSocket, frame: Frame, deps: MeshControlDeps):
     return false;
   }
 
+  // The peer holds the secret now: lift the hello-sized bounds its socket was given to the ones
+  // that carry RPC bodies (#120, #148). A socket bounded without a second phase is left as it is.
+  widenInbound(socket);
   socket.send(
     encode({
       type: 'manifest',
@@ -220,8 +225,9 @@ async function serveFrames(
     for await (const data of socket.inbound) {
       const raw = String(data);
 
-      // Checked before `decode`, because decoding is the expensive part being defended.
-      if (raw.length > maxFrameChars) {
+      // Checked before `decode`, because decoding is the expensive part being defended. Until the
+      // handshake, nothing larger than a hello is parsed, whatever the socket in front allowed.
+      if (raw.length > (authed ? maxFrameChars : HELLO_FRAME_BYTES)) {
         socket.close(1009, 'mesh frame too large');
         break;
       }

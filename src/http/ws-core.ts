@@ -42,29 +42,58 @@ export function wsMessageBytes(limits: Pick<RequestLimits, 'maxWsMessageBytes'> 
 }
 
 /**
- * Undelivered inbound frames the mesh control channel may hold (#148), in place of
- * `limits.maxWsQueue` when larger. Its consumer, the teapot's frame loop, never awaits between
- * frames, so its queue only ever holds one delivery burst: `ws` emits every frame of one socket
- * read synchronously, and a read is at most 64 KiB, under 4,096 of the smallest control frame
- * (`{"type":"ping"}`). A teacup with many RPCs in flight sends exactly such bursts, which the
- * 16-frame user default closed with 1013. Still finite, so a peer flooding the channel while
- * nothing reads it — before the boot finishes, say — is still cut off.
+ * Undelivered inbound frames the mesh control channel may hold once its peer is authenticated
+ * (#148), in place of `limits.maxWsQueue` when larger. Its consumer, the teapot's frame loop, never
+ * awaits between frames, so its queue only ever holds one delivery burst: `ws` emits every frame of
+ * one socket read synchronously, and a read is at most 64 KiB, under 4,096 of the smallest control
+ * frame (`{"type":"ping"}`). A teacup with many RPCs in flight sends exactly such bursts, which the
+ * 16-frame user default closed with 1013.
  */
 const CONTROL_QUEUE = 4096;
 
 /**
- * The limits the mesh control channel's socket is bounded by: `limits` with `maxWsMessageBytes`
- * raised to the channel's own frame bound (#120) and `maxWsQueue` to {@link CONTROL_QUEUE} (#148),
- * each only when larger. A user route never goes through this, so it keeps both as configured.
+ * Largest frame the mesh control channel accepts before its peer's `hello` is accepted. A hello
+ * is a version and a secret; nothing larger has a reason to arrive first.
  */
-export function controlLimits(
+export const HELLO_FRAME_BYTES = 65_536;
+
+/** Inbound bounds for one socket, as {@link boundInbound} takes them. */
+type InboundLimits = { maxWsMessageBytes: number; maxWsQueue: number };
+
+/**
+ * The bounds of the mesh control channel's socket, in two phases.
+ *
+ * - `preAuth`, until the peer's `hello` is accepted: hello-sized frames and the default 16-frame
+ *   queue, so an unauthenticated peer can make the process hold about 1 MiB at most — including
+ *   while `app.upgrade` waits for a slow boot, before anything reads the queue.
+ * - `authed`, after: `maxWsMessageBytes` raised to the channel's frame bound (#120) and `maxWsQueue`
+ *   to {@link CONTROL_QUEUE} (#148), each only when larger. The peer holds the mesh secret by then.
+ *
+ * A user route never goes through this, so it keeps both limits as configured.
+ */
+export function controlBounds(
   limits: Pick<RequestLimits, 'maxWsMessageBytes' | 'maxWsQueue'> | undefined,
   maxFrameBytes: number | undefined,
-): { maxWsMessageBytes: number; maxWsQueue: number } {
+): { preAuth: InboundLimits; authed: InboundLimits } {
   return {
-    maxWsMessageBytes: Math.max(wsMessageBytes(limits), maxFrameBytes ?? 0),
-    maxWsQueue: Math.max(limits?.maxWsQueue ?? DEFAULT_MAX_WS_QUEUE, CONTROL_QUEUE),
+    preAuth: { maxWsMessageBytes: HELLO_FRAME_BYTES, maxWsQueue: DEFAULT_MAX_WS_QUEUE },
+    authed: {
+      maxWsMessageBytes: Math.max(wsMessageBytes(limits), maxFrameBytes ?? 0),
+      maxWsQueue: Math.max(limits?.maxWsQueue ?? DEFAULT_MAX_WS_QUEUE, CONTROL_QUEUE),
+    },
   };
+}
+
+/** Where a socket bounded with a second phase keeps the switch to it; `Symbol.for`, as above. */
+const WIDEN_INBOUND: unique symbol = Symbol.for('green-tea.widen-inbound');
+
+/**
+ * Switches a socket from {@link boundInbound}'s first bounds to the `widened` ones it was given —
+ * for the mesh control channel, once the peer has authenticated. A no-op on any other socket.
+ * Frames already queued stay; the new bounds apply to the frames that arrive next.
+ */
+export function widenInbound(socket: WsSocket): void {
+  (socket as { [WIDEN_INBOUND]?: () => void })[WIDEN_INBOUND]?.();
 }
 
 /** Throws when a WebSocket limit is present but not a positive safe integer (#107). */
@@ -100,10 +129,14 @@ function exceedsBytes(msg: unknown, max: number): boolean {
  * consumer. After that the returned `inbound` fans out like `channel`: each iterator gets every
  * frame from the moment it subscribes, through its own queue, and the bound applies to each queue.
  * Every other capability is the original socket's.
+ *
+ * `widened`, when given, is a second set of bounds that {@link widenInbound} switches to later: the
+ * mesh control channel starts at hello size and widens once its peer authenticates.
  */
 export function boundInbound(
   socket: WsSocket,
   limits?: Pick<RequestLimits, 'maxWsMessageBytes' | 'maxWsQueue'>,
+  widened?: InboundLimits,
 ): WsSocket {
   const fanout = new InboundFanout(socket, wsMessageBytes(limits), limits?.maxWsQueue ?? DEFAULT_MAX_WS_QUEUE);
 
@@ -113,6 +146,7 @@ export function boundInbound(
 
   return Object.create(socket, {
     inbound: { value: { [Symbol.asyncIterator]: () => fanout.subscribe() } },
+    ...(widened && { [WIDEN_INBOUND]: { value: () => fanout.widen(widened) } }),
   }) as WsSocket;
 }
 
@@ -126,10 +160,16 @@ class InboundFanout {
 
   constructor(
     private readonly socket: WsSocket,
-    private readonly maxBytes: number,
-    private readonly maxQueue: number,
+    private maxBytes: number,
+    private maxQueue: number,
   ) {
     this.first = this.add();
+  }
+
+  /** Applies the second phase's bounds; see {@link widenInbound}. */
+  widen(limits: InboundLimits): void {
+    this.maxBytes = limits.maxWsMessageBytes;
+    this.maxQueue = limits.maxWsQueue;
   }
 
   /**

@@ -12,7 +12,7 @@ import { answerFetchProbe, buildFetch } from '../http/web';
 import { resolveCompression, edgeMarker, MARK_EDGE, type CompressionOptions } from '../http/compression';
 import {
   boundInbound,
-  controlLimits,
+  controlBounds,
   validateWsLimits,
   WS_MAX_MESSAGE_BYTES,
   wsMessageBytes,
@@ -421,7 +421,7 @@ export function createApp(opts: {
   const fetchFn = buildAppFetch(fetchOpts, bootApp, currentTable);
   // Known at construction, unlike the control channel itself, because `app.upgrade` must bound a
   // socket before it awaits the boot (#120).
-  const meshBounds = controlLimits(opts.limits, controlFrameLimit(opts.limits?.maxBodyBytes));
+  const meshBounds = controlBounds(opts.limits, controlFrameLimit(opts.limits?.maxBodyBytes));
   const upgradeFn = buildAppUpgrade(routePlans, pipelineDeps, streams, bootApp, () => meshControl, {
     limits: opts.limits,
     trustProxy: opts.trustProxy,
@@ -1581,10 +1581,10 @@ function nativeWsBytes(
   mesh: MeshConfig | undefined,
   registry: Registry,
   limits: RequestLimits | undefined,
-  meshBounds: { maxWsMessageBytes: number },
+  meshBounds: ReturnType<typeof controlBounds>,
 ): number {
   const servesControl = mesh?.secret && (registry.exportedSteps.length || registry.exportedRoutes.length);
-  return servesControl ? meshBounds.maxWsMessageBytes : wsMessageBytes(limits);
+  return servesControl ? meshBounds.authed.maxWsMessageBytes : wsMessageBytes(limits);
 }
 
 /**
@@ -1816,7 +1816,7 @@ function buildAppUpgrade(
   }: {
     limits?: RequestLimits;
     trustProxy?: boolean;
-    meshBounds: Pick<RequestLimits, 'maxWsMessageBytes' | 'maxWsQueue'>;
+    meshBounds: ReturnType<typeof controlBounds>;
   },
 ): (request: WsRequest, socket: WsSocket) => Promise<void> {
   let wsRoutes: WsRouteDef[] | undefined;
@@ -1827,7 +1827,8 @@ function buildAppUpgrade(
     // would be lost. For the mesh control channel that is the `hello` itself — the handshake would
     // hang until timeout against a teapot whose providers happened to boot slowly.
     // The path comes first, though, because it decides the bound: the mesh control channel carries
-    // whole request bodies and is bounded by the body limit, not `maxWsMessageBytes` (#120).
+    // whole request bodies and is bounded by the body limit, not `maxWsMessageBytes` (#120) — once
+    // its peer authenticates. Until then, and so throughout the boot, it takes hello-sized frames.
     let path: string;
 
     // The same normalization HTTP and the Node upgrade listener run. A malformed escape would
@@ -1839,7 +1840,10 @@ function buildAppUpgrade(
       return;
     }
 
-    const ready = boundInbound(socket, path === MESH_CONTROL_PATH ? meshBounds : limits);
+    const ready =
+      path === MESH_CONTROL_PATH
+        ? boundInbound(socket, meshBounds.preAuth, meshBounds.authed)
+        : boundInbound(socket, limits);
 
     await ensureBooted(); // idempotent: no-op once any of fetch/upgrade/listen has booted
 

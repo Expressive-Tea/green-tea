@@ -170,4 +170,16 @@ describe('mesh RPC body near maxBodyBytes (#120)', () => {
       await close();
     }
   });
+  it('an unauthenticated peer sending a frame over hello size is closed 1009', async () => {
+    const { close, tPort } = await pair();
+    try {
+      const ws = new WebSocket(`ws://127.0.0.1:${tPort}/__mesh__/control`);
+      await new Promise((resolve) => ws.once('open', resolve));
+      const closed = new Promise<number>((resolve) => ws.once('close', (code) => resolve(code)));
+      ws.send('x'.repeat(1_000_000)); // within the authenticated bound, far over a hello
+      expect(await closed).toBe(1009);
+    } finally {
+      await close();
+    }
+  });
 });
