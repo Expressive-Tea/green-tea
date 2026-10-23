@@ -6,6 +6,8 @@ import { buildSecurityHeaders, resolveCors, corsPreflightHeaders } from '../secu
 import { resolveRoute, allowedMethods, normalizeRequestPath, parseQuery } from './router';
 import { pickEncoder } from './stream';
 import { acquireBody, type BodyReader } from './body';
+import { bodyEtag, findHeader, isNotModified, notModifiedHeaders, staticEtag } from './conditional';
+import type { StaticHit } from '../views';
 import type { RouteDef, HttpOptions } from './types';
 import type { StreamEncoder } from '../encoders';
 import type { Bus } from '../bus';
@@ -131,13 +133,67 @@ function errorOutcome(
   const rendered = renderError(error, req, opts?.onError, opts?.logger);
   return {
     injected,
-    outcome: {
+    outcome: bodyless({
       kind: 'buffered',
       status: rendered.status,
       headers: { ...rendered.headers, ...headers },
       body: req.method === 'HEAD' ? '' : rendered.body,
-    },
+    }),
   };
+}
+
+type Buffered = Extract<NeutralOutcome, { kind: 'buffered' }>;
+
+/**
+ * A `304` has no body on any adapter, and none of the headers that describe one. This is the one
+ * place every buffered outcome passes through on its way out, so a handler that throws
+ * `NotModified` — rendered by the default renderer as a JSON envelope — answers the same bodiless
+ * `304` the ETag path does. Node would drop the body of a 304 by itself; the fetch adapters already
+ * null it; the `content-type` would still have gone out on both.
+ */
+function bodyless(outcome: Buffered): Buffered {
+  if (outcome.status !== 304) return outcome;
+  return { kind: 'buffered', status: 304, headers: notModifiedHeaders(outcome.headers), body: '' };
+}
+
+/**
+ * Answers a static hit: `ETag` + `Last-Modified` from the resolver's `stat`, `Cache-Control` from the
+ * `static` option, and a `304` — decided before the file is read, so a revalidation costs a `stat`
+ * and nothing more. HEAD never reads either.
+ */
+async function staticOutcome(hit: StaticHit, req: NeutralRequest): Promise<Buffered> {
+  const etag = staticEtag(hit.size, hit.mtimeMs);
+  const headers: Record<string, string> = {
+    'content-type': hit.contentType,
+    etag,
+    'last-modified': new Date(hit.mtimeMs).toUTCString(),
+    'cache-control': hit.cacheControl,
+  };
+
+  if (isNotModified(req.headers, etag, hit.mtimeMs))
+    return bodyless({ kind: 'buffered', status: 304, headers, body: '' });
+
+  return { kind: 'buffered', status: 200, headers, body: req.method === 'HEAD' ? '' : await hit.read() };
+}
+
+/**
+ * `createApp({ etag: true })` for a handler response: a buffered `200` to GET/HEAD gets a weak ETag
+ * from its body — computed before HEAD blanks the body, so HEAD and GET carry the same tag — unless
+ * the handler set one, which is kept and only compared. A match becomes a bodiless `304`. The
+ * handler has already run: this saves bandwidth, not work.
+ */
+function tagged(
+  result: { status: number; headers: Record<string, string | string[]>; body: string },
+  req: NeutralRequest,
+): Buffered {
+  const key = findHeader(result.headers, 'etag');
+  const existing = key === undefined ? undefined : result.headers[key];
+  const etag = typeof existing === 'string' ? existing : bodyEtag(result.body);
+  const headers = key === undefined ? { ...result.headers, etag } : result.headers;
+
+  if (isNotModified(req.headers, etag)) return bodyless({ kind: 'buffered', status: 304, headers, body: '' });
+
+  return { kind: 'buffered', status: 200, headers, body: req.method === 'HEAD' ? '' : result.body };
 }
 
 async function unmatchedOutcome(
@@ -149,18 +205,7 @@ async function unmatchedOutcome(
 ): Promise<HandleResult> {
   if ((req.method === 'GET' || req.method === 'HEAD') && opts?.static) {
     const hit = await opts.static(path);
-
-    if (hit) {
-      return {
-        injected,
-        outcome: {
-          kind: 'buffered',
-          status: 200,
-          headers: { 'content-type': hit.contentType },
-          body: req.method === 'HEAD' ? '' : hit.body,
-        },
-      };
-    }
+    if (hit) return { injected, outcome: await staticOutcome(hit, req) };
   }
 
   const allow = allowedMethods(routes, path);
@@ -411,13 +456,16 @@ async function dispatch(
     };
   }
 
+  if (opts?.etag && result.status === 200 && (req.method === 'GET' || req.method === 'HEAD'))
+    return { injected, outcome: tagged(result, req) };
+
   return {
     injected,
-    outcome: {
+    outcome: bodyless({
       kind: 'buffered',
       status: result.status,
       headers: result.headers,
       body: req.method === 'HEAD' ? '' : result.body,
-    },
+    }),
   };
 }

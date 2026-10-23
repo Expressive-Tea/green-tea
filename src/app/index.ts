@@ -38,7 +38,7 @@ import {
   type RouteMeta,
   type TransformerFn,
 } from '../metadata';
-import { buildHtmlTransformer, buildStaticResolver, type ViewsContext } from '../views';
+import { buildHtmlTransformer, buildStaticResolver, normalizeStatic, type ViewsContext } from '../views';
 import { getArgs, getHandlerNeeds, resolveArgs } from '../params';
 import { buildOpenApi, type OpenApiInfo } from '../openapi';
 import { connectLink, isPermanentRefusal, type Link } from '../mesh/link';
@@ -159,8 +159,27 @@ export function createApp(opts: {
   views?: string;
   /** Bring-your-own template engine for `@Html(..., { template: true })`; defaults to the built-in `render`. */
   viewEngine?: (source: string, data: unknown) => string;
-  /** Serve a static directory as a GET/HEAD fallback (after declared routes, before 404). `true` → `./public`. */
-  static?: boolean | string;
+  /**
+   * Serve a static directory as a GET/HEAD fallback (after declared routes, before 404). `true` →
+   * `./public`; a string is the directory; `{ dir?, cacheControl? }` also sets `Cache-Control`.
+   *
+   * Every hit carries a weak `ETag` and `Last-Modified` from the file's `stat`, and a matching
+   * `If-None-Match` (or `If-Modified-Since` when there is no `If-None-Match`) answers `304` without
+   * reading the file. `Cache-Control` is `no-cache` unless `cacheControl` says otherwise, so browsers
+   * revalidate instead of guessing a lifetime from `Last-Modified`; use
+   * `'public, max-age=31536000, immutable'` for content-hashed assets. An unknown key, or a
+   * `cacheControl` with CR/LF, throws here. Unavailable on the edge (no filesystem).
+   */
+  static?: boolean | string | { dir?: string; cacheControl?: string };
+  /**
+   * Weak ETags for handler responses (default: off). A buffered `200` to GET or HEAD gets
+   * `ETag: W/"<length>-<hash>"` computed from its body, and a request whose `If-None-Match` matches
+   * gets a bodiless `304`. A handler that sets its own `etag` header keeps it, and that tag drives the
+   * comparison. Streams, non-200 responses and other methods are never tagged. The handler still
+   * runs: this saves bandwidth, not work. Static files are tagged regardless of this option.
+   * Anything but a boolean throws.
+   */
+  etag?: boolean;
   /**
    * How long `close()` gives in-flight work before forcing remaining connections shut, in ms
    * (default: 10s). `close({ timeoutMs })` still wins per call. Set it here when `close()` is
@@ -235,6 +254,7 @@ export function createApp(opts: {
 
   validateWsLimits(opts.limits);
   const health = resolveHealth(opts.health, opts.shutdownTimeoutMs, opts.teardownTimeoutMs);
+  assertEtagOption(opts.etag);
 
   const bus = new Bus();
   const logger = opts.logger ?? createDefaultLogger();
@@ -344,7 +364,8 @@ export function createApp(opts: {
 
   const { bootApp, healthProbe, drain } = trackHealth(health, bootGraph, () => [...degradedProviders]);
 
-  const staticResolver = opts.static ? buildStaticResolver(opts.static) : undefined;
+  const staticConfig = normalizeStatic(opts.static);
+  const staticResolver = staticConfig ? buildStaticResolver(staticConfig.root, staticConfig.cacheControl) : undefined;
 
   const fetchOpts: HttpOptions = {
     bus,
@@ -358,6 +379,7 @@ export function createApp(opts: {
     onError: opts.onError,
     static: staticResolver,
     health: healthProbe,
+    etag: opts.etag,
   };
   const fetchFn = buildAppFetch(fetchOpts, bootApp, currentTable);
   const upgradeFn = buildAppUpgrade(routePlans, pipelineDeps, streams, bootApp, () => meshControl, {
@@ -388,6 +410,7 @@ export function createApp(opts: {
       onError: opts.onError,
       static: staticResolver,
       health: healthProbe,
+      etag: opts.etag,
     });
     server.on('close', () => closeLinks(meshLinks));
     await new Promise<void>((resolve) => server!.listen(port, resolve));
@@ -1981,6 +2004,12 @@ function closeLinks(links: Closable[]): void {
       /* */
     }
   }
+}
+
+/** `createApp({ etag })` is a boolean or absent; a truthy string doing something would be silent partial behaviour. */
+function assertEtagOption(etag: unknown): void {
+  if (etag !== undefined && typeof etag !== 'boolean')
+    throw new TypeError(`createApp({ etag }): expected a boolean, got ${typeof etag}`);
 }
 
 /** Merges every app-scope provider bound to a route into a request seed (skips unresolved providers). */

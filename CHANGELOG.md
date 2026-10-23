@@ -121,6 +121,16 @@ npm treats versions as semver and semver forbids leading zeros.
   `false` or `{ drainDelayMs?: number }`. On the edge there is no `close()`, so `/__ready__` never
   reports `draining` there.
 
+- **`createApp({ etag: true })`** (#114, D12): weak ETags for buffered `200` responses to `GET` and
+  `HEAD`, from a 32-bit FNV-1a hash of the body plus its length. A matching `If-None-Match` (weak
+  comparison, lists, `*`) gets a `304` with no body. A handler that sets its own `etag` keeps it, and
+  that tag drives the comparison. Streams, non-200 responses and other methods are never tagged.
+  The handler still runs. Off by default; anything but a boolean throws at `createApp`.
+- **`static: { dir?, cacheControl? }`** (#114): the object form of `static` sets the
+  `Cache-Control` sent with static files and their `304`s (for example
+  `'public, max-age=31536000, immutable'` for hashed assets). `static: true` and `static: '<dir>'`
+  keep working. An unknown key, or a `cacheControl` with CR/LF, throws at `createApp`.
+
 - **`@cookie('name')` / `@cookies()` argument decorators and `setCookie()`** (#113). Cookies are
   parsed from the request's `Cookie` header on first use per request (RFC 6265: first value wins,
   `%`-sequences decoded, malformed pairs skipped rather than answered with a 400), on HTTP and
@@ -142,6 +152,16 @@ npm treats versions as semver and semver forbids leading zeros.
   Bun have no connection cap, so set one at the platform or proxy there.
 
 ### Changed
+
+- **Static files are revalidated, not re-downloaded** (#114, D12). Every static hit carries a weak
+  `ETag` (`W/"<size>-<mtime>"`), `Last-Modified` and `Cache-Control: no-cache`. A matching
+  `If-None-Match`, or `If-Modified-Since` when there is no `If-None-Match`, answers `304` from the
+  file's `stat` without reading it. A `HEAD` no longer reads the file either. `no-cache` stops
+  browsers from reusing a file for a lifetime they guessed from `Last-Modified`. To keep the old
+  behaviour, set `static: { cacheControl }` to whatever your proxy expects.
+- **Every `304` is bodiless** (#114). A `304` has no body and no `content-*` headers on any adapter,
+  including one from `throw new NotModified()`, which used to go out with the default JSON
+  envelope's `content-type`.
 
 - **HTTP route lookup uses a radix index** (#109). The router used to scan a specificity-sorted
   list per method, and on every 404 and 405 it recompiled and matched every route to build `Allow`.

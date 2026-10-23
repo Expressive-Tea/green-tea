@@ -172,5 +172,5 @@ it('a root created after the first request starts serving without a restart', as
   expect(await resolve('/a.txt')).toBeUndefined();
   mkdirSync(late);
   writeFileSync(join(late, 'a.txt'), 'late');
-  expect((await resolve('/a.txt'))?.body.toString()).toBe('late');
+  expect((await (await resolve('/a.txt'))?.read())?.toString()).toBe('late');
 });

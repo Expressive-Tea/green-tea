@@ -68,6 +68,8 @@ export interface HttpOptions {
    * Absent when health is off, so no path is intercepted.
    */
   health?: HealthProbe;
+  /** Weak ETags + `304` for buffered `200` GET/HEAD handler responses (`createApp({ etag })`). */
+  etag?: boolean;
 }
 
 /** Handler for a matched HTTP route; receives a normalized request and resolves to a pipeline result. */
