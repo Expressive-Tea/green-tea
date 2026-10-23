@@ -11,7 +11,7 @@ import {
   type Preflight,
 } from './core';
 import { mergeInjectedHeaders } from './headers';
-import { peerOf } from './peer';
+import { peerOf, trustedProxyClient } from './peer';
 import { declaresOverLimit, type BodyFailure, type BodyReader, type MaybePromise } from './body';
 import { HttpError } from '../signals';
 import { renderError, type ErrorRequest } from '../transformers';
@@ -299,7 +299,10 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
           // proxy is trusted, and take its first hop — an untrusted XFF is client-spoofable.
           // Otherwise the socket peer, which only the Deno and Bun adapters can supply; a bare
           // `app.fetch` has none, so there the answer is still ''.
-          ip: forwardedFor(headers, opts) || peerOf(request),
+          // Ahead of both, under `trustProxy` only: the address the edge adapter read from
+          // `cf-connecting-ip`. Cloudflare sets that header itself, while XFF can carry hops the
+          // client supplied, so on the edge it wins (CARD-23).
+          ip: trustedProxyClient(request, opts?.trustProxy) || forwardedFor(headers, opts) || peerOf(request),
         },
         // Already computed above for the shed-503 path; handing it down keeps `cors.origins` to
         // one call per request.

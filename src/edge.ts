@@ -1,5 +1,6 @@
 import type { App } from './app/types';
 import { eventSocket, toWsRequest, upgradeSafely, type EventfulSocket } from './http/ws-adapter';
+import { setProxyClient } from './http/peer';
 
 // Minimal ambient for the Cloudflare Workers globals we use — avoids @cloudflare/workers-types.
 // Declares only what we call; mirrors the real workerd signatures.
@@ -30,7 +31,9 @@ export function edgeHandler(
     if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
       const [client, server] = Object.values(new WebSocketPair()) as [EdgeWebSocket, EdgeWebSocket];
       server.accept();
-      const wsReq = toWsRequest(request, request.headers.get('cf-connecting-ip') ?? '');
+      // No peer address on the edge, so `ip` starts empty; the header only fills it under `trustProxy`.
+      const wsReq = toWsRequest(request, '');
+      recordClient(wsReq, request);
       const lifecycle = upgradeSafely(app, wsReq, eventSocket(server));
       if (ctx?.waitUntil) ctx.waitUntil(lifecycle);
       else void lifecycle;
@@ -38,6 +41,18 @@ export function edgeHandler(
       return new Response(null, { status: 101, webSocket: client } as ResponseInit & { webSocket: EdgeWebSocket });
     }
 
+    recordClient(request, request);
     return app.fetch(request);
   };
+}
+
+/**
+ * Hands the app the `cf-connecting-ip` header for `source`, the object the app will be given for this
+ * request. The app — not this adapter — decides whether it counts, since `trustProxy` is an app
+ * option; HTTP and WebSocket both go through here and through the same check on the app side.
+ * Without `trustProxy` the header is ignored and `ctx.ip` stays `''`: workerd exposes no peer address,
+ * and an untrusted header is whatever the client chose to send.
+ */
+function recordClient(source: object, request: Request): void {
+  setProxyClient(source, request.headers.get('cf-connecting-ip') ?? '');
 }

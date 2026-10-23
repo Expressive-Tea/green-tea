@@ -58,6 +58,13 @@ npm treats versions as semver and semver forbids leading zeros.
   constraints at a later segment of an otherwise unreachable route. The route then boots, as
   before.
 
+- **Edge WebSocket upgrades no longer trust `cf-connecting-ip` by default** (#119). `edgeHandler`
+  copied the header into `ctx.ip` on every upgrade, so any client that sent it chose its own
+  address. It now counts only under `trustProxy: true`, the same rule HTTP follows. Without it,
+  `ctx.ip` on an edge WebSocket is `''`, as it already was on edge HTTP: workerd exposes no peer
+  address. An app behind Cloudflare that keys anything on the WebSocket IP needs
+  `createApp({ trustProxy: true })`.
+
 ### Added
 
 - **`limits.maxWsMessageBytes` and `limits.maxWsQueue`** (#107): per-connection bounds on inbound
@@ -88,6 +95,13 @@ npm treats versions as semver and semver forbids leading zeros.
   with a single `?` parse as before. Path extraction is unchanged.
 
 ### Fixed
+
+- **Edge HTTP fills `ctx.ip` from `cf-connecting-ip` under `trustProxy`** (#119). `edgeHandler`
+  never read the header for HTTP, so IP-keyed plugins such as rate-limit saw `''`, one bucket for
+  every client. Under `trustProxy: true` the header now sets `ctx.ip`, and it wins over
+  `x-forwarded-for`, because Cloudflare sets it itself while XFF can carry hops the client supplied.
+  Without `trustProxy` it is ignored. Only `edgeHandler` reads it: the Node, Deno and Bun adapters, and a
+  bare `app.fetch`, ignore it as before.
 
 - **`static` no longer serves files outside its root through a symlink** (#106). The traversal guard
   compared paths lexically, and the file read then followed symlinks, so `public/leak -> /etc/hosts`
