@@ -42,15 +42,29 @@ export function wsMessageBytes(limits: Pick<RequestLimits, 'maxWsMessageBytes'> 
 }
 
 /**
- * The limits the mesh control channel's socket is bounded by (#120): `limits` with
- * `maxWsMessageBytes` raised to the channel's own frame bound when that is larger. A user route
- * never goes through this, so it keeps `maxWsMessageBytes` as configured.
+ * Undelivered inbound frames the mesh control channel may hold (#148), in place of
+ * `limits.maxWsQueue` when larger. Its consumer, the teapot's frame loop, never awaits between
+ * frames, so its queue only ever holds one delivery burst: `ws` emits every frame of one socket
+ * read synchronously, and a read is at most 64 KiB, under 4,096 of the smallest control frame
+ * (`{"type":"ping"}`). A teacup with many RPCs in flight sends exactly such bursts, which the
+ * 16-frame user default closed with 1013. Still finite, so a peer flooding the channel while
+ * nothing reads it — before the boot finishes, say — is still cut off.
+ */
+const CONTROL_QUEUE = 4096;
+
+/**
+ * The limits the mesh control channel's socket is bounded by: `limits` with `maxWsMessageBytes`
+ * raised to the channel's own frame bound (#120) and `maxWsQueue` to {@link CONTROL_QUEUE} (#148),
+ * each only when larger. A user route never goes through this, so it keeps both as configured.
  */
 export function controlLimits(
   limits: Pick<RequestLimits, 'maxWsMessageBytes' | 'maxWsQueue'> | undefined,
   maxFrameBytes: number | undefined,
-): Pick<RequestLimits, 'maxWsQueue'> & { maxWsMessageBytes: number } {
-  return { ...limits, maxWsMessageBytes: Math.max(wsMessageBytes(limits), maxFrameBytes ?? 0) };
+): { maxWsMessageBytes: number; maxWsQueue: number } {
+  return {
+    maxWsMessageBytes: Math.max(wsMessageBytes(limits), maxFrameBytes ?? 0),
+    maxWsQueue: Math.max(limits?.maxWsQueue ?? DEFAULT_MAX_WS_QUEUE, CONTROL_QUEUE),
+  };
 }
 
 /** Throws when a WebSocket limit is present but not a positive safe integer (#107). */

@@ -7,7 +7,8 @@
 //   - a text body does not: every `"` or `\` doubles under JSON escaping, so a 999 KB text body
 //     became a ~2 MB frame and the teapot hung up the whole channel with 1009 (T1b);
 //   - a raised `maxBodyBytes` was capped at 1 MiB on the channel regardless (T4).
-// The Deno and Bun twins live in test/deno and test/bun.
+// Its queue bound had the same problem (#148): `maxWsQueue` (16) closed it 1013 under a burst of
+// RPCs, which Node's `ws` delivers in one go. The Deno and Bun twins live in test/deno and test/bun.
 import { describe, it, expect } from 'vitest';
 import WebSocket from 'ws';
 import { createApp, Route, Post, Module, Ws, body, ctx } from '../../src/index';
@@ -26,6 +27,15 @@ class BigCtl {
   sock(@ctx() { inbound }: any) {
     return (async function* () {
       for await (const msg of inbound) yield `echo:${String(msg).length}`;
+    })();
+  }
+
+  // Never reads `inbound`: every frame stays queued, so the 17th closes 1013 (#107).
+  @Ws('/stall')
+  stall() {
+    return (async function* () {
+      await new Promise<never>(() => {});
+      yield '';
     })();
   }
 }
@@ -53,7 +63,7 @@ async function pair(maxBodyBytes?: number) {
     await teacup.close();
     await teapot.close();
   };
-  return { post, close, tPort };
+  return { post, close, tPort, teacup };
 }
 
 describe('mesh RPC body near maxBodyBytes (#120)', () => {
@@ -110,6 +120,39 @@ describe('mesh RPC body near maxBodyBytes (#120)', () => {
       const res = await post(json(3_900_000));
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ length: 3_900_000 - WRAP });
+    } finally {
+      await close();
+    }
+  });
+  it('64 concurrent RPCs on one link all succeed: the control channel has its own queue bound (#148)', async () => {
+    const { post, close, teacup } = await pair();
+    try {
+      // In one tick, through `app.fetch`: all 64 rpc-req frames leave together and land in one read,
+    // which is the burst that tripped the 16-frame queue. Over HTTP sockets they trickle in.
+    const rpc = () =>
+      teacup.fetch(
+        new Request('http://x/api/big/echo', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: json(100),
+        }),
+      );
+    const res = await Promise.all(Array.from({ length: 64 }, rpc));
+      expect(res.map((r) => r.status)).toEqual(Array(64).fill(200));
+      expect((await post(json(1_000))).status).toBe(200);
+    } finally {
+      await close();
+    }
+  });
+
+  it('a user ws route on the same teapot still closes 1013 at maxWsQueue (#148)', async () => {
+    const { close, tPort } = await pair();
+    try {
+      const ws = new WebSocket(`ws://127.0.0.1:${tPort}/api/big/stall`);
+      await new Promise((resolve) => ws.once('open', resolve));
+      const closed = new Promise<number>((resolve) => ws.once('close', (code) => resolve(code)));
+      for (let i = 0; i < 17; i++) ws.send(String(i));
+      expect(await closed).toBe(1013);
     } finally {
       await close();
     }

@@ -242,6 +242,14 @@ npm treats versions as semver and semver forbids leading zeros.
   `1009`, on every Bun version, where Bun before 1.4 refused natively by dropping the connection
   (`1006`).
 
+- **More than 16 mesh RPCs in flight on one link no longer drop the control channel** (#148). The
+  16-frame inbound queue from #107 (`limits.maxWsQueue`) also applied to the control channel. On
+  Node, `ws` delivers every frame of one socket read at once, so a teacup sending a burst of RPCs
+  got the channel closed with `1013`, and every pending request failed with `503`. The control
+  channel now has its own queue bound of 4,096 frames, or `maxWsQueue` if that is larger, which is
+  more than one socket read can carry. User `@Ws` routes keep closing `1013` at `maxWsQueue`. Deno
+  and Bun deliver frames one at a time and did not hit this, but they now share the same bound.
+
 - **Edge HTTP fills `ctx.ip` from `cf-connecting-ip` under `trustProxy`** (#119). `edgeHandler`
   never read the header for HTTP, so IP-keyed plugins such as rate-limit saw `''`, one bucket for
   every client. Under `trustProxy: true` the header now sets `ctx.ip`, and it wins over
