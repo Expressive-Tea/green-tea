@@ -18,6 +18,8 @@ import { renderError, type ErrorRequest } from '../transformers';
 import type { RouteTable, HttpOptions } from './types';
 import { answerProbe } from './health';
 import { currentRoutes } from './router';
+import { compressOutcome, compressWebStream } from './compression';
+import type { NeutralOutcome } from './core';
 
 /**
  * Wraps an AsyncIterable as a web ReadableStream, encoding each value. Cancels the source on stream
@@ -202,23 +204,22 @@ export function toBodyInit(body: string | Buffer): ResponseBody {
   return new Uint8Array(body.buffer as ArrayBuffer, body.byteOffset, body.byteLength);
 }
 
-/** Converts a {@link HandleResult}'s outcome into a web `Response`, buffered or streamed. */
-function outcomeToResponse(result: HandleResult, bus?: Bus, correlation: Correlation = {}): Response {
-  const headers = toWebHeaders(mergeInjectedHeaders(result.outcome.headers, result.injected));
+/** Converts an outcome (already through `compressOutcome`) into a web `Response`, buffered or streamed. */
+function outcomeToResponse(
+  outcome: NeutralOutcome,
+  injected: Record<string, string>,
+  bus?: Bus,
+  correlation: Correlation = {},
+): Response {
+  const headers = toWebHeaders(mergeInjectedHeaders(outcome.headers, injected));
 
-  if (result.outcome.kind === 'stream') {
-    const body = asReadableStream(
-      result.outcome.stream,
-      result.outcome.encoder,
-      bus,
-      result.outcome.route,
-      correlation,
-    );
-    return new Response(body, { headers });
+  if (outcome.kind === 'stream') {
+    const frames = asReadableStream(outcome.stream, outcome.encoder, bus, outcome.route, correlation);
+    return new Response(outcome.encoding ? compressWebStream(frames, outcome.encoding) : frames, { headers });
   }
 
-  const body = [204, 205, 304].includes(result.outcome.status) ? null : toBodyInit(result.outcome.body);
-  return new Response(body, { status: result.outcome.status, headers });
+  const body = [204, 205, 304].includes(outcome.status) ? null : toBodyInit(outcome.body);
+  return new Response(body, { status: outcome.status, headers });
 }
 
 /** The first `x-forwarded-for` hop when the proxy is trusted, else `''`. */
@@ -329,7 +330,10 @@ export function buildFetch(routes: RouteTable, opts: HttpOptions | undefined) {
       });
     }
 
-    return outcomeToResponse(result, opts?.bus, correlation);
+    const decided = compressOutcome(opts?.compression, { method: request.method, headers }, result.outcome);
+    return decided instanceof Promise
+      ? decided.then((outcome) => outcomeToResponse(outcome, injected, opts?.bus, correlation))
+      : outcomeToResponse(decided, injected, opts?.bus, correlation);
   };
 }
 

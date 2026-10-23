@@ -9,6 +9,7 @@ import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } fro
 import type { HttpOptions } from '../http';
 import { trustedProxyClient } from '../http/peer';
 import { answerFetchProbe, buildFetch } from '../http/web';
+import { resolveCompression, edgeMarker, MARK_EDGE, type CompressionOptions } from '../http/compression';
 import {
   boundInbound,
   validateWsLimits,
@@ -180,6 +181,32 @@ export function createApp(opts: {
    * Anything but a boolean throws.
    */
   etag?: boolean;
+  /**
+   * Response compression (default: off). `true`, or `{ threshold?, encodings? }`: `threshold` is
+   * the smallest buffered body worth encoding (default `1024` bytes; streams ignore it) and
+   * `encodings` the codings core may produce, in preference order (default `['br', 'gzip']`).
+   *
+   * Negotiated on `Accept-Encoding` (q-values, `identity`, `*`, `q=0`). Text, JSON, JavaScript,
+   * ndjson, SVG, XML and wasm are compressed; a response that already has `Content-Encoding` or
+   * `Content-Range`, has no `Content-Type`, or says `Cache-Control: no-transform` is left alone.
+   * `Vary: Accept-Encoding` is added wherever the choice depended on the request, including every
+   * `304`. SSE and ndjson streams are compressed too, flushed after every event.
+   *
+   * Per runtime:
+   * - **Node, Bun:** `node:zlib`, async (off the event loop), br at quality 4.
+   * - **Deno:** the same code, but Deno runs `node:zlib`'s async API on the main thread, so core
+   *   compression costs event-loop time there — about 4× slower than Node for a 51 KB gzip under
+   *   load. Deno's own `automaticCompression` gzip is about 3× faster than core's, but slower for br,
+   *   and it weakens strong ETags on what it encodes.
+   * - **Edge (Cloudflare Workers):** core never encodes; it sets `Vary` and Cloudflare chooses and
+   *   applies the encoding. Detected through `edgeHandler`, or at `createApp` from
+   *   `navigator.userAgent`. A bare `export default { fetch: app.fetch }` on a Worker with a compat
+   *   date before 2022-03-21 (no `navigator`) is detected only if `node:zlib` fails to load there.
+   *
+   * ETags (`etag: true`) are taken on the identity body and are weak, so one tag covers every coding.
+   * An invalid `threshold` or `encodings` throws.
+   */
+  compression?: boolean | CompressionOptions;
   /**
    * How long `close()` gives in-flight work before forcing remaining connections shut, in ms
    * (default: 10s). `close({ timeoutMs })` still wins per call. Set it here when `close()` is
@@ -367,7 +394,9 @@ export function createApp(opts: {
   const staticConfig = normalizeStatic(opts.static);
   const staticResolver = staticConfig ? buildStaticResolver(staticConfig.root, staticConfig.cacheControl) : undefined;
 
+  const compression = resolveCompression(opts.compression);
   const fetchOpts: HttpOptions = {
+    compression,
     bus,
     logger,
     limits: opts.limits,
@@ -398,6 +427,7 @@ export function createApp(opts: {
 
     // A getter, not an array: mesh membership can change the table after this server starts.
     server = createHttpServer(currentTable, wsRoutes, bus, meshControl, {
+      compression,
       bus,
       logger,
       limits: opts.limits,
@@ -481,6 +511,9 @@ export function createApp(opts: {
   return Object.assign(app, {
     [WS_MAX_MESSAGE_BYTES]: wsMessageBytes(opts.limits),
     [HEALTH_DRAIN]: drain,
+
+    // `edgeHandler` calls this: on the edge core never encodes, whatever detection concluded.
+    [MARK_EDGE]: edgeMarker(compression),
   });
 }
 

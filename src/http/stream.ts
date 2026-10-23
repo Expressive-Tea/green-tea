@@ -3,6 +3,8 @@ import { once } from 'events';
 import { sseEncoder, ndjsonEncoder, StreamEncoder } from '../encoders';
 import type { Transport } from '../metadata';
 import type { Bus, Correlation } from '../bus';
+import type { NeutralOutcome } from './core';
+import { frameSink } from './compression';
 
 const PING_MS = 15_000;
 
@@ -27,34 +29,40 @@ export function pickEncoder(transport: Transport, accept: string): StreamEncoder
   return pick(accept);
 }
 
-/** Pipes an async-iterable result to the response as an HTTP stream, with keep-alive pings and backpressure handling. */
+/**
+ * Pipes a stream outcome to the response, with keep-alive pings and backpressure handling. With
+ * `outcome.encoding` set (CARD-16), frames go through a `node:zlib` stream piped into `res`, flushed
+ * after every frame, error frame and ping, so each event is decodable on arrival.
+ */
 export async function pipeStream(
   res: http.ServerResponse,
-  stream: AsyncIterable<unknown>,
-  encoder: StreamEncoder,
+  outcome: Extract<NeutralOutcome, { kind: 'stream' }>,
   bus?: Bus,
-  name = '',
   streams?: Set<() => void>,
   correlation: Correlation = {},
 ): Promise<void> {
+  const { stream, encoder, route: name } = outcome;
   // `route` duplicates `name` here rather than being passed separately: on a stream event `name`
   // is always the route pattern, never the concrete path the request events can carry — but a
   // consumer following the documented contract labels on `route` and would otherwise find it
   // absent on the longest-lived thing the server does. See `EventPayload.name`.
   const trace = { name, route: name, ...correlation };
-  res.writeHead(200, encoder.headers);
+  res.writeHead(200, outcome.headers);
   res.flushHeaders(); // establish the stream immediately so idle-until-event sources (e.g. subscriptions) don't deadlock clients awaiting headers
   bus?.emit('stream:open', trace);
+  const sink = frameSink(res, outcome.encoding);
   const iterator = stream[Symbol.asyncIterator]();
   let ping: ReturnType<typeof setInterval> | undefined;
 
   if (encoder.ping) {
-    ping = setInterval(() => res.write(encoder.ping!()), PING_MS);
+    ping = setInterval(() => sink.write(encoder.ping!()), PING_MS);
     ping.unref?.();
   }
 
   const stop = () => {
     if (ping) clearInterval(ping);
+    // A client gone mid-stream: the compressor holds zlib memory outside the JS heap until destroyed.
+    sink.destroy();
     void Promise.resolve(iterator.return?.()).catch(() => {});
   };
 
@@ -76,19 +84,19 @@ export async function pipeStream(
       const { value, done } = await iterator.next();
       if (done) break;
 
-      if (!res.write(encoder.encode(value))) {
-        await Promise.race([once(res, 'drain'), onClose]);
+      if (!sink.write(encoder.encode(value))) {
+        await Promise.race([once(sink.drains, 'drain'), onClose]);
         if (res.destroyed) break; // let finally clean up
       }
     }
   } catch (err) {
     bus?.emit('stream:error', { ...trace, error: err });
     const frame = encoder.encodeError(err);
-    if (frame && !res.writableEnded) res.write(frame);
+    if (frame && !res.writableEnded) sink.write(frame);
   } finally {
     if (ping) clearInterval(ping);
     streams?.delete(closer);
-    if (!res.writableEnded && !res.destroyed) res.end();
+    if (!res.writableEnded && !res.destroyed) sink.end();
     bus?.emit('stream:close', trace);
   }
 }

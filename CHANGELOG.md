@@ -121,6 +121,25 @@ npm treats versions as semver and semver forbids leading zeros.
   `false` or `{ drainDelayMs?: number }`. On the edge there is no `close()`, so `/__ready__` never
   reports `draining` there.
 
+- **`createApp({ compression })`** (#112, D13): response compression, off by default. `true`, or
+  `{ threshold?, encodings? }` (default `1024` bytes and `['br', 'gzip']`, in preference order).
+  `Accept-Encoding` is negotiated with q-values, `identity`, `*` and `q=0`, and ties go to server
+  preference. Text, JSON, JavaScript, ndjson, SVG, XML and wasm are compressed. A response that
+  already has `Content-Encoding` or `Content-Range`, has no `Content-Type`, or says
+  `Cache-Control: no-transform` is left alone. `Vary: Accept-Encoding` is added wherever the request
+  decided the outcome: identity clients, `HEAD`, bodies under the threshold and every `304`.
+  `Content-Length` is dropped from an encoded body. SSE and ndjson streams are compressed too,
+  flushed after every event, error frame and ping, so each event decodes when it arrives.
+  Per runtime:
+  - **Node and Bun:** async `node:zlib`, br at quality 4.
+  - **Deno:** the same code, but Deno 2.9 runs zlib's async API on the main thread, so compression
+    costs event-loop time there (about 4× slower than Node for a 51 KB gzip under load).
+  - **Edge:** core never encodes and sets only `Vary`; Cloudflare applies the encoding. Edge is
+    recognised through `edgeHandler` or by detecting workerd at `createApp`.
+
+  ETags (`etag: true`) are taken before encoding and stay the same across codings. No dependency;
+  invalid options throw.
+
 - **`createApp({ etag: true })`** (#114, D12): weak ETags for buffered `200` responses to `GET` and
   `HEAD`, from a 32-bit FNV-1a hash of the body plus its length. A matching `If-None-Match` (weak
   comparison, lists, `*`) gets a `304` with no body. A handler that sets its own `etag` keeps it, and

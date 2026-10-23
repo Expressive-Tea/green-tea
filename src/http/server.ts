@@ -2,7 +2,7 @@ import type http from 'http';
 import type https from 'https';
 import { createRequestGate } from './request-gate';
 import { renderError, type ErrorRequest } from '../transformers';
-import type { Bus } from '../bus';
+import type { Bus, Correlation } from '../bus';
 import { readBody as readBodyBytes, deriveSecure, deriveIp } from './request';
 import { pipeStream } from './stream';
 import { attachWs } from './ws';
@@ -22,6 +22,7 @@ import { currentRoutes } from './router';
 import type { Logger } from '../logger';
 import { nodeRequire } from '../node-require';
 import { answerProbe } from './health';
+import { compressOutcome } from './compression';
 
 interface HandlerConfig {
   routes: RouteTable;
@@ -183,28 +184,44 @@ function createRequestHandler(cfg: HandlerConfig) {
       }
     }
 
-    if ('preflight' in result) {
-      res.writeHead(204, result.preflight);
-      res.end();
-      return;
-    }
-
-    if (result.outcome.kind === 'stream') {
-      await pipeStream(
-        res,
-        result.outcome.stream,
-        result.outcome.encoder,
-        bus,
-        result.outcome.route,
-        opts?.streams,
-        correlation,
-      );
-      return;
-    }
-
-    res.writeHead(result.outcome.status, result.outcome.headers);
-    res.end(result.outcome.body);
+    await writeResult(req, res, result, { opts, bus, correlation });
   }
+}
+
+/**
+ * Writes what `handle()` produced: a preflight, or an outcome after `compressOutcome` (CARD-16).
+ * Module scope rather than inside `serve`, whose closure would charge every branch here again.
+ */
+async function writeResult(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  result: HandleResult | Preflight,
+  ctx: { opts: HttpOptions | undefined; bus: Bus | undefined; correlation: Correlation },
+): Promise<void> {
+  const { opts, bus, correlation } = ctx;
+
+  if ('preflight' in result) {
+    res.writeHead(204, result.preflight);
+    res.end();
+    return;
+  }
+
+  // Not awaited unless compression actually returned a promise: an app without it keeps the
+  // synchronous write it had.
+  const decided = compressOutcome(
+    opts?.compression,
+    { method: req.method ?? 'GET', headers: req.headers },
+    result.outcome,
+  );
+  const outcome = decided instanceof Promise ? await decided : decided;
+
+  if (outcome.kind === 'stream') {
+    await pipeStream(res, outcome, bus, opts?.streams, correlation);
+    return;
+  }
+
+  res.writeHead(outcome.status, outcome.headers);
+  res.end(outcome.body);
 }
 
 /**
