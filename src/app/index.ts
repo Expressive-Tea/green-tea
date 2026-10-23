@@ -1148,7 +1148,11 @@ async function spliceRemoteScopes(
             // protocol never declared, so a teapot could come to rely on something we never promised.
             handler: async (req) =>
               route.handler({
-                method: req.method,
+                // HEAD reaches a remote GET through the implicit-HEAD fallback, and the teapot looks
+                // its plan up by method, so a forwarded HEAD finds none and answers 404. Send it as the
+                // GET it resolved to; dispatch drops the body for HEAD. Fixed teacup-side (D16) so an
+                // unchanged, older teapot still answers it during a rolling deploy.
+                method: req.method === 'HEAD' && route.method === 'GET' ? 'GET' : req.method,
                 params: req.params,
                 query: req.query,
                 body: req.body,
