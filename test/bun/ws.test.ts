@@ -101,10 +101,12 @@ function exchange(port: number, path: string, frames: string[], until = 2000) {
   });
 }
 
-// #107: Bun refuses an oversized frame natively (`maxPayloadLength`), before buffering it. Its
-// uWebSockets core drops the TCP connection without a close frame, so the peer sees `1006`, not
-// the `1009` Node, Deno and the edge send. Asserted rather than papered over: it is the documented
-// Bun difference, and a Bun upgrade that starts sending 1009 should fail here and be noticed.
+// #107: Bun refuses an oversized frame natively (`maxPayloadLength`), before buffering it. Up to
+// Bun 1.3 its uWebSockets core dropped the TCP connection without a close frame, so the peer saw
+// `1006`; from Bun 1.4 it sends a real `1009`, like Node, Deno and the edge. Asserted per version
+// rather than papered over, so a further change in either direction fails here and is noticed.
+const [bunMajor, bunMinor] = Bun.version.split('.').map(Number);
+const OVERSIZE_CLOSE = bunMajor > 1 || (bunMajor === 1 && bunMinor >= 4) ? 1009 : 1006;
 test('serveBun: ws message size and inbound queue limits', async () => {
   const app = createApp({ modules: [M], limits: { maxWsMessageBytes: 1024, maxWsQueue: 4 } });
   const server = await serveBun(app, { port: 0 });
@@ -114,7 +116,7 @@ test('serveBun: ws message size and inbound queue limits', async () => {
     expect(atLimit.replies).toEqual([`echo:${'a'.repeat(1024)}`]);
 
     const over = await exchange(port, '/rt/echo', ['a'.repeat(1025)]);
-    expect(over.close?.code).toBe(1006);
+    expect(over.close?.code).toBe(OVERSIZE_CLOSE);
 
     const full = await exchange(port, '/rt/stall', ['1', '2', '3', '4', '5']);
     expect(full.close).toEqual({ code: 1013, reason: 'inbound queue full' });
@@ -132,7 +134,7 @@ test('serveBun: ws message size default is 1 MiB', async () => {
     expect(atLimit.replies.length).toBe(1);
 
     const over = await exchange(port, '/rt/echo', ['a'.repeat(1_048_577)]);
-    expect(over.close?.code).toBe(1006);
+    expect(over.close?.code).toBe(OVERSIZE_CLOSE);
   } finally {
     server.stop(true);
   }
