@@ -64,6 +64,16 @@ npm treats versions as semver and semver forbids leading zeros.
   `ctx.ip` on an edge WebSocket is `''`, as it already was on edge HTTP: workerd exposes no peer
   address. An app behind Cloudflare that keys anything on the WebSocket IP needs
   `createApp({ trustProxy: true })`.
+- **A token has one producer: a second one fails `createApp`** (GitHub #35). The graph kept the
+  last node registered for a token, and plugin nodes are registered after module nodes, so a
+  plugin whose `scope.add` provided `user` silently replaced the app's own `@Provider({ provides:
+  'user' })` for every route that needed it. Boot now fails instead, naming both nodes and where
+  they came from: `token 'user' is provided twice: by 'user' (module:AppModule) and by 'shadow'
+  (plugin)`. The rule covers the whole graph (modules, plugins, mesh steps spliced at boot, and
+  the built-ins `logger`, `rooms` and `events`), so a plugin node that provides `logger` under
+  another name fails as well, whatever order things are registered in. `overrides` keep working:
+  they replace the runner of an existing token and add no producer. Observer steps that provide
+  nothing are unaffected. The official plugins already follow name = node name = token.
 
 ### Added
 

@@ -24,6 +24,34 @@ test('throws on cycle', () => {
   expect(() => topoSort(nodes, [])).toThrow(/cycle detected/);
 });
 
+// CARD-18 (GitHub #35, D9): the check is a rule over the whole node set, not an artefact of the
+// order nodes were registered in — so swapping `provideBuiltins` and `mountPlugins` cannot reopen it.
+describe('one producer per token', () => {
+  const builtin: GraphNode = { name: 'logger', needs: [], provides: ['logger'], origin: 'builtin' };
+  const plugin: GraphNode = { name: 'fake', needs: [], provides: ['logger'], origin: 'plugin' };
+
+  it.each([
+    ['built-in first', [builtin, plugin]],
+    ['plugin first', [plugin, builtin]],
+  ])('throws naming both producers and origins (%s)', (_, nodes) => {
+    expect(() => topoSort(nodes, [])).toThrow(/token 'logger' is provided twice/);
+    expect(() => topoSort(nodes, [])).toThrow(/'logger' \(builtin\)/);
+    expect(() => topoSort(nodes, [])).toThrow(/'fake' \(plugin\)/);
+  });
+
+  it('names a mesh origin like any other', () => {
+    const local: GraphNode = { name: 'auth', needs: [], provides: ['auth'], origin: 'module:App' };
+    const remote: GraphNode = { name: 'auth-remote', needs: [], provides: ['auth'], origin: 'mesh:ws://t' };
+    expect(() => topoSort([local, remote], [])).toThrow(
+      "token 'auth' is provided twice: by 'auth' (module:App) and by 'auth-remote' (mesh:ws://t)",
+    );
+  });
+
+  it('allows a node to list its own token twice', () => {
+    expect(topoSort([node('a', [], ['a', 'a'])], []).map((n) => n.name)).toEqual(['a']);
+  });
+});
+
 const N = (name: string, needs: string[] = []) => ({ name, needs, provides: [name], origin: 'm' });
 
 describe('subgraphFor', () => {

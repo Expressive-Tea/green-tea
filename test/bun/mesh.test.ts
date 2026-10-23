@@ -82,3 +82,33 @@ test('mesh on Bun: a teapot refuses a bad secret over its control channel', asyn
     tServer.stop(true);
   }
 });
+
+// CARD-18 T6 (GitHub #35, D9): a remote step whose token a local node already provides fails the
+// splice, on Bun as on Node. Today that is the duplicate-name check in `setRunner`, which runs
+// before the graph-wide one-producer check; this pins that the splice still refuses it.
+@Step({ provides: 'auth', needs: [] })
+class LocalAuth {
+  run() {
+    return { auth: { token: 'local' } };
+  }
+}
+@Module({ mountpoint: '/api', steps: [LocalAuth], controllers: [LocalCtl] })
+class ShadowingTeacupModule {}
+
+test('mesh on Bun: a remote step colliding with a local token fails the splice', async () => {
+  const teapot = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
+  const tServer = await serveBun(teapot, { port: 0 });
+
+  const teacup = createApp({
+    modules: [ShadowingTeacupModule],
+    experimental: true,
+    mesh: { teapots: [{ url: controlUrl(tServer.port), secret: SECRET }], timeoutMs: 1000 },
+  });
+
+  try {
+    await expect(teacup.ready()).rejects.toThrow("duplicate provider/step name 'auth'");
+  } finally {
+    await teacup.close().catch(() => {});
+    tServer.stop(true);
+  }
+});

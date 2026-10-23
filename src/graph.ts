@@ -42,10 +42,43 @@ export interface GraphNode {
   origin: string;
 }
 
-/** Orders nodes so every dependency precedes its dependents; throws on missing keys or cycles. */
-export function topoSort(nodes: GraphNode[], seedKeys: string[], note = ''): GraphNode[] {
+/**
+ * Maps every token to the one node that produces it; throws when a second node provides a token.
+ *
+ * One producer per token, across modules, plugins, mesh steps and built-ins alike (GitHub #35, D9).
+ * This used to be `producedBy.set(key, node)`, last one wins: plugin nodes are registered after
+ * module nodes, so a plugin's `scope.add` that provided `user` silently replaced the app's own `user`
+ * for every route that needed it. Checking here, on the whole graph, rather than at each place a node
+ * is registered, is what covers every path — current and future — and makes the built-in tokens
+ * (`logger`, `rooms`, `events`) safe by rule instead of by registration order.
+ */
+function producers(nodes: GraphNode[]): Map<string, GraphNode> {
   const producedBy = new Map<string, GraphNode>();
-  for (const node of nodes) for (const key of node.provides) producedBy.set(key, node);
+
+  for (const node of nodes) {
+    for (const key of node.provides) {
+      const prior = producedBy.get(key);
+
+      if (prior && prior !== node) {
+        throw new Error(
+          `token '${key}' is provided twice: by '${prior.name}' (${prior.origin}) and by '${node.name}' (${node.origin}) — ` +
+            'a token has exactly one producer; rename one of them, or use `overrides` to replace a runner',
+        );
+      }
+
+      producedBy.set(key, node);
+    }
+  }
+
+  return producedBy;
+}
+
+/**
+ * Orders nodes so every dependency precedes its dependents; throws on a token with two producers,
+ * missing keys or cycles.
+ */
+export function topoSort(nodes: GraphNode[], seedKeys: string[], note = ''): GraphNode[] {
+  const producedBy = producers(nodes);
 
   // validate dependencies exist
   for (const node of nodes) {
