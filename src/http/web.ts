@@ -15,8 +15,9 @@ import { peerOf, trustedProxyClient } from './peer';
 import { declaresOverLimit, type BodyFailure, type BodyReader, type MaybePromise } from './body';
 import { HttpError } from '../signals';
 import { renderError, type ErrorRequest } from '../transformers';
-import type { RouteDef, HttpOptions } from './types';
+import type { RouteTable, HttpOptions } from './types';
 import { answerProbe } from './health';
+import { currentRoutes } from './router';
 
 /**
  * Wraps an AsyncIterable as a web ReadableStream, encoding each value. Cancels the source on stream
@@ -236,7 +237,7 @@ function forwardedFor(headers: Record<string, string>, opts: HttpOptions | undef
  * Routing, body parsing, limits and error rendering all live in the core; this file is the part
  * that knows how to get bytes out of a `Request` and how to put them into a `Response`.
  */
-export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
+export function buildFetch(routes: RouteTable, opts: HttpOptions | undefined) {
   // Built once per server, not once per request — see `BodyReader`.
   const readBody: BodyReader = (source, limit) => readFetchBytes(source, limit, opts);
   const gate = createRequestGate(opts?.limits?.maxConcurrentRequests);
@@ -286,7 +287,9 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
       acquired = gate.limited;
 
       result = await handle(
-        routes,
+        // Read once per request: a mesh teacup swaps its table when peers come and go, and one
+        // request must route and build `Allow` against the same table (CARD-19).
+        currentRoutes(routes),
         opts,
         {
           ...correlation,

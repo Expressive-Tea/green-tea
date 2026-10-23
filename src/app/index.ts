@@ -44,7 +44,7 @@ import { buildOpenApi, type OpenApiInfo } from '../openapi';
 import { connectLink, isPermanentRefusal, type Link } from '../mesh/link';
 import { Rooms } from '../rooms';
 import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
-import { buildRemote } from '../mesh/teacup';
+import { buildRemote, type RemoteRoute as TeacupRemoteRoute } from '../mesh/teacup';
 import { buildManifest, createMeshControl, MESH_CONTROL_DISABLED_REASON, MESH_CONTROL_PATH } from '../mesh/teapot';
 import type { MeshControl } from '../http';
 import type { RequestEnvelope, RouteEntry } from '../mesh/protocol';
@@ -58,6 +58,9 @@ import { HEALTH_DRAIN, HEALTH_RESERVED, resolveHealth, trackHealth, type HealthC
 export type { App, InspectLine, ExplainNode, Explain, MeshConfig, Hooks } from './types';
 
 type Runner = (ctx: any) => any;
+
+/** Something shutdown closes: a mesh link, or the retry loop of a teapot that missed boot. */
+type Closable = Pick<Link, 'close'>;
 
 /** Mutable graph state assembled from modules/plugins and later spliced with remote mesh scopes. */
 interface Registry {
@@ -258,8 +261,7 @@ export function createApp(opts: {
   let orderedProviders: GraphNode[] = [];
   let orderedSteps: GraphNode[] = [];
   let booted = false;
-  let remoteRoutes: RouteDef[] = [];
-  const meshLinks: Link[] = [];
+  const meshLinks: Closable[] = [];
 
   const finalize = (missingNote?: string): void => {
     ({ orderedProviders, orderedSteps } = finalizeGraph(registry, logger, opts.warnGraphDepth, missingNote));
@@ -278,8 +280,7 @@ export function createApp(opts: {
   // can only be built here, after finalize(), and never at construction time.
   const prepareGraph = async (): Promise<void> => {
     if (opts.mesh && !booted) {
-      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry, logger, reserved);
-      remoteRoutes = spliced.remoteRoutes;
+      const spliced = await spliceRemoteScopes(opts.mesh, bus, registry, logger, reserved, publishRemote);
       meshLinks.push(...spliced.meshLinks);
       // Without this the error is `missing dependency: auth needed by getUser` and says nothing
       // about the teapot that was away — which is the actual cause every time it is the cause.
@@ -325,6 +326,11 @@ export function createApp(opts: {
     return routes;
   };
 
+  // The one HTTP route table, shared by app.fetch and listen() — see createRouteTable.
+  const table = createRouteTable(() => [...buildHttpRoutes(routePlans, pipelineDeps), ...devRoutes()]);
+  const currentTable = table.current;
+  const publishRemote = table.publish;
+
   // Boots exactly once, however first triggered (app.fetch, app.upgrade or listen()); calling
   // several never double-boots (which would re-run provider factories and their side effects).
   const bootGraph = makeAppBooter(
@@ -353,14 +359,7 @@ export function createApp(opts: {
     static: staticResolver,
     health: healthProbe,
   };
-  const fetchFn = buildAppFetch(
-    routePlans,
-    { providedSeed, planSteps, bus, onError: opts.onError, logger },
-    fetchOpts,
-    bootApp,
-    devRoutes,
-    () => remoteRoutes,
-  );
+  const fetchFn = buildAppFetch(fetchOpts, bootApp, currentTable);
   const upgradeFn = buildAppUpgrade(routePlans, pipelineDeps, streams, bootApp, () => meshControl, {
     limits: opts.limits,
     trustProxy: opts.trustProxy,
@@ -373,10 +372,10 @@ export function createApp(opts: {
     // and builds the mesh control channel — so Node and Deno/Bun serve an identical graph
     await bootApp();
 
-    const httpRoutes = [...buildHttpRoutes(routePlans, remoteRoutes, deps), ...devRoutes()];
     const wsRoutes = buildWsRoutes(routePlans, deps);
 
-    server = createHttpServer(httpRoutes, wsRoutes, bus, meshControl, {
+    // A getter, not an array: mesh membership can change the table after this server starts.
+    server = createHttpServer(currentTable, wsRoutes, bus, meshControl, {
       bus,
       logger,
       limits: opts.limits,
@@ -1046,41 +1045,295 @@ function assertNoRemoteSiblingConflict(accepted: RemoteRoute[], route: RemoteRou
   }
 }
 
-/** Connects the configured teapots, splices their remote steps into the registry, and returns their routes. */
+/** A teapot route the remote table serves: its export, its owner, and the def the router files. */
+interface ServedRemote extends RemoteRoute {
+  def: RouteDef;
+}
+
+/**
+ * The teacup's remote routes, by teapot, published as a fresh array on every change (D15).
+ *
+ * Never mutated in place: the router caches an index by array identity, and a request that is
+ * already routing keeps the array it read, so it sees the whole old table or the whole new one.
+ */
+interface RemoteTable {
+  /**
+   * Replaces one teapot's routes and publishes the table. With `strict` (boot) a conflicting route
+   * fails the boot; after boot it is refused and logged, and everything else keeps serving.
+   */
+  set(url: string, routes: TeacupRemoteRoute[], strict: boolean): { added: string[]; removed: string[] };
+}
+
+const showRoute = (route: { method: string; pattern: string }): string => `${route.method} ${route.pattern}`;
+
+/**
+ * Throws when `route` cannot join the remote routes already accepted: the same effective shape and
+ * method as one of them, or a sibling conflict (CARD-13). Route matching keeps the first of two
+ * identical patterns, so the loser would be silently dead — and callers could come to depend on
+ * "first teapot wins", which would make adding balancing later a breaking change.
+ */
+function assertRemoteRouteFits(accepted: RemoteRoute[], route: RemoteRoute): void {
+  const shape = compilePattern(route.pattern).shape;
+  const owner = accepted.find(
+    (prior) => prior.method === route.method && compilePattern(prior.pattern).shape === shape,
+  );
+
+  if (owner) {
+    throw new Error(
+      `mesh: ambiguous remote route '${showRoute(route)}' from ${route.url} conflicts with ` +
+        `'${showRoute(owner)}' from ${owner.url} — ` +
+        'load balancing across teapots is not implemented yet, so green-tea will not choose one for you. ' +
+        'Export it from a single teapot.',
+    );
+  }
+
+  assertNoRemoteSiblingConflict(accepted, route);
+}
+
+/**
+ * Local routes are merged ahead of remote ones (see the route table), so a local twin wins. That
+ * precedence is deliberate — your own code beats an imported one, and it is how you override a
+ * teapot — but silently shadowing an export looks exactly like a broken teapot from the outside.
+ * Warn and let the developer decide.
+ */
+function warnIfShadowed(registry: Registry, route: RemoteRoute, logger: Logger): void {
+  const shape = compilePattern(route.pattern).shape;
+  if (!registry.routePlans.some((plan) => plan.method === route.method && compilePattern(plan.pattern).shape === shape))
+    return;
+
+  logger.warn(
+    `mesh: route '${showRoute(route)}' is exported by teapot ${route.url} but also declared locally — ` +
+      'the local route takes precedence and the remote one will not be reached. ' +
+      'Remove one if that is not what you meant.',
+  );
+}
+
+/** The route the router files for a teapot's export: marked remote, and forwarding a built envelope. */
+function remoteRouteDef(route: TeacupRemoteRoute): RouteDef {
+  // Marked so the router files it in the remote tree; precedence is unchanged by the split.
+  return markRemoteRoute({
+    method: route.method,
+    pattern: route.pattern,
+    transport: 'buffer',
+    // Built explicitly rather than cast from the handler argument. The cast put the whole
+    // internal request on the wire — `ip` and `protocol` included — and sent fields the
+    // protocol never declared, so a teapot could come to rely on something we never promised.
+    handler: async (req) =>
+      route.handler({
+        // HEAD reaches a remote GET through the implicit-HEAD fallback, and the teapot looks
+        // its plan up by method, so a forwarded HEAD finds none and answers 404. Send it as the
+        // GET it resolved to; dispatch drops the body for HEAD. Fixed teacup-side (D16) so an
+        // unchanged, older teapot still answers it during a rolling deploy.
+        method: req.method === 'HEAD' && route.method === 'GET' ? 'GET' : req.method,
+        params: req.params,
+        query: req.query,
+        body: req.body,
+        headers: req.headers,
+        url: req.url,
+        correlation: { requestId: req.requestId, traceId: req.traceId },
+      }),
+  });
+}
+
+/** Builds the remote table over the configured teapots, in configuration order. */
+function createRemoteTable(
+  urls: string[],
+  registry: Registry,
+  logger: Logger,
+  reserved: readonly ReservedPath[],
+  publish: (routes: RouteDef[]) => void,
+): RemoteTable {
+  const byUrl = new Map<string, ServedRemote[]>();
+
+  return {
+    set(url, routes, strict) {
+      const others = urls.filter((other) => other !== url).flatMap((other) => byUrl.get(other) ?? []);
+      const before = new Set((byUrl.get(url) ?? []).map(showRoute));
+      const next: ServedRemote[] = [];
+
+      for (const route of routes) {
+        const candidate: RemoteRoute = { method: route.method, pattern: route.pattern, url };
+
+        try {
+          // A teapot's own boot refuses a reserved path, but the manifest is whatever arrives on the
+          // wire: an older or foreign teapot could still advertise one, at boot or later, and the
+          // teacup must not splice it (CARD-21/CARD-17).
+          assertNotReserved(route.pattern, `mesh: remote route '${showRoute(route)}' from ${url}`, reserved);
+          assertRemoteRouteFits([...others, ...next], candidate);
+        } catch (error) {
+          if (strict) throw error;
+          // Refused for this teapot only; the table that is serving stays as it was (D15, rule 5).
+          // The same goes for a reserved path: that one route is skipped, the rest are served.
+          logger.warn(`mesh: not serving a route from ${url} — ${(error as Error).message}`);
+          continue;
+        }
+
+        if (!before.has(showRoute(candidate))) warnIfShadowed(registry, candidate, logger);
+        next.push({ ...candidate, def: remoteRouteDef(route) });
+      }
+
+      byUrl.set(url, next);
+      publish(urls.flatMap((other) => (byUrl.get(other) ?? []).map((served) => served.def)));
+
+      const after = new Set(next.map(showRoute));
+      return {
+        added: [...after].filter((key) => !before.has(key)),
+        removed: [...before].filter((key) => !after.has(key)),
+      };
+    },
+  };
+}
+
+/** What a teapot's link needs to report membership back to the remote table after boot. */
+interface MembershipContext {
+  mesh: MeshConfig;
+  bus: Bus;
+  logger: Logger;
+  table: RemoteTable;
+}
+
+/** Applies one teapot's routes after boot and emits `mesh:routes` when the table actually changed. */
+function applyMembership(ctx: MembershipContext, url: string, routes: TeacupRemoteRoute[]): void {
+  const { added, removed } = ctx.table.set(url, routes, false);
+  if (!added.length && !removed.length) return;
+  ctx.bus.emit('mesh:routes', { name: url, url, added, removed });
+}
+
+/**
+ * Opens a link to one teapot, wired so a returning manifest updates its routes and a link that
+ * gives up for good removes them (D15). `holder.link` is filled in once the link exists, because
+ * the callbacks need the link to rebuild its route proxies.
+ */
+function connectTeapot(
+  ctx: MembershipContext,
+  teapot: { url: string; secret: string },
+  holder: { link?: Link },
+): Promise<Link> {
+  const { mesh, bus, logger } = ctx;
+
+  return connectLink({
+    url: teapot.url,
+    secret: teapot.secret,
+    timeoutMs: mesh.timeoutMs,
+    heartbeatMs: mesh.heartbeatMs,
+    reconnect: mesh.reconnect,
+    onManifestChange: mesh.onManifestChange,
+    logger,
+    bus,
+    onReconnect: () => {
+      if (holder.link) applyMembership(ctx, teapot.url, buildRemote(holder.link).routes);
+    },
+    onGone: () => {
+      logger.warn(`mesh: teapot ${teapot.url} is gone for good — its routes are removed and now answer 404.`);
+      applyMembership(ctx, teapot.url, []);
+    },
+  });
+}
+
+/** Backoff bounds for retrying a late teapot: the reconnect ones, or nothing when reconnect is off. */
+function lateBounds(mesh: MeshConfig): { initial: number; max: number } | undefined {
+  if (mesh.reconnect === false) return undefined;
+  const opts = typeof mesh.reconnect === 'object' ? mesh.reconnect : {};
+  return { initial: opts.initialDelayMs ?? 500, max: opts.maxDelayMs ?? 30_000 };
+}
+
+/**
+ * Keeps trying a teapot that missed the boot budget, with the reconnect backoff (D15, rule 1). When
+ * it connects, its routes join the remote table; its steps do not, because the graph was validated
+ * at boot without them. A permanent refusal stops the retries. The handle's `close()` stops them too,
+ * and closes the link if one came up, so shutdown never leaves a retry behind.
+ */
+function retryLateTeapot(
+  ctx: MembershipContext,
+  teapot: { url: string; secret: string },
+  bounds: { initial: number; max: number },
+): { close: () => void } {
+  const holder: { link?: Link } = {};
+  let stopped = false;
+  let attempt = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const schedule = (): void => {
+    const capped = Math.min(bounds.initial * 2 ** attempt++, bounds.max);
+    timer = setTimeout(() => void tryOnce(), Math.round(capped / 2 + Math.random() * (capped / 2)));
+    timer.unref?.();
+  };
+
+  const tryOnce = async (): Promise<void> => {
+    try {
+      const link = await connectTeapot(ctx, teapot, holder);
+      if (stopped) return link.close();
+      holder.link = link;
+      const { steps, routes } = buildRemote(link);
+      if (steps.length)
+        ctx.logger.warn(
+          `mesh: teapot ${teapot.url} connected after boot — its routes are served now, but its steps ` +
+            `(${steps.map((step) => step.name).join(', ')}) are not: the graph was fixed at boot without them.`,
+        );
+      applyMembership(ctx, teapot.url, routes);
+    } catch (error) {
+      if (stopped) return;
+
+      if (isPermanentRefusal(error)) {
+        ctx.logger.error(
+          `mesh: teapot ${teapot.url} refused this peer — no longer retrying it (${(error as Error).message})`,
+        );
+        return;
+      }
+
+      schedule();
+    }
+  };
+
+  schedule();
+
+  return {
+    close: () => {
+      stopped = true;
+      clearTimeout(timer);
+      holder.link?.close();
+    },
+  };
+}
+
+/**
+ * Connects the configured teapots, splices their remote steps into the registry, and publishes their
+ * routes through `publish`, now and whenever membership changes after boot (D15).
+ */
 async function spliceRemoteScopes(
   mesh: MeshConfig,
   bus: Bus,
   registry: Registry,
   logger: Logger,
   reserved: readonly ReservedPath[],
-): Promise<{ remoteRoutes: RouteDef[]; meshLinks: Link[]; absent: string[] }> {
-  const remoteRoutes: RouteDef[] = [];
-  const meshLinks: Link[] = [];
+  publish: (routes: RouteDef[]) => void,
+): Promise<{ meshLinks: Closable[]; absent: string[] }> {
+  const meshLinks: Closable[] = [];
   const absent: string[] = []; // urls of teapots that never connected within the boot budget
-  const routeOwners = new Map<string, { url: string; pattern: string }>(); // "METHOD effective-shape" -> owner
-  const remoteAccepted: RemoteRoute[] = []; // every remote route spliced so far, in teapot order
+  const teapots = mesh.teapots ?? [];
+  const table = createRemoteTable(
+    teapots.map((teapot) => teapot.url),
+    registry,
+    logger,
+    reserved,
+    publish,
+  );
+  const ctx: MembershipContext = { mesh, bus, logger, table };
 
   try {
-    for (const teapot of mesh.teapots ?? []) {
+    for (const teapot of teapots) {
       warnIfCleartext(teapot.url, logger);
-      const link = await connectUntilDeadline(mesh, bus, logger, teapot.url, () =>
-        connectLink({
-          url: teapot.url,
-          secret: teapot.secret,
-          timeoutMs: mesh.timeoutMs,
-          heartbeatMs: mesh.heartbeatMs,
-          reconnect: mesh.reconnect,
-          onManifestChange: mesh.onManifestChange,
-          logger,
-          bus,
-        }),
-      );
+      const holder: { link?: Link } = {};
+      const link = await connectUntilDeadline(mesh, bus, logger, teapot.url, () => connectTeapot(ctx, teapot, holder));
 
       if (!link) {
         absent.push(teapot.url);
+        const bounds = lateBounds(mesh);
+        if (bounds) meshLinks.push(retryLateTeapot(ctx, teapot, bounds));
         continue;
       }
 
+      holder.link = link;
       meshLinks.push(link);
       const { steps, routes } = buildRemote(link);
       const origin = `mesh:${teapot.url}`;
@@ -1090,86 +1343,14 @@ async function spliceRemoteScopes(
         registry.setRunner(step.name, step.run);
       }
 
-      for (const route of routes) {
-        const display = `${route.method} ${route.pattern}`;
-        // A teapot's own boot refuses such a route, but the manifest is whatever arrives on the wire:
-        // an older or foreign teapot could still advertise one, and the teacup must not splice it.
-        assertNotReserved(route.pattern, `mesh: remote route '${display}' from ${teapot.url}`, reserved);
-        const key = `${route.method} ${compilePattern(route.pattern).shape}`;
-        const owner = routeOwners.get(key);
-
-        // Fail the boot rather than pick one. Route matching keeps the first of two identical
-        // patterns, so the loser would be silently dead — and callers could come to depend on
-        // "first teapot wins", which would make adding balancing later a breaking change.
-        // Scope tokens already fail this way in setRunner; routes now match.
-        if (owner) {
-          throw new Error(
-            `mesh: ambiguous remote route '${display}' from ${teapot.url} conflicts with ` +
-              `'${route.method} ${owner.pattern}' from ${owner.url} — ` +
-              'load balancing across teapots is not implemented yet, so green-tea will not choose one for you. ' +
-              'Export it from a single teapot.',
-          );
-        }
-
-        routeOwners.set(key, { url: teapot.url, pattern: route.pattern });
-        assertNoRemoteSiblingConflict(remoteAccepted, {
-          method: route.method,
-          pattern: route.pattern,
-          url: teapot.url,
-        });
-        remoteAccepted.push({ method: route.method, pattern: route.pattern, url: teapot.url });
-
-        // Local routes are merged ahead of remote ones (see buildHttpRoutes), so a local twin
-        // wins. That precedence is deliberate — your own code beats an imported one, and it is
-        // how you override a teapot — but silently shadowing an export looks exactly like a
-        // broken teapot from the outside. Warn and let the developer decide.
-        if (
-          registry.routePlans.some(
-            (plan) =>
-              plan.method === route.method &&
-              compilePattern(plan.pattern).shape === compilePattern(route.pattern).shape,
-          )
-        ) {
-          logger.warn(
-            `mesh: route '${display}' is exported by teapot ${teapot.url} but also declared locally — ` +
-              'the local route takes precedence and the remote one will not be reached. ' +
-              'Remove one if that is not what you meant.',
-          );
-        }
-
-        // Marked so the router files it in the remote tree; precedence is unchanged by the split.
-        remoteRoutes.push(
-          markRemoteRoute({
-            method: route.method,
-            pattern: route.pattern,
-            transport: 'buffer',
-            // Built explicitly rather than cast from the handler argument. The cast put the whole
-            // internal request on the wire — `ip` and `protocol` included — and sent fields the
-            // protocol never declared, so a teapot could come to rely on something we never promised.
-            handler: async (req) =>
-              route.handler({
-                // HEAD reaches a remote GET through the implicit-HEAD fallback, and the teapot looks
-                // its plan up by method, so a forwarded HEAD finds none and answers 404. Send it as the
-                // GET it resolved to; dispatch drops the body for HEAD. Fixed teacup-side (D16) so an
-                // unchanged, older teapot still answers it during a rolling deploy.
-                method: req.method === 'HEAD' && route.method === 'GET' ? 'GET' : req.method,
-                params: req.params,
-                query: req.query,
-                body: req.body,
-                headers: req.headers,
-                url: req.url,
-                correlation: { requestId: req.requestId, traceId: req.traceId },
-              }),
-          }),
-        );
-      }
+      table.set(teapot.url, routes, true);
     }
   } catch (err) {
     closeLinks(meshLinks);
     throw err;
   }
 
-  return { remoteRoutes, meshLinks, absent };
+  return { meshLinks, absent };
 }
 
 /** Swaps provider/step runners by token — a value replaces the runner, a function becomes it. */
@@ -1394,8 +1575,39 @@ function buildMeshControl(
   return createMeshControl({ secret: mesh.secret, manifest, resolveScope, resolveRoute, bus });
 }
 
-/** Compiles every non-ws route plan into an HTTP route that seeds and runs the pipeline, plus any remote routes. */
-function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps: PipelineDeps): RouteDef[] {
+/**
+ * The one HTTP route table, shared by app.fetch and listen(): local and dev routes, then remote ones.
+ * Built after boot, on first use. A mesh membership change publishes a new array with the same local
+ * head (D15), so the router reuses its local trees and rebuilds only the remote ones, and a request in
+ * flight keeps the array it read. Dev routes sit before the remote ones so their positions, and with
+ * them the local trees, do not move when remote routes come and go.
+ */
+function createRouteTable(buildLocal: () => RouteDef[]): {
+  current: () => RouteDef[];
+  publish: (remote: RouteDef[]) => void;
+} {
+  let remote: RouteDef[] = [];
+  let local: RouteDef[] | undefined;
+  let table: RouteDef[] | undefined;
+
+  return {
+    current: () => {
+      if (!table) {
+        local = buildLocal();
+        table = [...local, ...remote];
+      }
+
+      return table;
+    },
+    publish: (next) => {
+      remote = next;
+      if (local) table = [...local, ...next];
+    },
+  };
+}
+
+/** Compiles every non-ws route plan into an HTTP route that seeds and runs the pipeline. */
+function buildHttpRoutes(routePlans: RoutePlan[], deps: PipelineDeps): RouteDef[] {
   const { providedSeed, planSteps, bus, onError, logger } = deps;
 
   const local = routePlans
@@ -1440,7 +1652,7 @@ function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps
       },
     }));
 
-  return [...local, ...remoteRoutes];
+  return local;
 }
 
 /**
@@ -1451,12 +1663,9 @@ function buildHttpRoutes(routePlans: RoutePlan[], remoteRoutes: RouteDef[], deps
  * costs one flag check per request after the first.
  */
 function buildAppFetch(
-  routePlans: RoutePlan[],
-  deps: PipelineDeps,
   fetchOpts: HttpOptions,
   ensureBooted: () => Promise<void>,
-  devRoutes: () => RouteDef[],
-  getRemoteRoutes: () => RouteDef[],
+  getRoutes: () => RouteDef[],
 ): (request: Request) => Promise<Response> {
   let handler: ((request: Request) => Promise<Response>) | undefined;
 
@@ -1475,7 +1684,7 @@ function buildAppFetch(
     await ensureBooted(); // idempotent: no-op once any of fetch/upgrade/listen has booted
 
     if (!handler) {
-      handler = buildFetch([...buildHttpRoutes(routePlans, getRemoteRoutes(), deps), ...devRoutes()], fetchOpts);
+      handler = buildFetch(getRoutes, fetchOpts);
     }
 
     return handler(request);
@@ -1669,7 +1878,7 @@ function runTeardown(teardown: TeardownRegistry, logger: Logger, budgetMs: numbe
 
 function closeApp(
   server: http.Server | undefined,
-  meshLinks: Link[],
+  meshLinks: Closable[],
   streams: Set<() => void>,
   options: { timeoutMs?: number },
   defaultTimeoutMs: number | undefined,
@@ -1754,7 +1963,7 @@ function closeApp(
 }
 
 /** Best-effort close of every mesh link, ignoring individual failures. */
-function closeLinks(links: Link[]): void {
+function closeLinks(links: Closable[]): void {
   for (const link of links) {
     try {
       link.close();

@@ -17,13 +17,14 @@ import {
   type Preflight,
 } from './core';
 import type { BodyFailure, BodyReader } from './body';
-import type { RouteDef, WsRouteDef, MeshControl, HttpOptions } from './types';
+import type { RouteTable, WsRouteDef, MeshControl, HttpOptions } from './types';
+import { currentRoutes } from './router';
 import type { Logger } from '../logger';
 import { nodeRequire } from '../node-require';
 import { answerProbe } from './health';
 
 interface HandlerConfig {
-  routes: RouteDef[];
+  routes: RouteTable;
   bus?: Bus;
   opts?: HttpOptions;
   trustProxy: boolean;
@@ -36,14 +37,14 @@ function errorRequest(req: http.IncomingMessage): ErrorRequest {
 
 /**
  * Builds an HTTP/HTTPS server that routes requests, parses bodies, streams results, and handles WebSocket upgrades.
- * @param routes HTTP route definitions.
+ * @param routes HTTP route definitions, or a getter read once per request (a mesh teacup's table changes as peers come and go).
  * @param wsRoutes WebSocket route definitions (requires the optional `ws` peer dependency).
  * @param bus Optional event bus for stream lifecycle events.
  * @param meshControl Optional mesh gateway hook for a reserved upgrade path.
  * @param opts Limits, TLS, security, CORS, and body-parsing options.
  */
 export function createHttpServer(
-  routes: RouteDef[],
+  routes: RouteTable,
   wsRoutes: WsRouteDef[] = [],
   bus?: Bus,
   meshControl?: MeshControl,
@@ -161,7 +162,7 @@ function createRequestHandler(cfg: HandlerConfig) {
       }
 
       result = await handle(
-        routes,
+        currentRoutes(routes), // once per request, see buildFetch
         opts,
         {
           ...correlation,

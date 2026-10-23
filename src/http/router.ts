@@ -1,4 +1,4 @@
-import type { RouteDef, MatchedRoute } from './types';
+import type { RouteDef, RouteTable, MatchedRoute } from './types';
 
 export type CompiledSegment =
   | { kind: 'static'; value: string }
@@ -152,9 +152,9 @@ function segmentShape(segment: CompiledSegment): string {
  * spy on the export cannot see it, so the counts are kept here; they let a test prove that misses
  * after the index is built recompile nothing and rebuild nothing (FPRD-001 CARD-10).
  */
-const seamCounts = { compilePattern: 0, indexBuilds: 0 };
+const seamCounts = { compilePattern: 0, indexBuilds: 0, localTreeBuilds: 0 };
 
-/** @internal Calls so far to `compilePattern` (cache hits included) and route-index builds. For tests. */
+/** @internal Calls so far to `compilePattern` (cache hits included), route-index builds and local-tree builds. For tests. */
 export const routerSeamCounts = (): Readonly<typeof seamCounts> => ({ ...seamCounts });
 
 /** Compiles and validates one route pattern. Results are cached by source string. */
@@ -417,6 +417,11 @@ interface RouteIndex {
 /** The routes a mesh teacup spliced in from its teapots. Identity-keyed, so a route is remote wherever it travels. */
 const remoteRouteDefs = new WeakSet<RouteDef>();
 
+/** The array a {@link RouteTable} holds right now. Servers call it once per request. */
+export function currentRoutes(table: RouteTable): RouteDef[] {
+  return typeof table === 'function' ? table() : table;
+}
+
 /** Marks a route as spliced in from a mesh teapot, so the index files it in the remote tree. */
 export function markRemoteRoute<T extends RouteDef>(def: T): T {
   remoteRouteDefs.add(def);
@@ -505,6 +510,34 @@ function buildTrees(entries: Array<{ def: RouteDef; order: number }>): Map<strin
   return trees;
 }
 
+/**
+ * The last local trees built, and the `(def, position)` entries they were built from.
+ *
+ * When mesh membership changes, the app publishes a new array whose local entries are the same
+ * objects at the same positions, with only the remote tail different (CARD-19, D15). Reusing the
+ * local trees then means a peer coming or going rebuilds the remote trees alone. Keyed by the
+ * first local def, so it is collected with the table that owns it.
+ */
+const localTreeCache = new WeakMap<
+  RouteDef,
+  { entries: Array<{ def: RouteDef; order: number }>; trees: Map<string, MethodTree> }
+>();
+
+function sameEntries(a: Array<{ def: RouteDef; order: number }>, b: Array<{ def: RouteDef; order: number }>): boolean {
+  return a.length === b.length && a.every((entry, i) => entry.def === b[i].def && entry.order === b[i].order);
+}
+
+function localTrees(local: Array<{ def: RouteDef; order: number }>): Map<string, MethodTree> {
+  if (!local.length) return buildTrees(local);
+  const cached = localTreeCache.get(local[0].def);
+  if (cached && sameEntries(cached.entries, local)) return cached.trees;
+
+  seamCounts.localTreeBuilds++;
+  const trees = buildTrees(local);
+  localTreeCache.set(local[0].def, { entries: local, trees });
+  return trees;
+}
+
 function routeIndex(routes: RouteDef[]): RouteIndex {
   const cached = routeIndexCache.get(routes);
   if (cached?.size === routes.length) return cached;
@@ -516,7 +549,7 @@ function routeIndex(routes: RouteDef[]): RouteIndex {
 
   const index: RouteIndex = {
     size: routes.length,
-    local: buildTrees(local),
+    local: localTrees(local),
     remote: remote.length ? buildTrees(remote) : undefined,
     methods: [...new Set(routes.map((route) => route.method))],
   };
