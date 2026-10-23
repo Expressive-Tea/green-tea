@@ -1,6 +1,6 @@
 import { channel, type Channel } from '../channel';
 import type { App } from '../app/types';
-import type { WsRequest, WsSocket } from './ws-core';
+import { WS_HIGH_WATER_MARK, type WsRequest, type WsSocket } from './ws-core';
 import { nodeRequire } from '../node-require';
 
 /**
@@ -40,6 +40,8 @@ export function toWsRequest(request: Request, ip: string): WsRequest {
 /** The subset of a host WebSocket that {@link eventSocket} drives (Deno's WebSocket and workerd's both satisfy it). */
 export interface EventfulSocket {
   readonly readyState: number;
+  /** Bytes queued by `send` and not yet written. Deno reports it; a host without it is never waited on. */
+  readonly bufferedAmount?: number;
   send(data: string): void;
   close(code?: number, reason?: string): void;
   addEventListener(
@@ -90,7 +92,7 @@ export function eventSocket(host: EventfulSocket): WsSocket {
  * callers never have to guard an already-closed socket.
  */
 export function neutralSocket(
-  host: Pick<EventfulSocket, 'readyState' | 'send' | 'close'> & { terminate?(): void },
+  host: Pick<EventfulSocket, 'readyState' | 'send' | 'close' | 'bufferedAmount'> & { terminate?(): void },
   inbound: Channel<unknown>,
   ac: AbortController,
 ): WsSocket {
@@ -103,6 +105,7 @@ export function neutralSocket(
     send: (data) => {
       host.send(data);
     },
+    drained: () => pollDrained(host, ac.signal),
     close: (code, reason) => {
       try {
         host.close(code, reason);
@@ -118,6 +121,36 @@ export function neutralSocket(
       }
     },
   };
+}
+
+/** How often {@link pollDrained} rereads `bufferedAmount` while a socket is backed up. */
+const DRAIN_POLL_MS = 10;
+
+/**
+ * {@link WsSocket.drained} for a host that reports `bufferedAmount` but fires no drain event —
+ * the Web `WebSocket` API has none. Polls only while the socket is over the mark, so a socket that
+ * keeps up never starts a timer; the close (`signal`) ends the wait at once.
+ *
+ * A socket still CONNECTING is not writable either, and waits too. Deno hands its socket over in
+ * that state, and a route that yielded at once had its first frame pulled, found the socket not
+ * open, and the pump gave up on the connection.
+ */
+async function pollDrained(host: Pick<EventfulSocket, 'readyState' | 'bufferedAmount'>, signal: AbortSignal) {
+  const backedUp = () =>
+    host.readyState === CONNECTING || (host.readyState === OPEN && (host.bufferedAmount ?? 0) > WS_HIGH_WATER_MARK);
+
+  while (!signal.aborted && backedUp()) {
+    await new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', done);
+        resolve();
+      };
+
+      const timer = setTimeout(done, DRAIN_POLL_MS);
+      signal.addEventListener('abort', done, { once: true });
+    });
+  }
 }
 
 /** Constructs a host WebSocket *client*. Both the platform global and the `ws` package satisfy it. */
