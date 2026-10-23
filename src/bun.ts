@@ -2,6 +2,7 @@ import { channel } from './channel';
 import type { Channel } from './channel';
 import type { App } from './app/types';
 import { WS_MAX_MESSAGE_BYTES, DEFAULT_MAX_WS_MESSAGE_BYTES, type WsSocket, type WsRequest } from './http/ws-core';
+import { beginDrain } from './http/health';
 import { decodeMessage, neutralSocket, toWsRequest, upgradeSafely } from './http/ws-adapter';
 import { closeWithDeadline } from './http/shutdown';
 import { setPeer } from './http/peer';
@@ -149,7 +150,11 @@ export async function serveBun(app: App, options?: BunServeShortOptions): Promis
         // registry, which is what makes one `close()` enough here instead of two. Called without
         // options on purpose: passing a timeout it cannot use to drain would only earn its warning,
         // and the deadline below already bounds the whole call.
-        () => server.stop(false).then(() => app.close()),
+        // The drain window first: `/__ready__` answers 503 while the listener is still open (D14).
+        () =>
+          beginDrain(app)
+            .then(() => server.stop(false))
+            .then(() => app.close()),
         () => void server.stop(true),
         closeOptions.timeoutMs ?? 10_000,
         (ms) =>

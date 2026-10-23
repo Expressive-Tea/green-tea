@@ -92,6 +92,26 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Added
 
+- **Health probes: `createApp({ health: true })`** (#115). Off by default. `GET`/`HEAD /__live__`
+  answers `200 {"status":"ok"}` whenever the process answers. `/__ready__` answers
+  `503 {"status":"booting"}` until `boot()` resolves, then `200 {"status":"ok"}` or
+  `200 {"status":"degraded","degraded":[…]}` (from `app.degraded()`), and
+  `503 {"status":"draining"}` from the moment `close()` starts: Node `app.close()`, and the
+  `close()` that `serveDeno()`/`serveBun()` return. Probes are answered by the adapter, ahead of
+  `maxConcurrentRequests` and the route table, so they are never shed and run no step, provider,
+  plugin or `onError`, and emit no lifecycle event (`logRequests` and metrics plugins do not see
+  them). Security headers still apply, plus `cache-control: no-store`; other methods get `405` with
+  `Allow: GET, HEAD`. While `health` is on, a route at either path fails the boot, local or spliced
+  from a teapot. A probe through `app.fetch` before the boot starts the boot without waiting for it.
+
+  `health: { drainDelayMs }` (default 0) keeps the listener open that long after `close()` starts,
+  with `/__ready__` already answering `503`, before connections drain. Without it Node closes idle
+  keep-alive connections at once, so a probe usually sees a refused connection rather than a `503`.
+  The window is spent out of the shutdown budget; `createApp` throws when `drainDelayMs` plus
+  `teardownTimeoutMs` exceeds `shutdownTimeoutMs`, and on any `health` value other than `true`,
+  `false` or `{ drainDelayMs?: number }`. On the edge there is no `close()`, so `/__ready__` never
+  reports `draining` there.
+
 - **`limits.maxWsMessageBytes` and `limits.maxWsQueue`** (#107): per-connection bounds on inbound
   WebSocket messages, in bytes and in unread messages, server-wide on every runtime. `createApp`
   throws a `TypeError` for anything but a positive integer. Node and Bun refuse an oversized message

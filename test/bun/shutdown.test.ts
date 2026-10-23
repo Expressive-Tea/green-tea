@@ -97,3 +97,24 @@ test('serveBun rejects when a provider fails, instead of binding a port that 500
 
   await expect(serveBun(app, { port: 0 })).rejects.toThrow(/no such key file/);
 });
+
+// CARD-17 T5 (D14): close() marks the app draining before the server stops, and the drain window
+// keeps the listener open long enough for a probe to read the 503.
+test('serveBun close() with health.drainDelayMs: /__ready__ 503 draining, in-flight request 200', async () => {
+  const app = createApp({ modules: [M], health: { drainDelayMs: 300 } });
+  const server = await serveBun(app, { port: 0 });
+  const base = `http://127.0.0.1:${server.port}`;
+
+  expect((await fetch(`${base}/__ready__`)).status).toBe(200);
+
+  const inFlight = fetch(`${base}/slow`).then((r) => r.json());
+  await Bun.sleep(50);
+
+  const closing = server.close({ timeoutMs: 5000 });
+  const probe = await fetch(`${base}/__ready__`);
+  expect(probe.status).toBe(503);
+  expect(await probe.json()).toEqual({ status: 'draining' });
+
+  expect(await inFlight).toEqual({ ok: true });
+  await closing;
+});

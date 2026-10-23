@@ -37,6 +37,15 @@ export interface Explain {
 /** A running application instance with lifecycle, introspection and graph-export methods. */
 export interface App {
   listen(port: number): Promise<http.Server>;
+  /**
+   * Drains in-flight work, closes the server and mesh links, then runs teardown, all within
+   * `timeoutMs` (default `shutdownTimeoutMs`, else 10s).
+   *
+   * With `createApp({ health })` on, `/__ready__` answers `503 {"status":"draining"}` from the first
+   * line of this call, and the listener stays open for `health.drainDelayMs` before draining starts.
+   * That window is part of `timeoutMs`. On Deno and Bun the same happens in the `close()` that
+   * `serveDeno()`/`serveBun()` return.
+   */
   close(options?: { timeoutMs?: number }): Promise<void>;
   /**
    * Wires `SIGINT`/`SIGTERM` to `closer` and returns a close that also unregisters them — or

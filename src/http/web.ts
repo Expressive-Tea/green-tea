@@ -16,6 +16,7 @@ import { declaresOverLimit, type BodyFailure, type BodyReader, type MaybePromise
 import { HttpError } from '../signals';
 import { renderError, type ErrorRequest } from '../transformers';
 import type { RouteDef, HttpOptions } from './types';
+import { answerProbe } from './health';
 
 /**
  * Wraps an AsyncIterable as a web ReadableStream, encoding each value. Cancels the source on stream
@@ -325,4 +326,26 @@ export function buildFetch(routes: RouteDef[], opts: HttpOptions | undefined) {
 
     return outcomeToResponse(result, opts?.bus, correlation);
   };
+}
+
+/**
+ * Answers a health probe through the Fetch API, or returns `undefined` for any other request (or when
+ * `health` is off). `app.fetch` calls this before awaiting the boot, which is what lets `/__ready__`
+ * report `booting` at all, and before the gate and `handle()`, for the same reasons as the Node adapter.
+ */
+export function answerFetchProbe(request: Request, opts: HttpOptions | undefined): Response | undefined {
+  if (!opts?.health) return undefined;
+
+  const url = new URL(request.url);
+  const probe = answerProbe(request.method, url.pathname + url.search, opts.health);
+  if (!probe) return undefined;
+
+  const injected = computeInjected(opts, {
+    secure: url.protocol === 'https:',
+    headers: headersToRecord(request.headers),
+  });
+  return new Response(probe.body || null, {
+    status: probe.status,
+    headers: mergeInjectedHeaders(probe.headers, injected) as Record<string, string>,
+  });
 }

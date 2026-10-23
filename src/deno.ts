@@ -1,4 +1,5 @@
 import type { App } from './app/types';
+import { beginDrain } from './http/health';
 import { eventSocket, toWsRequest, upgradeSafely, type EventfulSocket } from './http/ws-adapter';
 import { closeWithDeadline } from './http/shutdown';
 import { setPeer } from './http/peer';
@@ -102,7 +103,11 @@ export async function serveDeno(app: App, options?: DenoServeOptions): Promise<D
         // registry, which is what makes one `close()` enough here instead of two. Called without
         // options on purpose: passing a timeout it cannot use to drain would only earn its warning,
         // and the deadline below already bounds the whole call.
-        () => server.shutdown().then(() => app.close()),
+        // The drain window first: `/__ready__` answers 503 while the listener is still open (D14).
+        () =>
+          beginDrain(app)
+            .then(() => server.shutdown())
+            .then(() => app.close()),
         // Nothing to force, and that is Deno's constraint rather than an omission here. Its two
         // levers are mutually exclusive: aborting the serve signal after `shutdown()` is already
         // pending throws `BadResource: Bad resource ID` from Deno's own abort listener, which

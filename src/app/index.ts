@@ -8,7 +8,7 @@ import { runPipeline, runSteps, PipelineStep } from '../pipeline';
 import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from '../http';
 import type { HttpOptions } from '../http';
 import { trustedProxyClient } from '../http/peer';
-import { buildFetch } from '../http/web';
+import { answerFetchProbe, buildFetch } from '../http/web';
 import {
   boundInbound,
   validateWsLimits,
@@ -53,6 +53,7 @@ import { inspectRoute, buildGraphView, explainRoute } from './introspect';
 import { compilePattern, markRemoteRoute, normalizeRequestPath } from '../http/router';
 import { routeConflict, type Precedence, type RouteConflict } from '../http/route-conflicts';
 import { assertNotReserved, type ReservedPath } from '../http/reserved-paths';
+import { HEALTH_DRAIN, HEALTH_RESERVED, resolveHealth, trackHealth, type HealthConfig } from '../http/health';
 
 export type { App, InspectLine, ExplainNode, Explain, MeshConfig, Hooks } from './types';
 
@@ -122,6 +123,27 @@ export function createApp(opts: {
   limits?: RequestLimits;
   devGraph?: boolean;
   devOpenapi?: boolean;
+  /**
+   * Serve `GET`/`HEAD` `/__live__` and `/__ready__` for load balancers and orchestrators (default: off).
+   *
+   * - `/__live__` answers `200 {"status":"ok"}` whenever the process answers.
+   * - `/__ready__` answers `503 {"status":"booting"}` until `boot()` resolves, then
+   *   `200 {"status":"ok"}` or `200 {"status":"degraded","degraded":[…]}` (see `app.degraded()`),
+   *   and `503 {"status":"draining"}` from the moment `close()` starts.
+   *
+   * Probes skip the pipeline: no step, provider, plugin or `onError` runs and no lifecycle event is
+   * emitted, so `logRequests` and metrics plugins never see them. `maxConcurrentRequests` never sheds
+   * them. Security headers still apply, plus `cache-control: no-store`; other methods get `405`.
+   * While on, a route at either path fails the boot.
+   *
+   * `drainDelayMs` (default 0) keeps the listener open that long after `close()` starts, with
+   * `/__ready__` already answering `503`, before connections drain. Without it Node closes idle
+   * keep-alive connections at once, so a probe usually sees a refused connection rather than a `503`.
+   * The window is spent out of the shutdown budget (`shutdownTimeoutMs`), not added to it.
+   *
+   * On the edge there is no `close()`, so `/__ready__` never reports `draining` there.
+   */
+  health?: boolean | { drainDelayMs?: number };
   overrides?: Record<string, unknown>;
   tls?: TlsOptions;
   trustProxy?: boolean;
@@ -209,6 +231,7 @@ export function createApp(opts: {
   }
 
   validateWsLimits(opts.limits);
+  const health = resolveHealth(opts.health, opts.shutdownTimeoutMs, opts.teardownTimeoutMs);
 
   const bus = new Bus();
   const logger = opts.logger ?? createDefaultLogger();
@@ -222,7 +245,7 @@ export function createApp(opts: {
   const viewsCtx: ViewsContext = { views: opts.views, viewEngine: opts.viewEngine };
   const registry = collectModules(opts.modules, viewsCtx);
   const { providerNodes, stepNodes, runners, providerMeta, routePlans } = registry;
-  const reserved = reservedPaths();
+  const reserved = reservedPaths(health);
   assertNoReservedRoutes(routePlans, reserved);
   const teardown = buildTeardownRegistry(opts.hooks, opts.teardownTimeoutMs, opts.shutdownTimeoutMs);
   mountPlugins(opts.plugins, bus, registry, teardown);
@@ -304,7 +327,7 @@ export function createApp(opts: {
 
   // Boots exactly once, however first triggered (app.fetch, app.upgrade or listen()); calling
   // several never double-boots (which would re-run provider factories and their side effects).
-  const bootApp = makeAppBooter(
+  const bootGraph = makeAppBooter(
     registry,
     opts.overrides,
     () => orderedProviders,
@@ -312,6 +335,8 @@ export function createApp(opts: {
     degradedProviders,
     ready,
   );
+
+  const { bootApp, healthProbe, drain } = trackHealth(health, bootGraph, () => [...degradedProviders]);
 
   const staticResolver = opts.static ? buildStaticResolver(opts.static) : undefined;
 
@@ -326,6 +351,7 @@ export function createApp(opts: {
     bodyDuplicates: opts.bodyDuplicates,
     onError: opts.onError,
     static: staticResolver,
+    health: healthProbe,
   };
   const fetchFn = buildAppFetch(
     routePlans,
@@ -362,6 +388,7 @@ export function createApp(opts: {
       bodyDuplicates: opts.bodyDuplicates,
       onError: opts.onError,
       static: staticResolver,
+      health: healthProbe,
     });
     server.on('close', () => closeLinks(meshLinks));
     await new Promise<void>((resolve) => server!.listen(port, resolve));
@@ -381,13 +408,16 @@ export function createApp(opts: {
     removeSignalHandlers = undefined;
   };
 
-  const close = (options: { timeoutMs?: number } = {}): Promise<void> => {
+  const close = async (options: { timeoutMs?: number } = {}): Promise<void> => {
     clearSignalHandlers();
+    // `/__ready__` flips to draining first, and the listener stays open for the drain window.
+    const budget = await spendDrainWindow(drain, options, opts.shutdownTimeoutMs, server !== undefined);
+
     return closeApp(
       server,
       meshLinks,
       streams,
-      options,
+      budget,
       opts.shutdownTimeoutMs,
       logger,
       teardown,
@@ -428,6 +458,7 @@ export function createApp(opts: {
 
   return Object.assign(app, {
     [WS_MAX_MESSAGE_BYTES]: wsMessageBytes(opts.limits),
+    [HEALTH_DRAIN]: drain,
   });
 }
 
@@ -636,13 +667,37 @@ function resolveTransformer(
 }
 
 /**
+ * Runs the drain window and returns the options `closeApp` should get for what is left.
+ *
+ * The window comes out of the close budget, so close() still returns within the timeout it was
+ * given. Adjusted only when there is a server: without one closeApp only runs teardown, and an
+ * explicit timeout there earns a warning the caller never asked for.
+ */
+async function spendDrainWindow(
+  drain: () => Promise<void>,
+  options: { timeoutMs?: number },
+  shutdownTimeoutMs: number | undefined,
+  hasServer: boolean,
+): Promise<{ timeoutMs?: number }> {
+  const startedAt = Date.now();
+  await drain();
+  const waited = Date.now() - startedAt;
+  if (!hasServer || waited === 0) return options;
+
+  const budget = options.timeoutMs ?? shutdownTimeoutMs ?? 10_000;
+  return { timeoutMs: Math.max(0, budget - waited) };
+}
+
+/**
  * The paths this app answers itself, ahead of the route table (D17).
  *
  * `/__mesh__/control` is reserved in every app, mesh or not: whether a route there is served must not
  * depend on the runtime or on whether a mesh happens to be configured.
  */
-function reservedPaths(): ReservedPath[] {
-  return [{ path: MESH_CONTROL_PATH, purpose: 'the mesh control channel' }];
+function reservedPaths(health: HealthConfig | undefined): ReservedPath[] {
+  const mesh: ReservedPath = { path: MESH_CONTROL_PATH, purpose: 'the mesh control channel' };
+  // The probe paths only while health is on: with it off they are ordinary paths (CARD-17 rule 7).
+  return health ? [mesh, ...HEALTH_RESERVED] : [mesh];
 }
 
 /** Fails the boot when a declared route claims a reserved path (see {@link assertNotReserved}). */
@@ -1402,6 +1457,17 @@ function buildAppFetch(
   let handler: ((request: Request) => Promise<Response>) | undefined;
 
   return async (request: Request): Promise<Response> => {
+    // Before the boot, or `/__ready__` could never say `booting`: it would wait for the boot to end.
+    // The boot is still started, not awaited: on the edge, or under a bare `Deno.serve(app.fetch)`,
+    // nothing else may boot the app, and an orchestrator that waits for ready before sending traffic
+    // would wait forever. The rejection is dropped here only; the memo keeps it for real requests.
+    const probe = answerFetchProbe(request, fetchOpts);
+
+    if (probe) {
+      ensureBooted().catch(() => {});
+      return probe;
+    }
+
     await ensureBooted(); // idempotent: no-op once any of fetch/upgrade/listen has booted
 
     if (!handler) {
