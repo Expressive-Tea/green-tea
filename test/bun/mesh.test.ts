@@ -112,3 +112,39 @@ test('mesh on Bun: a remote step colliding with a local token fails the splice',
     tServer.stop(true);
   }
 });
+
+// CARD-20 (#125, D16): HEAD on a remote GET answers like HEAD on a local one.
+@Route('/remote')
+class RemoteHeadCtl {
+  @Get('/x', { export: true })
+  x() {
+    return { a: 1 };
+  }
+}
+@Module({ mountpoint: '/api', controllers: [RemoteHeadCtl] })
+class RemoteHeadTeapotModule {}
+@Module({ mountpoint: '/api', controllers: [] })
+class EmptyTeacupModule {}
+
+test('mesh on Bun: HEAD on a remote GET answers 200 with the GET headers and no body', async () => {
+  const teapot = createApp({ modules: [RemoteHeadTeapotModule], experimental: true, mesh: { secret: SECRET } });
+  const tServer = await serveBun(teapot, { port: 0 });
+
+  const teacup = createApp({
+    modules: [EmptyTeacupModule],
+    experimental: true,
+    mesh: { teapots: [{ url: controlUrl(tServer.port), secret: SECRET }], reconnect: false },
+  });
+  const cServer = await serveBun(teacup, { port: 0 });
+
+  try {
+    const res = await fetch(`http://127.0.0.1:${cServer.port}/api/remote/x`, { method: 'HEAD' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type') ?? '').toContain('application/json');
+    expect(await res.text()).toBe('');
+  } finally {
+    await teacup.close();
+    cServer.stop(true);
+    tServer.stop(true);
+  }
+});

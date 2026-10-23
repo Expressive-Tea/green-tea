@@ -141,9 +141,9 @@ class RemoteMixCtl {
     return { from: 'teapot', route: 'POST /api/v/:id' };
   }
   // Remote only: remote routes are `buffer`, so the teacup's router resolves HEAD to it implicitly.
-  // Captured as observed at ed47836: the teacup forwards the request as HEAD, the teapot looks its
-  // plan up by (pattern, method) and has none for HEAD, so HEAD answers 404 while OPTIONS still
-  // advertises HEAD. That is the mesh proxy's behaviour, not the matcher's; CARD-07 must keep it.
+  // Captured at ed47836 as HEAD → 404 (the teacup forwarded HEAD, and the teapot has no HEAD plan).
+  // CARD-20 (#125, D16) changed that deliberately, with owner approval: the teacup forwards the
+  // HEAD as a GET and drops the body, so HEAD now answers 200 like a local route.
   @Get('/x', { export: true }) x() {
     return { from: 'teapot', route: 'GET /api/x' };
   }

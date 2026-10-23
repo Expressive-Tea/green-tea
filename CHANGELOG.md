@@ -148,6 +148,14 @@ npm treats versions as semver and semver forbids leading zeros.
   Without `trustProxy` it is ignored. Only `edgeHandler` reads it: the Node, Deno and Bun adapters, and a
   bare `app.fetch`, ignore it as before.
 
+- **Mesh (alpha): `HEAD` on a remote `GET` route now works** (#125). The teacup resolved `HEAD` to
+  the remote `GET` and `OPTIONS` advertised `HEAD`, but the request went to the teapot as `HEAD`,
+  which has no `HEAD` plan, so it answered `404`. The teacup now forwards it as a `GET` and drops
+  the body, so it answers like a local route: the `GET`'s status and headers, no body, and a
+  `404`/`500` from the route keeps its status. An explicit remote `HEAD` route still takes
+  precedence. The teapot is unchanged, so a new teacup works against an older teapot during a
+  rolling deploy.
+
 - **`static` no longer serves files outside its root through a symlink** (#106). The traversal guard
   compared paths lexically, and the file read then followed symlinks, so `public/leak -> /etc/hosts`
   was served. Containment now compares real paths: the requested file, and a directory's

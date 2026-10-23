@@ -142,3 +142,39 @@ Deno.test('mesh on Deno: a remote step colliding with a local token fails the sp
     await t.server.shutdown();
   }
 });
+
+// CARD-20 (#125, D16): HEAD on a remote GET answers like HEAD on a local one.
+@Route('/remote')
+class RemoteHeadCtl {
+  @Get('/x', { export: true })
+  x() {
+    return { a: 1 };
+  }
+}
+@Module({ mountpoint: '/api', controllers: [RemoteHeadCtl] })
+class RemoteHeadTeapotModule {}
+@Module({ mountpoint: '/api', controllers: [] })
+class EmptyTeacupModule {}
+
+Deno.test('mesh on Deno: HEAD on a remote GET answers 200 with the GET headers and no body', async () => {
+  const teapot = createApp({ modules: [RemoteHeadTeapotModule], experimental: true, mesh: { secret: SECRET } });
+  const t = await serve(teapot);
+
+  const teacup = createApp({
+    modules: [EmptyTeacupModule],
+    experimental: true,
+    mesh: { teapots: [{ url: controlUrl(t.port), secret: SECRET }], reconnect: false },
+  });
+  const c = await serve(teacup);
+
+  try {
+    const res = await fetch(`http://127.0.0.1:${c.port}/api/remote/x`, { method: 'HEAD' });
+    assertEquals(res.status, 200);
+    assertStringIncludes(res.headers.get('content-type') ?? '', 'application/json');
+    assertEquals(await res.text(), '');
+  } finally {
+    await teacup.close();
+    await c.server.shutdown();
+    await t.server.shutdown();
+  }
+});
