@@ -206,7 +206,7 @@
       "adapter": "fetch",
       "method": "HEAD",
       "path": "/api/x",
-      "status": 404,
+      "status": 200,
       "headers": {
         "content-type": "application/json",
         "referrer-policy": "no-referrer",
@@ -472,7 +472,7 @@
       "adapter": "node",
       "method": "HEAD",
       "path": "/api/x",
-      "status": 404,
+      "status": 200,
       "headers": {
         "content-type": "application/json",
         "referrer-policy": "no-referrer",
