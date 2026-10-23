@@ -25,3 +25,28 @@ export function setPeer(request: Request, ip: string): void {
 export function peerOf(request: Request): string {
   return peers.get(request) ?? '';
 }
+
+// The client address a runtime adapter read from a header its platform's proxy sets — today only the
+// edge adapter, from `cf-connecting-ip`. Unlike the socket peer above, a header is client-supplied
+// unless a proxy in front overwrites it, so it only counts under `trustProxy`; the adapter cannot
+// decide that, because the option lives on the app, so it records the value and the app decides.
+// Keyed by the `Request` (HTTP) or the `WsRequest` (WebSocket upgrade) the adapter hands the app, for
+// the same reasons as the peer: no handler-visible header, no extra public parameter. Same
+// `globalThis` registration, because `@green-tea/core/edge` is a separate bundle too.
+const PROXY_KEY = Symbol.for('@green-tea/core:proxy-client');
+const proxyRegistry = globalThis as { [PROXY_KEY]?: WeakMap<object, string> };
+const proxyClients = (proxyRegistry[PROXY_KEY] ??= new WeakMap<object, string>());
+
+/** Records `ip` as the client address a proxy header named for `source`. An empty value is not recorded. */
+export function setProxyClient(source: object, ip: string): void {
+  if (ip) proxyClients.set(source, ip);
+}
+
+/**
+ * The client address an adapter recorded for `source` from a proxy header, when `trustProxy` is on;
+ * `''` otherwise. The one check both `app.fetch` and `app.upgrade` run, so HTTP and WebSocket cannot
+ * disagree about whether the header counts.
+ */
+export function trustedProxyClient(source: object, trustProxy: boolean | undefined): string {
+  return trustProxy ? (proxyClients.get(source) ?? '') : '';
+}

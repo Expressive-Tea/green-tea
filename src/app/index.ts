@@ -7,6 +7,7 @@ import { toMermaid, toDOT, graphHtml, type GraphView } from '../graph-viz';
 import { runPipeline, runSteps, PipelineStep } from '../pipeline';
 import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } from '../http';
 import type { HttpOptions } from '../http';
+import { trustedProxyClient } from '../http/peer';
 import { buildFetch } from '../http/web';
 import {
   boundInbound,
@@ -331,7 +332,10 @@ export function createApp(opts: {
     devRoutes,
     () => remoteRoutes,
   );
-  const upgradeFn = buildAppUpgrade(routePlans, pipelineDeps, streams, bootApp, () => meshControl, opts.limits);
+  const upgradeFn = buildAppUpgrade(routePlans, pipelineDeps, streams, bootApp, () => meshControl, {
+    limits: opts.limits,
+    trustProxy: opts.trustProxy,
+  });
 
   const listen = async (port: number): Promise<http.Server> => {
     const deps = pipelineDeps;
@@ -1395,7 +1399,7 @@ function buildAppUpgrade(
   streams: Set<() => void>,
   ensureBooted: () => Promise<void>,
   getMeshControl: () => MeshControl | undefined,
-  limits?: RequestLimits,
+  { limits, trustProxy }: { limits?: RequestLimits; trustProxy?: boolean },
 ): (request: WsRequest, socket: WsSocket) => Promise<void> {
   let wsRoutes: WsRouteDef[] | undefined;
 
@@ -1444,8 +1448,18 @@ function buildAppUpgrade(
       return;
     }
 
-    await runWsConnection(ready, request, route, deps.bus, streams);
+    await runWsConnection(ready, withProxyClient(request, trustProxy), route, deps.bus, streams);
   };
+}
+
+/**
+ * `request` with `ip` taken from the proxy header its adapter recorded, when `trustProxy` allows it
+ * (the edge adapter's `cf-connecting-ip`, CARD-23); otherwise `request` unchanged. The same check
+ * `app.fetch` runs, so an edge WebSocket upgrade and an edge HTTP request resolve `ctx.ip` alike.
+ */
+function withProxyClient(request: WsRequest, trustProxy: boolean | undefined): WsRequest {
+  const ip = trustedProxyClient(request, trustProxy);
+  return ip ? { ...request, ip } : request;
 }
 
 /** The dev-only `/__graph__` route: serves the dependency graph as Mermaid text or an HTML viewer. */

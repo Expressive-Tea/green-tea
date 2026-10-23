@@ -35,6 +35,19 @@ class Rt {
     })();
   }
 
+  // CARD-23: what `ctx.ip` resolved to, over HTTP and over a WebSocket upgrade.
+  @Get('/ip')
+  ip(@ctx() c: any) {
+    return { ip: c.ip };
+  }
+
+  @Ws('/ws-ip')
+  wsIp(@ctx() c: any) {
+    return (async function* () {
+      yield `ip:${c.ip}`;
+    })();
+  }
+
   @Ws('/room/:name')
   room(@ctx() { inbound }: any) {
     return (async function* () {
@@ -49,9 +62,15 @@ class M {}
 const app = createApp({ modules: [M] });
 // #107: the same graph with tight ws limits, reached through the `limited` host.
 const limited = createApp({ modules: [M], limits: { maxWsMessageBytes: 1024, maxWsQueue: 4 } });
-const handlers = { default: edgeHandler(app), limited: edgeHandler(limited) };
+// CARD-23: the same graph under `trustProxy`, reached through the `trusted` host.
+const trusted = createApp({ modules: [M], trustProxy: true });
+const handlers: Record<string, ReturnType<typeof edgeHandler>> = {
+  default: edgeHandler(app),
+  limited: edgeHandler(limited),
+  trusted: edgeHandler(trusted),
+};
 
 export default {
-  fetch: (request: Request, env?: unknown, ctx?: Parameters<typeof handlers.default>[2]) =>
-    (new URL(request.url).hostname === 'limited' ? handlers.limited : handlers.default)(request, env, ctx),
+  fetch: (request: Request, env?: unknown, ctx?: Parameters<ReturnType<typeof edgeHandler>>[2]) =>
+    (handlers[new URL(request.url).hostname] ?? handlers.default)(request, env, ctx),
 };

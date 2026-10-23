@@ -138,7 +138,32 @@ async function main() {
     assert.equal((await exchange(mf, 'http://localhost/rt/echo', ['a'.repeat(1_048_576)])).replies.length, 1);
     assert.equal((await exchange(mf, 'http://localhost/rt/echo', ['a'.repeat(1_048_577)])).close?.code, 1009);
 
-    console.log('edge (workerd via miniflare): HTTP 200 + body limits 413/413/200/413 + WS echo:hi + ws limits — PASS');
+    // CARD-23 (#119): `cf-connecting-ip` sets ctx.ip only under trustProxy, for HTTP and WS alike,
+    // and wins over x-forwarded-for.
+    const cf = { 'cf-connecting-ip': '1.2.3.4' };
+    const httpIp = async (host: string, headers: Record<string, string>) =>
+      ((await (await mf.dispatchFetch(`http://${host}/rt/ip`, { headers })).json()) as { ip: string }).ip;
+    const wsIp = async (host: string, headers: Record<string, string>) => {
+      const res = await mf.dispatchFetch(`http://${host}/rt/ws-ip`, { headers: { Upgrade: 'websocket', ...headers } });
+      const socket = res.webSocket;
+      assert.ok(socket, 'expected a client webSocket on the 101 response');
+      const reply = new Promise<string>((resolve) =>
+        socket.addEventListener('message', (e: { data: unknown }) => resolve(String(e.data))),
+      );
+      socket.accept();
+      const got = await reply;
+      socket.close();
+      return got;
+    };
+    assert.equal(await httpIp('trusted', cf), '1.2.3.4', 'T1 edge HTTP under trustProxy');
+    assert.equal(await httpIp('trusted', { ...cf, 'x-forwarded-for': '9.9.9.9' }), '1.2.3.4', 'T2 cf wins over XFF');
+    assert.equal(await httpIp('localhost', cf), '', 'T3 edge HTTP without trustProxy');
+    assert.equal(await wsIp('localhost', cf), 'ip:', 'T4 edge WS without trustProxy');
+    assert.equal(await wsIp('trusted', cf), 'ip:1.2.3.4', 'T5 edge WS under trustProxy');
+
+    console.log(
+      'edge (workerd via miniflare): HTTP 200 + body limits 413/413/200/413 + WS echo:hi + ws limits + cf-connecting-ip under trustProxy — PASS',
+    );
   } finally {
     await mf.dispose();
   }
