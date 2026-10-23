@@ -134,15 +134,10 @@
     {
       "path": "/__mesh__/control",
       "status": 101,
-      "sent": [
-        {
-          "id": "reserved",
-          "params": {}
-        }
-      ],
+      "sent": [],
       "close": {
-        "code": 1005,
-        "reason": ""
+        "code": 1008,
+        "reason": "mesh control channel not enabled: this app exports nothing, or has no mesh.secret"
       }
     }
   ]

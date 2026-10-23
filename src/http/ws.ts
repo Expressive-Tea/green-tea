@@ -13,6 +13,7 @@ import {
 import type { WsRouteDef, MeshControl, RequestLimits } from './types';
 import { normalizeRequestPath } from './router';
 import { nodeRequire } from '../node-require';
+import { MESH_CONTROL_DISABLED_REASON, MESH_CONTROL_PATH } from '../mesh/teapot';
 
 /** Lazily loads the optional `ws` peer dependency's `WebSocketServer`, or null when it is not installed. */
 function loadWss(): any | null {
@@ -60,6 +61,18 @@ function handleMeshUpgrade(
     void trackUntil(neutral, meshControl.handle(neutral), streams);
   });
   return true;
+}
+
+/** Accepts an upgrade to the reserved mesh path on an app without a control channel, then closes it 1008. */
+function refuseMeshUpgrade(wss: any, req: http.IncomingMessage, socket: any, head: Buffer): void {
+  if (!wss) {
+    rejectUpgrade(socket, 501, 'Not Implemented');
+    return;
+  }
+
+  wss.handleUpgrade(req, socket, head, (ws: { close(code: number, reason: string): void }) =>
+    ws.close(1008, MESH_CONTROL_DISABLED_REASON),
+  );
 }
 
 /** Builds the neutral WsRequest from a Node upgrade request. Same values the old open() read from req.socket. */
@@ -156,6 +169,14 @@ function routeUpgrade(env: UpgradeEnv, req: http.IncomingMessage, socket: any, h
   }
 
   if (meshControl && handleMeshUpgrade(wss, meshControl, path, req, socket, head, streams, limits)) return;
+
+  // The reserved path with no control channel: refused exactly as `app.upgrade` refuses it on Deno,
+  // Bun and the edge — accept, then close 1008 with the same reason (D17). Never falls through to the
+  // ws route table: the boot already refuses any route that claims this path.
+  if (path === MESH_CONTROL_PATH) {
+    refuseMeshUpgrade(wss, req, socket, head);
+    return;
+  }
 
   const route = matchWsRoute(wsRoutes, path);
 

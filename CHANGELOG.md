@@ -74,6 +74,21 @@ npm treats versions as semver and semver forbids leading zeros.
   another name fails as well, whatever order things are registered in. `overrides` keep working:
   they replace the runner of an existing token and add no producer. Observer steps that provide
   nothing are unaffected. The official plugins already follow name = node name = token.
+- **`/__mesh__/control` is reserved in every app, mesh or not** (#126). A `@Ws`, `@Stream` or HTTP
+  route that claims it — `@Ws('/__mesh__/control')`, `@Get('/__mesh__/control')`,
+  `@Ws('/__mesh__/:x')`, `/__mesh__/:rest*`, or a mountpoint that adds up to one of these — now
+  fails `createApp`, naming the declaration and the reserved path. A route exported by a teapot is
+  checked the same way, and fails the teacup's boot. Before, the Node listener served a user route
+  there whenever no mesh control channel was configured, while `app.upgrade` (Deno, Bun, the edge)
+  always refused it, so the same route worked on one runtime and not the others. A pattern whose
+  first segment is not the literal `__mesh__` (`/:org/:repo`, `/:rest*`) still boots; the reserved
+  path is answered ahead of the route table on every runtime, so such a route never sees it.
+
+  An upgrade to `/__mesh__/control` on an app with no control channel is now refused identically
+  everywhere: the Node listener accepts it and closes `1008` with
+  `mesh control channel not enabled: this app exports nothing, or has no mesh.secret`, as
+  `app.upgrade` already did. An app with no `@Ws`/`@Stream` routes and no mesh attaches no upgrade
+  listener on Node, as before, so there the request still reaches the HTTP route table.
 
 ### Added
 

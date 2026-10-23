@@ -139,3 +139,31 @@ test('serveBun: ws message size default is 1 MiB', async () => {
     server.stop(true);
   }
 });
+
+// CARD-21 (D17): the reserved mesh path is refused the way the Node listener refuses it, and a route
+// that claims it fails createApp here too.
+test('serveBun: /__mesh__/control without a control channel closes 1008; a route there fails createApp', async () => {
+  @Route('/')
+  class Claims {
+    @Ws('/__mesh__/control')
+    control() {
+      return (async function* () {})();
+    }
+  }
+  @Module({ mountpoint: '/', controllers: [Claims] })
+  class ClaimsModule {}
+  expect(() => createApp({ modules: [ClaimsModule] })).toThrow(
+    /^route @Ws \/__mesh__\/control at Claims\.control uses the reserved path/,
+  );
+
+  const app = createApp({ modules: [M] });
+  const server = await serveBun(app, { port: 0 });
+  try {
+    expect((await exchange(server.port, '/__mesh__/control', [])).close).toEqual({
+      code: 1008,
+      reason: 'mesh control channel not enabled: this app exports nothing, or has no mesh.secret',
+    });
+  } finally {
+    server.stop(true);
+  }
+});
