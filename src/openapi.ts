@@ -26,7 +26,7 @@ export interface OpenApiDoc {
 
 type Parameter = {
   name: string;
-  in: 'path' | 'query' | 'header';
+  in: 'path' | 'query' | 'header' | 'cookie';
   required: boolean;
   schema: { type: 'string'; pattern?: string };
 };
@@ -57,13 +57,20 @@ function pathParams(pattern: string): Parameter[] {
   });
 }
 
-/** Query and header parameters declared by the handler's `@query` / `@headers` / `@header` argument decorators. */
+/** Where each argument source sits in an OpenAPI parameter list; sources absent here are not parameters. */
+const ARG_LOCATION: Partial<Record<ArgSpec['source'], Parameter['in']>> = {
+  query: 'query',
+  headers: 'header',
+  cookies: 'cookie',
+};
+
+/** Query, header and cookie parameters declared by `@query` / `@headers` / `@header` / `@cookies` / `@cookie`. */
 function argParams(args: ArgSpec[]): Parameter[] {
   const params: Parameter[] = [];
 
   for (const arg of args) {
-    if (arg.source !== 'query' && arg.source !== 'headers') continue;
-    const location = arg.source === 'query' ? 'query' : 'header';
+    const location = ARG_LOCATION[arg.source];
+    if (!location) continue;
     const names = arg.keys ?? (arg.key ? [arg.key] : []);
     for (const name of names) params.push({ name, in: location, required: false, schema: { type: 'string' } });
   }

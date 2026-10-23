@@ -3,7 +3,11 @@ import 'reflect-metadata';
 /** Any class constructor. Kept `any` because decorators must accept every target shape. */
 export type Ctor = new (...args: any[]) => any;
 /** Serializes a handler's return value into an HTTP response envelope. */
-export type TransformerFn = (value: unknown) => { status?: number; headers?: Record<string, string>; body: string };
+export type TransformerFn = (value: unknown) => {
+  status?: number;
+  headers?: Record<string, string | string[]>;
+  body: string;
+};
 
 /** Metadata attached by `@Html`: optional file path and whether it is a template. */
 export interface HtmlMeta {

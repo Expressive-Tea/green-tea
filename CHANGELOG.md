@@ -10,6 +10,15 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Breaking
 
+- **Response header values are `string | string[]`** (#113, D11). `TransformerFn`, `ErrorResponse.headers`,
+  `HttpError.headers` / `HttpErrorLike.headers` and the pipeline's `ResponseShape.headers` widen from
+  `Record<string, string>`, so a response can carry several `Set-Cookie` lines. Code that *produces*
+  headers is unaffected; code that *reads* `headers[k]` from one of these types as a `string` stops
+  compiling and must handle the array. A `set-cookie` array is sent as one header line per element
+  on Node, Deno, Bun and the edge — before, the fetch adapters stringified it into one broken
+  `a,b` cookie. Any other array is sent as one line joined with `, `. Injected security and CORS
+  headers stay authoritative, and a handler's `vary` array is merged with the injected one.
+
 - **Node 18 and Node 20 are no longer supported; the minimum is Node 22.** Both are end-of-life
   and receive no security patches, so `engines.node` is now `>=22`, CI runs Node 22 only, and the
   build targets `node22`. Node 22 is the oldest line still maintained. The `node:crypto` fallback
@@ -111,6 +120,17 @@ npm treats versions as semver and semver forbids leading zeros.
   `teardownTimeoutMs` exceeds `shutdownTimeoutMs`, and on any `health` value other than `true`,
   `false` or `{ drainDelayMs?: number }`. On the edge there is no `close()`, so `/__ready__` never
   reports `draining` there.
+
+- **`@cookie('name')` / `@cookies()` argument decorators and `setCookie()`** (#113). Cookies are
+  parsed from the request's `Cookie` header on first use per request (RFC 6265: first value wins,
+  `%`-sequences decoded, malformed pairs skipped rather than answered with a 400), on HTTP and
+  WebSocket routes; `@needs('cookies')` gives the same map. OpenAPI lists a cookie argument as an
+  `in: cookie` parameter. `setCookie(name, value, options?)` returns a `Set-Cookie` value with
+  `HttpOnly`, `SameSite=Lax`, `Path=/` and `Secure` by default (D10; `secure: false` opts out), and
+  throws, naming the field, on a name outside the token set, a value with CR, LF, `;`, `,`,
+  whitespace or a control character, an attribute with CR/LF, `;` or a control character, and on
+  `sameSite: 'none'` or `partitioned` without `secure`. `parseCookies()` and `CookieOptions` are
+  exported too. No dependency: signing and sessions stay out of core.
 
 - **`limits.maxWsMessageBytes` and `limits.maxWsQueue`** (#107): per-connection bounds on inbound
   WebSocket messages, in bytes and in unread messages, server-wide on every runtime. `createApp`

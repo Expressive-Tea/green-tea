@@ -8,7 +8,7 @@ import type { MatchedRoute, HttpOptions } from './types';
 
 /** A ready-to-send error response produced while acquiring the request body. */
 export interface BodyFailure {
-  fail: { status: number; headers: Record<string, string>; body: string };
+  fail: { status: number; headers: Record<string, string | string[]>; body: string };
 }
 
 /** A value, or a promise of one. Readers that have nothing to await return the value directly. */

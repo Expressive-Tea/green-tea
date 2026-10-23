@@ -244,6 +244,10 @@ The handler signature declares exactly what it wants — in any order, nothing m
 | `@body(...)` | parsed body (JSON / urlencoded / multipart) | `()` · `('field')` · `(schema)` |
 | `@headers(...)` | request headers (whole bag or picked) | `()` · `('authorization')` · `(['a','b'])` · `(schema)` |
 | `@header('name')` | one request header (singular alias of `@headers`) | `('x-trace')` · `('x-count', schema)` |
+| `@cookies(...)` | request cookies, parsed from `Cookie` (whole map or picked) | `()` · `('sid')` · `(['a','b'])` · `(schema)` |
+| `@cookie('name')` | one request cookie (singular alias of `@cookies`) | `('sid')` · `('sid', schema)` |
+
+To send cookies, `setCookie(name, value, options?)` returns a `Set-Cookie` value with safe defaults (`HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure`) and throws on anything that could inject a header. Response header values are `string | string[]`: a `set-cookie` array is sent as one line per cookie on every runtime, any other array as one line joined with `, `. Pass `secure: false` where the browser will not keep a `Secure` cookie over plain HTTP (Safari, a LAN IP). Signing and sessions are not in core.
 
 `@needs` keys are validated at boot: nothing provides the key → `createApp` throws with a clear error instead of serving `undefined`. Pass a Standard Schema (`@body(User)`) and the value is validated, coerced, and typed before your handler sees it.
 

@@ -14,7 +14,8 @@ export interface PipelineStep {
 /** A fully materialized HTTP response produced by a transformer. */
 export interface ResponseShape {
   status: number;
-  headers: Record<string, string>;
+  /** A value may be an array: `set-cookie` arrays are sent one line per element, others joined with `, `. */
+  headers: Record<string, string | string[]>;
   body: string;
 }
 /** A streaming response; the async iterable is written to the socket and bypasses the transformer. */

@@ -6,7 +6,7 @@ import type { Bus } from '../bus';
 import { readBody as readBodyBytes, deriveSecure, deriveIp } from './request';
 import { pipeStream } from './stream';
 import { attachWs } from './ws';
-import { mergeInjectedHeaders } from './headers';
+import { mergeInjectedHeaders, joinListHeaders } from './headers';
 import {
   handle,
   correlateRequest,
@@ -286,7 +286,7 @@ function patchResponseHeaders(res: http.ServerResponse, injected: Record<string,
 
   (res as any).writeHead = (status: number, arg2?: any, arg3?: any) => {
     const handlerHeaders = (typeof arg2 === 'string' ? arg3 : arg2) as Record<string, any> | undefined;
-    const merged = mergeInjectedHeaders(handlerHeaders, injected);
+    const merged = joinListHeaders(mergeInjectedHeaders(handlerHeaders, injected));
     return typeof arg2 === 'string' ? origWriteHead(status, arg2, merged) : origWriteHead(status, merged);
   };
 }

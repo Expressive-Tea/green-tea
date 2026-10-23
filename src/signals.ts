@@ -20,7 +20,7 @@ export interface HttpErrorLike {
   status: number;
   message: string;
   body?: unknown;
-  headers?: Record<string, string>;
+  headers?: Record<string, string | string[]>;
 }
 
 /**
@@ -35,7 +35,7 @@ export class HttpError extends Error {
     readonly status: number,
     message?: string,
     readonly body?: unknown,
-    readonly headers?: Record<string, string>,
+    readonly headers?: Record<string, string | string[]>,
   ) {
     super(message ?? `HTTP ${status}`);
     this.name = new.target.name;

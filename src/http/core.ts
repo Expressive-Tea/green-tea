@@ -85,10 +85,10 @@ export function correlateRequest(headers: Record<string, string | string[] | und
 
 /** The neutral shape of a response: a fully buffered body, or a stream to pipe frame-by-frame. */
 export type NeutralOutcome =
-  | { kind: 'buffered'; status: number; headers: Record<string, string>; body: string | Buffer }
+  | { kind: 'buffered'; status: number; headers: Record<string, string | string[]>; body: string | Buffer }
   | {
       kind: 'stream';
-      headers: Record<string, string>;
+      headers: Record<string, string | string[]>;
       stream: AsyncIterable<unknown>;
       encoder: StreamEncoder;
       /** The matched route's pattern, for naming the stream lifecycle events. */
@@ -126,7 +126,7 @@ function errorOutcome(
   req: NeutralRequest,
   injected: Record<string, string>,
   opts: HttpOptions | undefined,
-  headers: Record<string, string> = {},
+  headers: Record<string, string | string[]> = {},
 ): HandleResult {
   const rendered = renderError(error, req, opts?.onError, opts?.logger);
   return {

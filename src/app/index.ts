@@ -883,7 +883,17 @@ function assertNeedsSatisfiable(
     ...providerNodes.flatMap((node) => node.provides),
     ...stepNodes.flatMap((node) => node.provides),
   ]);
-  const allowed = new Set<string>([...producedKeys, 'req', 'params', 'query', 'body', 'headers', 'inbound', 'abort']);
+  const allowed = new Set<string>([
+    ...producedKeys,
+    'req',
+    'params',
+    'query',
+    'body',
+    'headers',
+    'cookies',
+    'inbound',
+    'abort',
+  ]);
 
   for (const plan of routePlans) {
     for (const need of plan.needs) {

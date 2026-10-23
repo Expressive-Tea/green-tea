@@ -10,7 +10,7 @@ import {
   type HandleResult,
   type Preflight,
 } from './core';
-import { mergeInjectedHeaders } from './headers';
+import { mergeInjectedHeaders, toWebHeaders } from './headers';
 import { peerOf, trustedProxyClient } from './peer';
 import { declaresOverLimit, type BodyFailure, type BodyReader, type MaybePromise } from './body';
 import { HttpError } from '../signals';
@@ -204,7 +204,7 @@ export function toBodyInit(body: string | Buffer): ResponseBody {
 
 /** Converts a {@link HandleResult}'s outcome into a web `Response`, buffered or streamed. */
 function outcomeToResponse(result: HandleResult, bus?: Bus, correlation: Correlation = {}): Response {
-  const headers = mergeInjectedHeaders(result.outcome.headers, result.injected) as Record<string, string>;
+  const headers = toWebHeaders(mergeInjectedHeaders(result.outcome.headers, result.injected));
 
   if (result.outcome.kind === 'stream') {
     const body = asReadableStream(
@@ -274,12 +274,14 @@ export function buildFetch(routes: RouteTable, opts: HttpOptions | undefined) {
 
         return new Response(JSON.stringify({ error: 'Service Unavailable' }), {
           status: 503,
-          headers: mergeInjectedHeaders(
-            {
-              'content-type': 'application/json',
-              'retry-after': '1',
-            },
-            injected,
+          headers: toWebHeaders(
+            mergeInjectedHeaders(
+              {
+                'content-type': 'application/json',
+                'retry-after': '1',
+              },
+              injected,
+            ),
           ),
         });
       }
@@ -323,7 +325,7 @@ export function buildFetch(routes: RouteTable, opts: HttpOptions | undefined) {
     if ('preflight' in result) {
       return new Response(null, {
         status: 204,
-        headers: mergeInjectedHeaders(result.preflight, injected),
+        headers: toWebHeaders(mergeInjectedHeaders(result.preflight, injected)),
       });
     }
 

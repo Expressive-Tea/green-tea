@@ -1,7 +1,7 @@
 // Worker entry for the real workerd (Miniflare) integration test.
 // Mirrors test/deno/ws.test.ts's graph so HTTP + WebSocket behavior is proven
 // identically across runtimes. Run via `npm run test:edge` (see test/edge/run.ts).
-import { createApp, Route, Get, Post, Ws, body, ctx, Module } from '../../src/index';
+import { createApp, Route, Get, Post, Ws, body, ctx, cookie, Module, Transformer, HttpError } from '../../src/index';
 import { edgeHandler } from '../../src/edge';
 
 @Route('/rt')
@@ -9,6 +9,23 @@ class Rt {
   @Get('/hello')
   hello() {
     return { ok: true };
+  }
+
+  // CARD-14 (#113): two Set-Cookie lines from workerd, and @cookie on the request side.
+  @Get('/cookies')
+  @Transformer(() => ({ headers: { 'set-cookie': ['a=1; Path=/', 'b=2; Path=/'], 'x-custom': ['a', 'b'] }, body: '{}' }))
+  cookies() {
+    return null;
+  }
+
+  @Get('/cookie-error')
+  cookieError() {
+    throw new HttpError(401, 'nope', undefined, { 'set-cookie': ['a=1; Path=/', 'b=2; Path=/'] });
+  }
+
+  @Get('/cookie')
+  readCookie(@cookie('b') b: string | undefined) {
+    return { b: b ?? null };
   }
 
   // #105: the body limit, read from workerd's own request stream. Small, so every refused body still

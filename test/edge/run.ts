@@ -66,6 +66,18 @@ async function main() {
     assert.equal(httpRes.status, 200);
     assert.deepEqual(await httpRes.json(), { ok: true });
 
+    // CARD-14 (#113): a Set-Cookie array leaves workerd as one line per cookie; other arrays join.
+    const cookieRes = await mf.dispatchFetch('http://localhost/rt/cookies');
+    await cookieRes.arrayBuffer();
+    assert.deepEqual(cookieRes.headers.getSetCookie(), ['a=1; Path=/', 'b=2; Path=/']);
+    assert.equal(cookieRes.headers.get('x-custom'), 'a, b');
+    const cookieErr = await mf.dispatchFetch('http://localhost/rt/cookie-error');
+    await cookieErr.arrayBuffer();
+    assert.equal(cookieErr.status, 401);
+    assert.deepEqual(cookieErr.headers.getSetCookie(), ['a=1; Path=/', 'b=2; Path=/']);
+    const readCookie = await mf.dispatchFetch('http://localhost/rt/cookie', { headers: { cookie: 'a=1; b=%41' } });
+    assert.deepEqual(await readCookie.json(), { b: 'A' });
+
     // Body limits (#105): the same statuses as app.fetch, Deno and Bun. workerd may drop a
     // chunked upload's content-length, so the streamed case is enforced by the read count alone.
     const LIMIT = 1000; // the route's maxBodyBytes, see worker.ts
@@ -191,7 +203,7 @@ async function main() {
     assert.equal(ready.headers.get('cache-control'), 'no-store');
 
     console.log(
-      'edge (workerd via miniflare): HTTP 200 + body limits 413/413/200/413 + WS echo:hi + ws limits + cf-connecting-ip under trustProxy + reserved path + health — PASS',
+      'edge (workerd via miniflare): HTTP 200 + cookies + body limits 413/413/200/413 + WS echo:hi + ws limits + cf-connecting-ip under trustProxy + reserved path + health — PASS',
     );
   } finally {
     await mf.dispose();
