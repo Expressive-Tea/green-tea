@@ -41,6 +41,18 @@ export function wsMessageBytes(limits: Pick<RequestLimits, 'maxWsMessageBytes'> 
   return limits?.maxWsMessageBytes ?? DEFAULT_MAX_WS_MESSAGE_BYTES;
 }
 
+/**
+ * The limits the mesh control channel's socket is bounded by (#120): `limits` with
+ * `maxWsMessageBytes` raised to the channel's own frame bound when that is larger. A user route
+ * never goes through this, so it keeps `maxWsMessageBytes` as configured.
+ */
+export function controlLimits(
+  limits: Pick<RequestLimits, 'maxWsMessageBytes' | 'maxWsQueue'> | undefined,
+  maxFrameBytes: number | undefined,
+): Pick<RequestLimits, 'maxWsQueue'> & { maxWsMessageBytes: number } {
+  return { ...limits, maxWsMessageBytes: Math.max(wsMessageBytes(limits), maxFrameBytes ?? 0) };
+}
+
 /** Throws when a WebSocket limit is present but not a positive safe integer (#107). */
 export function validateWsLimits(limits: RequestLimits | undefined): void {
   for (const key of ['maxWsMessageBytes', 'maxWsQueue'] as const) {

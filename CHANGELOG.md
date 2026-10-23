@@ -227,6 +227,21 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Fixed
 
+- **A mesh RPC whose body is within `maxBodyBytes` reaches the teapot again** (#120). The 1 MiB
+  WebSocket cap from #107 also bounded the mesh control channel, so a request body that fit the
+  HTTP limit could still exceed it once the teacup wrapped it in an RPC frame. A text body near
+  1 MB was enough, because JSON escaping doubles every `"` and backslash, and any body limit raised
+  above 1 MiB was capped at 1 MiB on the channel. Either way the teapot closed the whole channel
+  with `1009`, and every request through that link failed with `503` until it reconnected.
+
+  The control channel is now bounded by the teapot's `limits.maxBodyBytes`: 4,000,000 bytes at the
+  1 MB default, the figure its frame parser already used, and four times the body limit when that
+  is raised. `limits.maxWsMessageBytes` still governs every user `@Ws` route, unchanged. On Bun,
+  which takes one native payload limit for all sockets, a teapot raises that limit to the control
+  channel's bound, so an oversized frame on a user route is refused by the framework instead: still
+  `1009`, on every Bun version, where Bun before 1.4 refused natively by dropping the connection
+  (`1006`).
+
 - **Edge HTTP fills `ctx.ip` from `cf-connecting-ip` under `trustProxy`** (#119). `edgeHandler`
   never read the header for HTTP, so IP-keyed plugins such as rate-limit saw `''`, one bucket for
   every client. Under `trustProxy: true` the header now sets `ctx.ip`, and it wins over

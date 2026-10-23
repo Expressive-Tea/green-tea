@@ -6,6 +6,7 @@ import {
   matchWsRoute,
   trackUntil,
   boundInbound,
+  controlLimits,
   wsMessageBytes,
   type WsSocket,
   type WsRequest,
@@ -50,13 +51,18 @@ function handleMeshUpgrade(
     return true;
   }
 
+  // An RPC carries a whole request body, so the channel is bounded by the teapot's body limit
+  // rather than `maxWsMessageBytes` (#120). `wss` is built with that bound as `maxPayload`, and
+  // `boundInbound` repeats it on the decoded text, as it does for every route.
+  const bounds = controlLimits(limits, meshControl.maxFrameBytes);
+
   // nodeSocket, not the raw ws: the control channel is the last consumer that spoke the
   // `ws` EventEmitter API directly. It now takes the same neutral socket every route does.
   // Tracked like any other long-lived socket: a connected teacup has no reason to hang up, so
   // an untracked control channel leaves the teapot's server.close() waiting on it forever.
   // serveFrames swallows its own failures, so the floating promise cannot reject.
   wss.handleUpgrade(req, socket, head, (ws: any) => {
-    const neutral = boundInbound(nodeSocket(ws), limits);
+    const neutral = boundInbound(nodeSocket(ws), bounds);
 
     void trackUntil(neutral, meshControl.handle(neutral), streams);
   });
@@ -128,6 +134,14 @@ export function attachWs(
   // fragmented or not, before it is assembled, and closes 1009 itself. `boundInbound` repeats the
   // check on the decoded text, which is the only half Deno and the edge have.
   const wss = WebSocketServer ? new WebSocketServer({ noServer: true, maxPayload: wsMessageBytes(limits) }) : null;
+  // The control channel's own server, so its larger bound (#120) never reaches a user route.
+  const meshWss =
+    WebSocketServer && meshControl
+      ? new WebSocketServer({
+          noServer: true,
+          maxPayload: controlLimits(limits, meshControl.maxFrameBytes).maxWsMessageBytes,
+        })
+      : null;
   server.on('upgrade', (req, socket, head) => {
     // A peer that resets mid-rejection must not raise an unhandled 'error' on a socket nobody
     // else is listening to yet: that is as fatal as a throw.
@@ -136,7 +150,7 @@ export function attachWs(
     // Nothing thrown in here may escape. This is a raw EventEmitter listener, so a throw is an
     // uncaught exception that takes the whole process down, not a 500 for one client.
     try {
-      routeUpgrade({ wss, wsRoutes, bus, meshControl, streams, limits }, req, socket, head);
+      routeUpgrade({ wss, meshWss, wsRoutes, bus, meshControl, streams, limits }, req, socket, head);
     } catch {
       if (socket.writable) rejectUpgrade(socket, 500, 'Internal Server Error');
       else socket.destroy();
@@ -147,6 +161,8 @@ export function attachWs(
 /** What every upgrade on one server shares. */
 interface UpgradeEnv {
   wss: any;
+  /** The mesh control channel's server, bounded by its own frame limit (#120). */
+  meshWss: any;
   wsRoutes: WsRouteDef[];
   bus?: Bus;
   meshControl?: MeshControl;
@@ -156,7 +172,7 @@ interface UpgradeEnv {
 
 /** Routes one upgrade: validates the path the way HTTP does, then mesh control, then the ws route table. */
 function routeUpgrade(env: UpgradeEnv, req: http.IncomingMessage, socket: any, head: Buffer): void {
-  const { wss, wsRoutes, bus, meshControl, streams, limits } = env;
+  const { wss, meshWss, wsRoutes, bus, meshControl, streams, limits } = env;
   let path: string;
 
   // The same normalization the HTTP path runs (`dispatch` in core.ts). Without it a malformed
@@ -168,7 +184,7 @@ function routeUpgrade(env: UpgradeEnv, req: http.IncomingMessage, socket: any, h
     return;
   }
 
-  if (meshControl && handleMeshUpgrade(wss, meshControl, path, req, socket, head, streams, limits)) return;
+  if (meshControl && handleMeshUpgrade(meshWss, meshControl, path, req, socket, head, streams, limits)) return;
 
   // The reserved path with no control channel: refused exactly as `app.upgrade` refuses it on Deno,
   // Bun and the edge — accept, then close 1008 with the same reason (D17). Never falls through to the

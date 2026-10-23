@@ -133,6 +133,12 @@ export interface WsRouteDef {
 export interface MeshControl {
   path: string;
   /**
+   * Inbound bound for this channel's socket, in bytes, used in place of
+   * `limits.maxWsMessageBytes` when larger (#120): an RPC carries a whole request body, which
+   * `maxBodyBytes` bounds, not the WebSocket message limit.
+   */
+  maxFrameBytes?: number;
+  /**
    * Serves one control connection over the neutral socket — the same capability every other ws
    * consumer takes, so Node (via `nodeSocket`) and Deno/Bun (via `app.upgrade`) both feed it.
    * Resolves when the connection ends, like `runWsConnection`.

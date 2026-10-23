@@ -49,10 +49,27 @@ const HANDSHAKE_TIMEOUT_MS = 10_000;
  * as much as its WebSocket layer will accept (100 MiB under the `ws` package's defaults, and no
  * documented ceiling on the platform sockets Deno and Bun provide).
  *
- * Sized above the 1 MB default body limit an RPC can legitimately carry, with room for the JSON
- * overhead of the envelope around it.
+ * Sized for the 1 MB default body limit an RPC can legitimately carry, with room for the JSON
+ * overhead of the envelope around it. That overhead is not a constant: a JSON body re-encodes to
+ * about its own size, but a text body doubles wherever it holds a `"` or a backslash, since the
+ * envelope escapes it as a JSON string. {@link controlFrameLimit} scales this figure with a raised
+ * limit.
  */
 const MAX_FRAME_CHARS = 4_000_000;
+
+/** The body limit {@link MAX_FRAME_CHARS} is sized for: `limits.maxBodyBytes`'s default. */
+const DEFAULT_MAX_BODY_BYTES = 1_000_000;
+
+/**
+ * Largest control frame a teapot accepts when the largest body it may be sent is `maxBodyBytes`
+ * (#120): {@link MAX_FRAME_CHARS}, scaled by the same ratio for a body limit raised above the
+ * default. Never below it, because the frame also carries headers, params and query, which do not
+ * shrink with a lowered body limit. Applies to the control channel only: user WebSocket routes keep
+ * `limits.maxWsMessageBytes`.
+ */
+export function controlFrameLimit(maxBodyBytes = DEFAULT_MAX_BODY_BYTES): number {
+  return Math.max(MAX_FRAME_CHARS, Math.ceil((MAX_FRAME_CHARS / DEFAULT_MAX_BODY_BYTES) * maxBodyBytes));
+}
 
 /** Assemble a {@link Manifest} from exported step tokens and buffered routes. */
 export function buildManifest(args: { steps: string[]; routes: RouteEntry[] }): Manifest {
@@ -73,6 +90,11 @@ export interface MeshControlDeps {
   resolveScope: (name: string, env: RequestEnvelope) => Promise<unknown>;
   resolveRoute: (name: string, env: RequestEnvelope) => Promise<ResponseShape>;
   bus?: Bus;
+  /**
+   * The largest request body this teapot accepts, which sizes the control frames it parses
+   * ({@link controlFrameLimit}). Defaults to the 1 MB body default.
+   */
+  maxBodyBytes?: number;
 }
 
 /** The rpc-req member of the {@link Frame} union. */
@@ -187,6 +209,7 @@ async function serveFrames(
   deps: MeshControlDeps,
   exportedScopes: Set<string>,
   exportedRoutes: Set<string>,
+  maxFrameChars: number,
 ): Promise<void> {
   let authed = false;
   // Armed before the loop, and cleared by the handshake. An unauthenticated peer that simply
@@ -201,7 +224,7 @@ async function serveFrames(
       const raw = String(data);
 
       // Checked before `decode`, because decoding is the expensive part being defended.
-      if (raw.length > MAX_FRAME_CHARS) {
+      if (raw.length > maxFrameChars) {
         socket.close(1009, 'mesh frame too large');
         break;
       }
@@ -244,13 +267,22 @@ async function serveFrames(
 /** Build a control handler that authenticates peers and serves scope/route RPCs from the manifest. */
 export function createMeshControl(deps: MeshControlDeps): {
   path: string;
+  maxFrameBytes: number;
   handle: (socket: WsSocket) => Promise<void>;
 } {
   const exportedScopes = new Set(deps.manifest.steps);
   const exportedRoutes = new Set(deps.manifest.routes.map((route) => `${route.method} ${route.pattern}`));
+  const maxFrameChars = controlFrameLimit(deps.maxBodyBytes);
 
   return {
     path: MESH_CONTROL_PATH,
+    /**
+     * The inbound bound a server puts on this channel's WebSocket in place of
+     * `limits.maxWsMessageBytes` (#120). The same figure as the character check below: the two agree
+     * on ASCII, and on other text the byte bound is the one that binds — a body measured in bytes by
+     * `maxBodyBytes` stays about that many bytes inside the envelope, so it still fits.
+     */
+    maxFrameBytes: maxFrameChars,
     /**
      * Resolves when the connection ends, mirroring `runWsConnection` — so `app.upgrade` can await
      * the control channel's lifetime the same way it awaits a regular ws route's.
@@ -258,7 +290,7 @@ export function createMeshControl(deps: MeshControlDeps): {
      * does synchronously, so the loop is live before any frame can arrive.
      */
     handle(socket: WsSocket): Promise<void> {
-      return serveFrames(socket, deps, exportedScopes, exportedRoutes);
+      return serveFrames(socket, deps, exportedScopes, exportedRoutes, maxFrameChars);
     },
   };
 }
