@@ -81,6 +81,12 @@ npm treats versions as semver and semver forbids leading zeros.
   param hit −88%, method miss −94%, path miss −96%; at 10 routes, every cell is within noise or
   faster (late param hit +3.4%, 95% CI −5.0…+12.6%).
 
+- **A query string keeps every `?` after the first** (GitHub #48). `parseQuery` took the text
+  between the first and second `?`, so `/search?q=what?now` gave `q: 'what'` and dropped the rest.
+  RFC 3986 §3.4 allows `?` inside a query, so the query string is now everything after the first
+  `?` and before `#`, if there is one: `q: 'what?now'`, and `/search?a=1&b=?` gives `b: '?'`. URLs
+  with a single `?` parse as before. Path extraction is unchanged.
+
 ### Fixed
 
 - **`static` no longer serves files outside its root through a symlink** (#106). The traversal guard

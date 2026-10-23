@@ -743,18 +743,23 @@ export function allowedMethods(routes: RouteDef[], path: string): string[] {
   });
 }
 
-/** Parses a URL's query string into a flat string map (last value wins for repeated keys). */
+/**
+ * Parses a URL's query string into a flat string map (last value wins for repeated keys).
+ *
+ * The query string is everything after the **first** `?` and before a `#`, if one is present.
+ * A `?` inside the query is a legal character (RFC 3986 §3.4), so `/search?q=what?now` gives
+ * `{ q: 'what?now' }`.
+ */
 export function parseQuery(url: string): Record<string, string> {
-  // Most requests carry no query string, and the work below is not free for them: `split` builds
-  // an array, `new URLSearchParams('')` builds an object, and the loop runs zero times — three
-  // allocations to arrive at `{}`. Measured at 92.3 ns against 18.6 ns for this check.
-  //
-  // Only the guard is new; the parse below is untouched on purpose. Reaching for `indexOf` +
-  // `slice` instead of `split` would also drop an allocation, but it changes what a second `?`
-  // means, and that is a behaviour question rather than a performance one.
-  if (!url.includes('?')) return {};
+  // Most requests carry no query string, and the work below is not free for them:
+  // `new URLSearchParams('')` builds an object and the loop runs zero times, to arrive at `{}`.
+  // Measured at 92.3 ns against 18.6 ns for this check.
+  const start = url.indexOf('?');
+  if (start < 0) return {};
 
-  const queryString = url.split('?')[1] ?? '';
+  // `split('?')[1]` used to stop at a second `?` and drop the rest of the value (GitHub #48).
+  const hash = url.indexOf('#', start + 1);
+  const queryString = hash < 0 ? url.slice(start + 1) : url.slice(start + 1, hash);
   const out: Record<string, string> = {};
   for (const [key, value] of new URLSearchParams(queryString)) out[key] = value;
   return out;
