@@ -380,6 +380,25 @@ describe('request hardening', () => {
     server.close();
   });
 
+  // GitHub #36: the parser is chosen by the media type alone, which is case-insensitive. A
+  // substring match on the raw header parsed `text/plain; x=application/json` as JSON.
+  it('chooses the body parser by the media type, not by a substring of the header', async () => {
+    const getUrl = (s: import('http').Server) => `http://127.0.0.1:${(s.address() as any).port}`;
+    const server = createHttpServer([{
+      method: 'POST', pattern: '/echo', transport: 'buffer',
+      handler: async (req) => ({ status: 200, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ got: req.body }) }),
+    }]);
+    await new Promise<void>((r) => server.listen(0, r));
+    const post = (contentType: string, body: string) =>
+      fetch(`${getUrl(server)}/echo`, { method: 'POST', headers: { 'content-type': contentType }, body }).then((r) => r.json());
+
+    expect(await post('Text/Plain; x=application/json', '{"a":1}')).toEqual({ got: '{"a":1}' });
+    expect(await post('Application/JSON; charset=utf-8', '{"a":1}')).toEqual({ got: { a: 1 } });
+    expect(await post('APPLICATION/X-WWW-FORM-URLENCODED', 'a=1')).toEqual({ got: { a: '1' } });
+    expect(await post('text/plain; x=application/x-www-form-urlencoded', 'a=1')).toEqual({ got: 'a=1' });
+    server.close();
+  });
+
   it('a cors.origins predicate that throws answers the request instead of taking the process down', async () => {
     const warn = vi.fn();
     const server = createHttpServer(

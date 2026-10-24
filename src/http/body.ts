@@ -49,6 +49,16 @@ export function declaresOverLimit(contentLength: string | null | undefined, limi
   return contentLength != null && /^\d+$/.test(contentLength) && Number(contentLength) > limit;
 }
 
+/**
+ * The media type of a Content-Type value: the part before any parameters, trimmed and lowercased,
+ * since media types are case-insensitive (RFC 9110 §8.3.1). Matching a substring of the raw header
+ * instead let a parameter choose the parser: `text/plain; x=application/json` was parsed as JSON.
+ */
+function mediaType(contentType: string): string {
+  const semi = contentType.indexOf(';');
+  return (semi === -1 ? contentType : contentType.slice(0, semi)).trim().toLowerCase();
+}
+
 /** Parse outcome: the decoded body, or an error message plus the status to send (400 unless set). */
 type ParseResult = { body: unknown } | { error: string; status?: number };
 
@@ -62,7 +72,9 @@ export async function parseRequestBody(
   duplicates: 'array' | 'last',
   maxParts: number,
 ): Promise<ParseResult> {
-  if (buf !== undefined && contentType.includes('application/json')) {
+  const type = mediaType(contentType);
+
+  if (buf !== undefined && type === 'application/json') {
     try {
       return { body: JSON.parse(buf.toString('utf8')) };
     } catch {
@@ -70,11 +82,11 @@ export async function parseRequestBody(
     }
   }
 
-  if (buf !== undefined && contentType.includes('application/x-www-form-urlencoded')) {
+  if (buf !== undefined && type === 'application/x-www-form-urlencoded') {
     return { body: collapseDuplicates(new URLSearchParams(buf.toString('utf8')), duplicates) };
   }
 
-  if (buf !== undefined && contentType.includes('multipart/form-data')) {
+  if (buf !== undefined && type === 'multipart/form-data') {
     const boundary = extractBoundary(contentType);
     if (!boundary) return { error: 'Invalid multipart body' };
 
