@@ -116,10 +116,9 @@ const routesChanged = (app: App) =>
 async function meshLifetimes() {
   const results = [];
 
-  const portA = await freePort();
+  // Port 0: A's teapot is up before its teacup needs the port, so nothing has to be reserved.
   const teapotA = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
-  await teapotA.listen(portA);
-  const teacupA = teacupFor(portA);
+  const teacupA = teacupFor(((await teapotA.listen(0)).address() as AddressInfo).port);
   try {
     results.push(...(await probe(teacupA, 'A1 teapot up at boot')));
     await teapotA.close();
@@ -128,21 +127,36 @@ async function meshLifetimes() {
     await teacupA.close();
   }
 
+  results.push(...(await lateTeapot()));
+  return results;
+}
+
+/**
+ * Lifetime B. Its teacup must know the port before the teapot exists, so the port is only free when
+ * checked; another process on a shared runner can take it before the teapot binds (#138). That is
+ * the host, not the router, so the whole lifetime reruns on a fresh port.
+ */
+async function lateTeapot(attempts = 3): Promise<Awaited<ReturnType<typeof probe>>> {
   const portB = await freePort();
   const teacupB = teacupFor(portB);
   const teapotB = createApp({ modules: [TeapotModule], experimental: true, mesh: { secret: SECRET } });
   try {
-    results.push(...(await probe(teacupB, 'B1 teapot absent at boot')));
+    const results = await probe(teacupB, 'B1 teapot absent at boot');
     const spliced = routesChanged(teacupB);
-    await teapotB.listen(portB);
+    try {
+      await teapotB.listen(portB);
+    } catch (err) {
+      spliced.catch(() => {});
+      if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE' && attempts > 1) return await lateTeapot(attempts - 1);
+      throw err;
+    }
     await spliced;
     results.push(...(await probe(teacupB, 'B2 teapot up after boot')));
+    return results;
   } finally {
     await teacupB.close();
     await teapotB.close();
   }
-
-  return results;
 }
 
 // ── mesh: local and remote routes answering one path (CARD-07 indexes them as two trees) ─────────

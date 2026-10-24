@@ -697,3 +697,42 @@ describe('route table validation', () => {
     expect(() => createApp({ modules: [MethodsModule] })).not.toThrow();
   });
 });
+
+describe('listen() on a port already taken (#138)', () => {
+  @Route('/')
+  class TakenCtl {
+    @Get('/') get() {
+      return 'ok';
+    }
+  }
+  @Module({ mountpoint: '/', controllers: [TakenCtl] })
+  class TakenModule {}
+
+  it('rejects with EADDRINUSE, and the app can still close or listen elsewhere', async () => {
+    const { createServer } = await import('node:net');
+    const blocker = createServer();
+    await new Promise<void>((resolve) => blocker.listen(0, resolve));
+    const app = createApp({ modules: [TakenModule] });
+    try {
+      await expect(app.listen((blocker.address() as { port: number }).port)).rejects.toMatchObject({
+        code: 'EADDRINUSE',
+      });
+      const server = await app.listen(0);
+      const res = await fetch(`http://127.0.0.1:${(server.address() as { port: number }).port}/`);
+      expect(res.status).toBe(200);
+    } finally {
+      await app.close();
+      blocker.close();
+    }
+  });
+
+  it('close() after a failed listen resolves', async () => {
+    const { createServer } = await import('node:net');
+    const blocker = createServer();
+    await new Promise<void>((resolve) => blocker.listen(0, resolve));
+    const app = createApp({ modules: [TakenModule] });
+    await expect(app.listen((blocker.address() as { port: number }).port)).rejects.toThrow();
+    await app.close();
+    blocker.close();
+  });
+});
