@@ -7,7 +7,12 @@ import { parseCookies } from './cookies';
 /** Parsed URL query string as flat key/value pairs. */
 export type Query = Record<string, string>;
 /** Incoming request headers; a header may repeat, hence the array variant. */
-export type Headers = Record<string, string | string[] | undefined>;
+export type RequestHeaders = Record<string, string | string[] | undefined>;
+/**
+ * @deprecated Use {@link RequestHeaders}. This name shadows the Fetch `Headers` global in any file
+ * that imports it; it stays as an alias so existing imports keep compiling.
+ */
+export type Headers = RequestHeaders;
 /** Per-request bag that accumulates values produced by steps and providers. */
 export type Context = Record<string, unknown>;
 
@@ -160,7 +165,7 @@ function resolveOne(spec: ArgSpec, context: Context): unknown {
  */
 function cookiesOf(context: Context): unknown {
   if (context.cookies === undefined) {
-    const headers = context.headers as Headers | undefined;
+    const headers = context.headers as RequestHeaders | undefined;
     context.cookies = parseCookies(headers?.cookie);
   }
 

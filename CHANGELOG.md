@@ -182,8 +182,20 @@ npm treats versions as semver and semver forbids leading zeros.
   high-water mark, or the socket has closed, and at once when it already is. The built-in adapters
   all provide it. A socket built without it is never waited on, as before.
 
+- **Types you could see but not name are now exported** (D19): `AppOptions` (the options object of
+  `createApp`, until now an inline type, so `const opts: AppOptions = …` works), `ExplainNode`
+  (one entry of `Explain.chain`), and `WsRequest` / `WsSocket` (the arguments of `app.upgrade`).
+
+- **`RequestHeaders`** (D19): the type of the incoming request headers, under a name that does not
+  shadow the Fetch `Headers` global. `Headers` remains as a deprecated alias.
+
 ### Changed
 
+- **The mesh's exports are marked `@experimental`** (D19): `connectLink`, `buildRemote`,
+  `envelopeFrom`, `buildManifest`, `createMeshControl`, `MESH_CONTROL_PATH`, `Manifest`,
+  `RequestEnvelope`, `Frame` and `MeshConfig`. They stay exported, unchanged. The mesh already needs
+  `createApp({ experimental: true })`; the tag says the same thing in the types: these are outside
+  the API freeze and may change in a minor release.
 - **Every `304` is bodiless** (#114). A `304` has no body and no `content-*` headers on any adapter,
   including one from `throw new NotModified()`, which used to go out with the default JSON
   envelope's `content-type`.
@@ -230,6 +242,12 @@ npm treats versions as semver and semver forbids leading zeros.
   table as `app.fetch`, and `createHttpServer` accepts a getter as well as an array. Dev
   introspection routes (`devGraph`, `devOpenapi`) now sit before remote routes in that table, so
   in the one case where a teapot exports the same path at the same specificity, the dev route wins.
+
+### Deprecated
+
+- **The `Headers` type** (D19). Import `RequestHeaders` instead: same type, a name that does not
+  shadow the Fetch `Headers` global in the files that import it. `Headers` stays as an alias, so
+  nothing breaks.
 
 ### Fixed
 

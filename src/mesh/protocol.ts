@@ -34,6 +34,9 @@ export const MESH_PROTOCOL_VERSION = 1;
  *
  * `correlation` and `url` are optional by protocol, not by intent: a teapot running an older
  * green-tea simply ignores them, which costs the correlation of that hop and nothing else.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in a minor release.
  */
 export interface RequestEnvelope {
   method: string;
@@ -63,6 +66,9 @@ export interface RouteEntry {
  * Steps only: a provider's value is the object it builds, which cannot cross a JSON wire, so
  * exporting one is refused at boot (`collectProviders`). Every entry here is request-scope and
  * lazy — the token exists in the teacup's graph, and running it is an RPC.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in a minor release.
  */
 export interface Manifest {
   steps: string[];
@@ -75,6 +81,9 @@ export interface Manifest {
  * `ping`/`pong` are application frames rather than WebSocket protocol pings on purpose: the `ws`
  * package exposes `ws.ping()`, but the platform `WebSocket` that Deno and Bun provide does not,
  * so a protocol-level heartbeat could not work on every runtime mesh claims to support.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in a minor release.
  */
 export type Frame =
   | { type: 'hello'; v: number; secret: string }

@@ -114,12 +114,8 @@ interface PipelineDeps {
   logger: Logger;
 }
 
-/**
- * Build an {@link App} from the given modules and options.
- * Wires providers, steps, controllers and plugins into a dependency graph; for non-mesh apps
- * the graph is finalized eagerly, otherwise finalization is deferred to {@link App.listen}.
- */
-export function createApp(opts: {
+/** Options for {@link createApp}. */
+export interface AppOptions {
   modules: Ctor[];
   plugins?: Plugin[];
   /**
@@ -278,7 +274,14 @@ export function createApp(opts: {
    * 20+ steps on one route usually means a step is doing too much.
    */
   warnGraphDepth?: number | false;
-}): App {
+}
+
+/**
+ * Build an {@link App} from the given modules and options.
+ * Wires providers, steps, controllers and plugins into a dependency graph; for non-mesh apps
+ * the graph is finalized eagerly, otherwise finalization is deferred to {@link App.listen}.
+ */
+export function createApp(opts: AppOptions): App {
   // mesh is alpha: its API and wire protocol may change. Require an explicit opt-in.
   if (opts.mesh && !opts.experimental) {
     throw new Error(

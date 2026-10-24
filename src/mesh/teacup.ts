@@ -20,6 +20,9 @@ export interface RemoteRoute {
  * `url` and `correlation` are read off `ctx.req`, the handler argument the pipeline seeds the
  * context with — so a request that crosses to a teapot arrives carrying the id it already had,
  * and its events on the far side join the same trace instead of starting a new one.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in a minor release.
  */
 export function envelopeFrom(ctx: any): RequestEnvelope {
   const req = ctx?.req;
@@ -37,7 +40,12 @@ export function envelopeFrom(ctx: any): RequestEnvelope {
   };
 }
 
-/** Turn a link's manifest into local proxy nodes: lazy request-scope steps, and routes. */
+/**
+ * Turn a link's manifest into local proxy nodes: lazy request-scope steps, and routes.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in a minor release.
+ */
 export function buildRemote(link: Link): { steps: RemoteScopeNode[]; routes: RemoteRoute[] } {
   const steps: RemoteScopeNode[] = link.manifest.steps.map((token) => ({
     name: token,
