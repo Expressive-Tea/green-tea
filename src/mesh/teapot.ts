@@ -3,7 +3,7 @@
 // under node-compat on both; edge/workerd is out of scope (see the cross-runtime spec).
 import crypto from 'node:crypto';
 import type { Bus } from '../bus';
-import { HELLO_FRAME_BYTES, widenInbound, type WsSocket } from '../http/ws-core';
+import { HELLO_FRAME_BYTES, sendWhenDrained, widenInbound, type WsSocket } from '../http/ws-core';
 import type { ResponseShape } from '../pipeline';
 import { isHttpError } from '../signals';
 import {
@@ -174,9 +174,8 @@ function resolveRpc(
  * Sends one frame once the socket has room (#41): RPCs are served concurrently, so without the wait
  * a peer that stops reading grows the send buffer by one response per request it keeps sending.
  */
-async function reply(socket: WsSocket, frame: Frame): Promise<void> {
-  if (socket.drained) await socket.drained();
-  if (!socket.abort.aborted) socket.send(encode(frame));
+function reply(socket: WsSocket, frame: Frame): Promise<void> {
+  return sendWhenDrained(socket, () => encode(frame));
 }
 
 /** Serve one authenticated rpc-req: resolve it and frame the ok/error response back to the peer. */

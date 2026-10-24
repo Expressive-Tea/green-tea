@@ -2,7 +2,7 @@ import type { Bus } from '../bus';
 import type { Logger } from '../logger';
 import { HttpError } from '../signals';
 import { connectSocket, type SocketCtor } from '../http/ws-adapter';
-import type { WsSocket } from '../http/ws-core';
+import { sendWhenDrained, type WsSocket } from '../http/ws-core';
 import { encode, decode, MESH_PROTOCOL_VERSION, type Manifest, type RequestEnvelope, type Frame } from './protocol';
 
 /** Client handle to a remote mesh server: its manifest, an RPC caller, and a close(). */
@@ -121,9 +121,9 @@ function sendRpc(
     pending.set(id, { name, resolve: resolveCall, reject: rejectCall, timer });
     // Not before the socket has room (#41); the timeout already runs, so a teapot that stops
     // reading still answers 504. Settled while waiting (timeout, close): nothing left to send.
-    void (socket.drained?.() ?? Promise.resolve()).then(() => {
-      if (pending.has(id) && !socket.abort.aborted) socket.send(encode({ type: 'rpc-req', id, kind, name, ctx }));
-    });
+    void sendWhenDrained(socket, () =>
+      pending.has(id) ? encode({ type: 'rpc-req', id, kind, name, ctx }) : undefined,
+    );
   });
 }
 
