@@ -260,6 +260,12 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Fixed
 
+- **A `@Module` without a `mountpoint` names itself at boot** (GitHub #31). The type
+  requires it, but JavaScript or transpile-only code could still omit it, and `createApp` failed
+  with `Cannot read properties of undefined (reading 'replace')` from inside the path helper. It now
+  fails with `<Module> @Module metadata is missing mountpoint`. `mountpoint: ''` still mounts at the
+  root.
+
 - **`listen()` rejects when the port is taken** (#138). A bind failure such as `EADDRINUSE` or
   `EACCES` arrives as the server's `error` event, which `listen()` did not handle: the promise
   never settled, and the error surfaced as an unhandled one. It now rejects with that error. The

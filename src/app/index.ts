@@ -789,7 +789,9 @@ function collectModules(modules: Ctor[], viewsCtx: ViewsContext): Registry {
   for (const mod of modules) {
     const moduleMeta = getModuleMeta(mod);
     if (!moduleMeta) throw new Error(`${mod.name} is not a @Module`);
-    if (!moduleMeta.mountpoint) throw new Error(`${mod.name} @Module metadata is missing mountpoint`);
+    // `typeof`, not falsiness: `mountpoint: ''` mounts at the root, as it always has.
+    if (typeof moduleMeta.mountpoint !== 'string')
+      throw new Error(`${mod.name} @Module metadata is missing mountpoint`);
     const origin = `module:${mod.name}`;
     collectProviders(moduleMeta.providers ?? [], origin, registry);
     collectSteps(moduleMeta.steps ?? [], origin, registry);
