@@ -98,3 +98,57 @@ describe('mesh control channel before authentication', () => {
     await app.close();
   });
 });
+
+// The Node adapter's own half: `ws` assembles a frame up to its `maxPayload` before `boundInbound`
+// sees it, and the control channel's must fit an authenticated RPC (~7 MB). A raw client shows
+// what `ws` does with a frame it has only started to receive.
+describe('mesh control channel before authentication, on Node', () => {
+  @Module({ mountpoint: '/api', steps: [Cfg] })
+  class NodeTeapot {}
+
+  /** Upgrades a raw TCP socket to the control path and resolves once the `101` is in. */
+  async function rawControl(port: number) {
+    const { connect } = await import('node:net');
+    const sock = connect(port, '127.0.0.1');
+    let closed = false;
+    const received: Buffer[] = [];
+    sock.on('close', () => (closed = true));
+    sock.on('error', () => {});
+    sock.write(
+      `GET ${MESH_CONTROL_PATH} HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
+        'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n',
+    );
+    await new Promise<void>((resolve) => sock.once('data', () => resolve()));
+    sock.on('data', (chunk: Buffer) => received.push(chunk));
+    sock.on('end', () => sock.end());
+    return { sock, closed: () => closed, received: () => Buffer.concat(received) };
+  }
+
+  /** The start of a masked text frame announcing `length` payload bytes (64-bit length form). */
+  const frameHeader = (length: number) => {
+    const header = Buffer.alloc(14);
+    header[0] = 0x81; // FIN, text
+    header[1] = 0x80 | 127; // masked, 64-bit length follows
+    header.writeBigUInt64BE(BigInt(length), 2);
+    return header; // mask key: the last four bytes, zero
+  };
+
+  it('closes 1009 a peer that sends more than a hello before its hello, instead of assembling the frame', async () => {
+    const app = createApp({ modules: [NodeTeapot], experimental: true, mesh: { secret: 's3cr3t' } });
+    const server = await app.listen(0);
+    const { sock, closed, received } = await rawControl((server.address() as { port: number }).port);
+    try {
+      // 5 MB announced, under the authenticated bound; 200 KiB of it sent, then nothing.
+      sock.write(frameHeader(5_000_000));
+      sock.write(Buffer.alloc(200 * 1024, 0x78));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(closed()).toBe(true);
+      const close = received();
+      expect(close[0]).toBe(0x88); // FIN, close
+      expect(close.readUInt16BE(2)).toBe(1009);
+    } finally {
+      sock.destroy();
+      await app.close();
+    }
+  });
+});

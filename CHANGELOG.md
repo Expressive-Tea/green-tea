@@ -271,6 +271,13 @@ npm treats versions as semver and semver forbids leading zeros.
   refused by the framework instead: still `1009`, on every Bun version, where Bun before 1.4
   refused natively by dropping the connection (`1006`).
 
+  The larger bound applies only once the peer's `hello` is accepted. Until then the channel takes
+  hello-sized frames (64 KiB), and on Node a peer that sends more than that before its hello is
+  dropped before `ws` assembles the frame. Bun and Deno have no per-socket limit for the framework
+  to hold that to, so there an unauthenticated peer can still make the teapot receive one frame up
+  to the channel's bound before refusing it. If untrusted peers can reach a Bun or Deno teapot's
+  `/__mesh__/control`, limit frame size at the proxy in front of it.
+
 - **More than 16 mesh RPCs in flight on one link no longer drop the control channel** (#148). The
   16-frame inbound queue from #107 (`limits.maxWsQueue`) also applied to the control channel. On
   Node, `ws` delivers every frame of one socket read at once, so a teacup sending a burst of RPCs
