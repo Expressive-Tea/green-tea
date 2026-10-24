@@ -83,8 +83,16 @@ export function topoSort(nodes: GraphNode[], seedKeys: string[], note = ''): Gra
   // validate dependencies exist
   for (const node of nodes) {
     for (const key of node.needs) {
-      if (!seedKeys.includes(key) && !producedBy.has(key)) {
-        throw new Error(`missing dependency: ${key} needed by ${node.name}${note}`);
+      if (seedKeys.includes(key)) continue;
+      const producer = producedBy.get(key);
+
+      if (!producer) throw new Error(`missing dependency: ${key} needed by ${node.name}${note}`);
+
+      // A node is not its own dependency (GitHub #43): it would read a value nobody wrote yet.
+      // `producers` already allows only one producer per token, so no other node can supply it;
+      // only a seed makes the need real, and the seed case returned above.
+      if (producer === node) {
+        throw new Error(`missing dependency: ${key} needed by ${node.name} — it provides '${key}' itself${note}`);
       }
     }
   }

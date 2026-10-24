@@ -83,6 +83,17 @@ describe('one producer per token', () => {
     await expect(createApp({ modules: [AppModule], plugins: [one, two] }).boot()).resolves.toBeUndefined();
   });
 
+  // GitHub #43. "Provided by another node" cannot rescue a self-dependency: a second producer of
+  // `user` is the CARD-18 failure above. And an override changes a runner, not the graph, so the
+  // check that rejects the node runs before any override could.
+  it('a node that needs the token it provides fails boot, with or without an override', () => {
+    const loop = adds('loop', { kind: 'step', name: 'loop', needs: ['loop'], provides: ['loop'] });
+    expect(() => createApp({ modules: [AppModule], plugins: [loop] })).toThrow(/missing dependency: loop needed by loop/);
+    expect(() => createApp({ modules: [AppModule], plugins: [loop], overrides: { loop: 1 } })).toThrow(
+      /missing dependency: loop needed by loop/,
+    );
+  });
+
   it('T5: overrides replace the runner of an existing token, not add a producer', async () => {
     const app = createApp({ modules: [AppModule], overrides: { user: { id: 1 } } });
     const res = await app.fetch(new Request('http://x/u/me'));
