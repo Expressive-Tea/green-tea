@@ -31,10 +31,10 @@ const ARGS = Symbol('gt:args');
 function record(target: object, methodKey: string | symbol | undefined, spec: ArgSpec): void {
   if (methodKey === undefined) return; // constructor params not supported
   const ctor = target.constructor as Ctor;
-  const map: Record<string, ArgSpec[]> = Reflect.getMetadata(ARGS, ctor) ?? {};
-  const list = map[String(methodKey)] ?? [];
-  list.push(spec);
-  map[String(methodKey)] = list;
+  // Copy, never mutate (GitHub #44): `getMetadata` walks the prototype chain, so on a subclass the
+  // map and list it returns are the base class's, and pushing into them decorated the base too.
+  const map: Record<string, ArgSpec[]> = { ...(Reflect.getMetadata(ARGS, ctor) ?? {}) };
+  map[String(methodKey)] = [...(map[String(methodKey)] ?? []), spec];
   Reflect.defineMetadata(ARGS, map, ctor);
 }
 

@@ -124,7 +124,8 @@ export type RouteDecorator = (
 function routeDecorator(method: HttpMethod, transport: Transport): RouteDecorator {
   return (path, opts) => (target, propertyKey) => {
     const ctor = target.constructor;
-    const routes = (Reflect.getMetadata(K.routes, ctor) as RouteMeta[]) ?? [];
+    // A copy, as in `record` (params.ts): the inherited array belongs to the base class (GitHub #44).
+    const routes = [...((Reflect.getMetadata(K.routes, ctor) as RouteMeta[]) ?? [])];
     routes.push({
       method,
       path,

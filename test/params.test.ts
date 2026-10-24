@@ -187,3 +187,25 @@ describe('resolveArgs validation', () => {
     }).toThrow();
   });
 });
+
+// GitHub #44: `record` read the inherited map and pushed into it, so a subclass's decorator landed
+// on the base class too.
+describe('inheritance', () => {
+  class Base {
+    list(@query('page') _page: unknown) {}
+  }
+  class Child extends Base {
+    override list(@query('page') _page: unknown, @query('sort') _sort?: unknown) {}
+    other(@param('id') _id: unknown) {}
+  }
+
+  it('decorating a subclass method leaves the base class unchanged', () => {
+    expect(getArgs(Base, 'list')).toEqual([{ index: 0, source: 'query', key: 'page' }]);
+    expect(getArgs(Base, 'other')).toEqual([]);
+  });
+
+  it('the subclass keeps what it inherited and adds its own', () => {
+    expect(getArgs(Child, 'list').map((spec) => spec.key)).toEqual(['page', 'page', 'sort']);
+    expect(getArgs(Child, 'other')).toEqual([{ index: 0, source: 'params', key: 'id' }]);
+  });
+});

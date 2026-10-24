@@ -293,6 +293,14 @@ npm treats versions as semver and semver forbids leading zeros.
   against the disconnect, and the source's `return()` is called without being waited on, so one
   that hangs or throws can no longer hold up or break the cleanup. Compressed streams included.
 
+- **Decorating a subclass no longer changes its base class** (GitHub #44). The argument
+  decorators (`@query`, `@param`, `@needs`, …) and the route decorators (`@Get`, `@Ws`, …) read
+  their metadata with `Reflect.getMetadata`, which walks the prototype chain, and then pushed into
+  what came back. On a subclass that was the base class's own map or array, so a `@query` on
+  `Child.list` also appeared in `getArgs(Base, 'list')`, and a route declared on `Child` was served
+  by `Base` too. Each decorator now writes a copy onto the class it decorates. The subclass still
+  starts from what it inherits.
+
 - **`listen()` rejects when the port is taken** (#138). A bind failure such as `EADDRINUSE` or
   `EACCES` arrives as the server's `error` event, which `listen()` did not handle: the promise
   never settled, and the error surfaced as an unhandled one. It now rejects with that error. The
