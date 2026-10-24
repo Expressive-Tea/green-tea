@@ -1,5 +1,5 @@
 import { isHttpError } from '../signals';
-import { CHANNEL_TAP, type TappableChannel } from '../channel';
+import { CHANNEL_TAP, releaseIterator, type TappableChannel } from '../channel';
 import type { Bus } from '../bus';
 import { correlateRequest } from './core';
 import { matchPattern } from './router';
@@ -460,7 +460,7 @@ export async function runWsConnection(
 
   const onAbort = () => {
     streams?.delete(closer);
-    void Promise.resolve(iterator?.return?.()).catch(() => {});
+    releaseIterator(iterator);
   };
 
   socket.abort.addEventListener('abort', onAbort, { once: true });
