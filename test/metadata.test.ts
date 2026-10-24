@@ -110,3 +110,18 @@ describe('@Html', () => {
     expect(getHtmlMeta(C, 'm')).toBeUndefined();
   });
 });
+
+// GitHub #44: the route decorator had the same read-the-inherited-array-then-push pattern as
+// `record` in params.ts, so a route on a subclass was added to the base controller as well.
+describe('route inheritance', () => {
+  class Base { @Get('/a') a() {} }
+  class Child extends Base { @Get('/b') b() {} }
+
+  it('a route on a subclass leaves the base class unchanged', () => {
+    expect(getRoutes(Base).map((route) => route.handlerName)).toEqual(['a']);
+  });
+
+  it('the subclass keeps the inherited routes and adds its own', () => {
+    expect(getRoutes(Child).map((route) => route.handlerName)).toEqual(['a', 'b']);
+  });
+});
