@@ -301,6 +301,13 @@ npm treats versions as semver and semver forbids leading zeros.
   by `Base` too. Each decorator now writes a copy onto the class it decorates. The subclass still
   starts from what it inherits.
 
+- **An app-scoped binding runs its factory once, however many resolve it at once** (GitHub #46).
+  The internal container cached the value only after the factory settled, so two resolutions that
+  started before then each ran it. It now caches the pending promise. A rejection is still not
+  cached: the next resolution retries, as before, and the callers already waiting share that one
+  rejection. `createApp` was not affected in practice, because it runs each provider once during
+  the memoized boot and registers the finished value, but the container no longer depends on that.
+
 - **`listen()` rejects when the port is taken** (#138). A bind failure such as `EADDRINUSE` or
   `EACCES` arrives as the server's `error` event, which `listen()` did not handle: the promise
   never settled, and the error surfaced as an unhandled one. It now rejects with that error. The

@@ -6,8 +6,8 @@ export type Factory = (ctx: Record<string, unknown>) => unknown | Promise<unknow
 interface Binding {
   scope: Scope;
   factory: Factory;
-  cached?: unknown;
-  resolved?: boolean;
+  /** The app-scoped value, cached as a promise from the moment the factory starts. */
+  cached?: Promise<unknown>;
 }
 
 /** Minimal token-keyed dependency container with app-scoped memoization and async, mesh-ready resolution. */
@@ -30,14 +30,18 @@ export class Container {
   async resolve(token: string, ctx: Record<string, unknown> = {}): Promise<unknown> {
     const binding = this.bindings.get(token);
     if (!binding) throw new Error(`unknown token: ${token}`);
-    if (binding.scope === 'app' && binding.resolved) return binding.cached;
-    const value = await binding.factory(ctx);
+    if (binding.scope === 'request') return binding.factory(ctx);
+    if (binding.cached) return binding.cached;
 
-    if (binding.scope === 'app') {
-      binding.cached = value;
-      binding.resolved = true;
-    }
-
-    return value;
+    // The pending promise is cached, not the settled value (GitHub #46): a resolve that starts
+    // while the factory is still running must wait for it, or it runs the factory a second time.
+    // A rejection is not kept — it clears the cache, so the next resolve retries, as it did when
+    // only successes were cached. The async wrapper turns a synchronous throw into that rejection.
+    const pending = (async () => binding.factory(ctx))();
+    binding.cached = pending;
+    pending.catch(() => {
+      if (binding.cached === pending) binding.cached = undefined;
+    });
+    return pending;
   }
 }
