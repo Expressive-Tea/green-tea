@@ -25,7 +25,7 @@ export type TeardownFn = () => void | Promise<void>;
  */
 export class TeardownRegistry {
   private readonly callbacks: TeardownFn[] = [];
-  private drained = false;
+  private running: Promise<void> | undefined;
 
   /** Register `fn` to run on shutdown. Later registrations run first — see {@link run}. */
   add(fn: TeardownFn): void {
@@ -53,12 +53,16 @@ export class TeardownRegistry {
    * was written, and one exists now.
    *
    * Never throws, and never runs twice — `close()` is called twice by more real applications than
-   * anyone expects, and a second call must not re-close what the first one closed.
+   * anyone expects, and a second call must not re-close what the first one closed. A second call
+   * made while the first is still running gets the same promise rather than an early return: a
+   * caller that awaits `close()` must not move on with a connection the first call has yet to close.
    */
-  async run(logger: Logger): Promise<void> {
-    if (this.drained) return;
-    this.drained = true;
+  run(logger: Logger): Promise<void> {
+    this.running ??= this.drain(logger);
+    return this.running;
+  }
 
+  private async drain(logger: Logger): Promise<void> {
     for (let index = this.callbacks.length - 1; index >= 0; index--) {
       try {
         await this.callbacks[index]();

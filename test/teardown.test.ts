@@ -224,4 +224,29 @@ describe('shutdown teardown', () => {
 
     expect(runs).toBe(1);
   });
+
+  it('makes two concurrent close() calls both wait for the one teardown (GitHub #45)', async () => {
+    const order: string[] = [];
+    let runs = 0;
+    const plugin: Plugin = {
+      name: 'slow-teardown',
+      mount(api) {
+        api.onShutdown(async () => {
+          runs++;
+          await new Promise((r) => setTimeout(r, 20));
+          order.push('torn down');
+        });
+      },
+    };
+
+    @Module({ mountpoint: '/', controllers: [Ctl] })
+    class M {}
+    const app = createApp({ modules: [M], plugins: [plugin], logger: silentLogger() });
+    await app.listen(0);
+    // A signal handler and a test hook closing at once, say.
+    await Promise.all([app.close().then(() => order.push('first')), app.close().then(() => order.push('second'))]);
+
+    expect(runs).toBe(1);
+    expect(order).toEqual(['torn down', 'first', 'second']);
+  });
 });

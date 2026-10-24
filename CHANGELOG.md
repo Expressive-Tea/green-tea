@@ -274,6 +274,12 @@ npm treats versions as semver and semver forbids leading zeros.
   `application/problem+json` and `application/vnd.api+json`, which used to arrive as text, now
   arrive parsed, and `application/json-patch+json`, which matched the old substring, still does.
 
+- **Two concurrent `close()` calls both wait for teardown** (GitHub #45). The teardown registry
+  marked itself drained and returned at once to any second caller, so a `close()` from a signal
+  handler and another from a test hook ran teardown once, but only the first waited for it: the
+  second resolved while a database could still be open. Every caller now gets the promise of the
+  teardown already in flight, and it still runs once.
+
 - **`listen()` rejects when the port is taken** (#138). A bind failure such as `EADDRINUSE` or
   `EACCES` arrives as the server's `error` event, which `listen()` did not handle: the promise
   never settled, and the error surfaced as an unhandled one. It now rejects with that error. The

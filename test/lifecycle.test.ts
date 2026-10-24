@@ -70,6 +70,23 @@ describe('TeardownRegistry', () => {
     expect(runs).toBe(1);
   });
 
+  it('makes a concurrent second close() wait for the teardown the first one started (GitHub #45)', async () => {
+    const order: string[] = [];
+    const registry = new TeardownRegistry();
+    registry.add(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      order.push('torn down');
+    });
+
+    const logger = silentLogger();
+    await Promise.all([
+      registry.run(logger).then(() => order.push('first returned')),
+      registry.run(logger).then(() => order.push('second returned')),
+    ]);
+
+    expect(order).toEqual(['torn down', 'first returned', 'second returned']);
+  });
+
   it('resolves when nothing is registered, and reports an empty size', async () => {
     const registry = new TeardownRegistry();
     expect(registry.size).toBe(0);
