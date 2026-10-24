@@ -191,8 +191,10 @@ function tagged(
 ): Buffered {
   const key = findHeader(result.headers, 'etag');
   const existing = key === undefined ? undefined : result.headers[key];
-  const etag = typeof existing === 'string' ? existing : bodyEtag(result.body);
-  const headers = key === undefined ? { ...result.headers, etag } : result.headers;
+  // ETag is single-valued: from an array, the last value wins, as a repeated `setHeader` would.
+  const own = Array.isArray(existing) ? existing[existing.length - 1] : existing;
+  const etag = own ?? bodyEtag(result.body);
+  const headers = { ...result.headers, [key ?? 'etag']: etag };
 
   if (isNotModified(req.headers, etag)) return bodyless({ kind: 'buffered', status: 304, headers, body: '' });
 
