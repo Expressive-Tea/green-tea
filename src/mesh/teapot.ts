@@ -170,6 +170,15 @@ function resolveRpc(
   return deps.resolveRoute(name, ctx);
 }
 
+/**
+ * Sends one frame once the socket has room (#41): RPCs are served concurrently, so without the wait
+ * a peer that stops reading grows the send buffer by one response per request it keeps sending.
+ */
+async function reply(socket: WsSocket, frame: Frame): Promise<void> {
+  if (socket.drained) await socket.drained();
+  if (!socket.abort.aborted) socket.send(encode(frame));
+}
+
 /** Serve one authenticated rpc-req: resolve it and frame the ok/error response back to the peer. */
 async function handleRpc(
   socket: WsSocket,
@@ -196,12 +205,12 @@ async function handleRpc(
       throw error;
     }
 
-    socket.send(encode({ type: 'rpc-res', id, ok: true, result }));
+    await reply(socket, { type: 'rpc-res', id, ok: true, result });
   } catch (err) {
     const status = isHttpError(err) ? err.status : ((err as any)?.status ?? 500);
 
     deps.bus?.emit('mesh:rpc:error', { name, error: err });
-    socket.send(encode({ type: 'rpc-res', id, ok: false, error: { message: (err as Error).message, status } }));
+    await reply(socket, { type: 'rpc-res', id, ok: false, error: { message: (err as Error).message, status } });
   }
 }
 

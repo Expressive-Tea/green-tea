@@ -11,6 +11,7 @@ const env = { method: 'GET', params: {}, query: {}, body: undefined, headers: {}
 // teapot that validates secret 'good', returns a manifest, answers scope rpc (boom -> error)
 function startTeapot(secret = 'good') {
   const wss = new WebSocketServer({ port: 0 });
+  const names: string[] = []; // every rpc-req name received, in order
   wss.on('connection', (ws) => {
     let authed = false;
     ws.on('message', (d) => {
@@ -21,13 +22,14 @@ function startTeapot(secret = 'good') {
         return;
       }
       if (f.type === 'rpc-req') {
+        names.push(f.name);
         if (f.name === 'boom') ws.send(encode({ type: 'rpc-res', id: f.id, ok: false, error: { message: 'denied', status: 403 } }));
         else ws.send(encode({ type: 'rpc-res', id: f.id, ok: true, result: { got: f.name } }));
       }
     });
   });
   const port = (wss.address() as any).port;
-  return { url: `ws://127.0.0.1:${port}/__mesh__/control`, close: () => wss.close() };
+  return { url: `ws://127.0.0.1:${port}/__mesh__/control`, names, close: () => wss.close() };
 }
 
 // teapot that completes the handshake but NEVER answers rpc-req (for timeout)
@@ -133,6 +135,41 @@ describe('connectLink', () => {
     const t = startSilentTeapot();
     const link = await connectLink({ url: t.url, secret: 'good', timeoutMs: 150 });
     await expect(link.rpc('scope', 'whatever', env)).rejects.toThrow(/timeout/i);
+    link.close(); t.close();
+  });
+
+  /** The `ws` client, reporting a send buffer over the 1 MiB mark while `stalled`. */
+  let stalled = false;
+  const realBuffered = Object.getOwnPropertyDescriptor(WS.prototype, 'bufferedAmount')!.get!;
+  class Backed extends WS {
+    constructor(url: string) {
+      super(url);
+      Object.defineProperty(this, 'bufferedAmount', { get: () => (stalled ? 2_000_000 : realBuffered.call(this)) });
+    }
+  }
+  const BackedCtor = Backed as unknown as SocketCtor;
+
+  it('holds an rpc-req while the link is backed up, and sends it once it drains (#41)', async () => {
+    const t = startTeapot();
+    const link = await connectLink({ url: t.url, secret: 'good', Ctor: BackedCtor });
+    stalled = true;
+    let settled = false;
+    const call = link.rpc('scope', 'auth', env).finally(() => (settled = true));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(settled).toBe(false);
+    stalled = false;
+    expect(await call).toEqual({ got: 'auth' });
+    link.close(); t.close();
+  });
+
+  it('times out an rpc still waiting for room, and never sends it (#41)', async () => {
+    const t = startTeapot();
+    const link = await connectLink({ url: t.url, secret: 'good', timeoutMs: 100, Ctor: BackedCtor });
+    stalled = true;
+    await expect(link.rpc('scope', 'auth', env)).rejects.toMatchObject({ status: 504 });
+    stalled = false;
+    expect(await link.rpc('scope', 'next', env)).toEqual({ got: 'next' });
+    expect(t.names).toEqual(['next']); // the timed-out call was dropped, not sent late
     link.close(); t.close();
   });
 });
