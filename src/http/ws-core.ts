@@ -39,6 +39,33 @@ export interface WsSocket {
  */
 export const WS_HIGH_WATER_MARK = 1_048_576;
 
+/** The tail of each socket's {@link sendWhenDrained} queue. */
+const sendQueues = new WeakMap<WsSocket, Promise<void>>();
+
+/**
+ * Sends on `socket` in call order, each frame only once {@link WsSocket.drained} lets it (#41).
+ * For senders outside the outbound pump, such as concurrent mesh RPCs. Waiting one at a time is
+ * the point: callers that each waited on their own would all be released by the same drain and
+ * all send, putting one frame per caller over the mark. Queued, the buffer peaks at the mark plus
+ * one frame, however many callers wait.
+ *
+ * `frame` runs at send time, so a caller that settled while queued (a timeout) returns
+ * `undefined` and sends nothing. Nothing is sent once the socket has closed.
+ */
+export function sendWhenDrained(socket: WsSocket, frame: () => string | undefined): Promise<void> {
+  const sent = (sendQueues.get(socket) ?? Promise.resolve()).then(async () => {
+    if (socket.drained) await socket.drained();
+    if (socket.abort.aborted) return;
+    const data = frame();
+    if (data !== undefined) socket.send(data);
+  });
+  sendQueues.set(
+    socket,
+    sent.catch(() => {}),
+  );
+  return sent;
+}
+
 /** Default for `limits.maxWsMessageBytes`: 1 MiB. */
 export const DEFAULT_MAX_WS_MESSAGE_BYTES = 1_048_576;
 /** Default for `limits.maxWsQueue`, in undelivered inbound messages per connection (D1). */

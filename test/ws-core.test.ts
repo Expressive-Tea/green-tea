@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { runWsConnection, matchWsRoute, type WsSocket, type WsRequest } from '../src/http/ws-core';
+import { runWsConnection, matchWsRoute, sendWhenDrained, type WsSocket, type WsRequest } from '../src/http/ws-core';
 import { channel } from '../src/channel';
 import { HttpError } from '../src/signals';
 import { Bus } from '../src/bus';
@@ -253,5 +253,70 @@ describe('runWsConnection outbound backpressure (#41)', () => {
     await runWsConnection(counted, req, { def: flood(50, 4, () => {}), params: {} });
     expect(sent).toHaveLength(50);
     expect(waits).toBe(51); // once before each pull, the last one being the pull that ends it
+  });
+});
+
+describe('sendWhenDrained (#41)', () => {
+  /** Like `nodeSocket`: every `drained()` caller waits on one list, and a drain releases them all. */
+  function drainingSocket(mark: number) {
+    const fake = fakeSocket();
+    let buffered = 0;
+    let waiters: Array<() => void> = [];
+    const socket: WsSocket = Object.assign(Object.create(fake.socket), {
+      send: (d: string) => {
+        fake.sent.push(d);
+        buffered += d.length;
+      },
+      drained: () =>
+        buffered <= mark || fake.ac.signal.aborted
+          ? Promise.resolve()
+          : new Promise<void>((resolve) => waiters.push(resolve)),
+    });
+    const flush = () => {
+      buffered = 0;
+      const woken = waiters;
+      waiters = [];
+      woken.forEach((resolve) => resolve());
+    };
+    const close = () => {
+      fake.ac.abort();
+      flush();
+    };
+    return { ...fake, socket, flush, close, buffered: () => buffered };
+  }
+
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it('a burst of callers sends one frame per drain, in call order, never more than one over the mark', async () => {
+    const { socket, sent, flush, buffered } = drainingSocket(10);
+    socket.send('x'.repeat(11)); // backed up before anyone queues
+    const frames = ['a', 'b', 'c', 'd', 'e'].map((c) => c.repeat(100));
+    const all = Promise.all(frames.map((f) => sendWhenDrained(socket, () => f)));
+    await tick();
+    expect(sent).toHaveLength(1);
+    for (let i = 0; i < frames.length; i++) {
+      flush();
+      await tick();
+      expect(sent).toHaveLength(i + 2); // one more, not the whole burst
+      expect(buffered()).toBe(100); // the mark plus one frame at most
+    }
+    await all;
+    expect(sent.slice(1)).toEqual(frames);
+  });
+
+  it('skips a frame its caller withdrew while queued, and sends nothing after the close', async () => {
+    const { socket, sent, flush, close } = drainingSocket(10);
+    socket.send('x'.repeat(11));
+    const withdrawn = sendWhenDrained(socket, () => undefined);
+    flush();
+    await withdrawn;
+    expect(sent).toHaveLength(1);
+
+    socket.send('y'.repeat(11)); // backed up again
+    const late = sendWhenDrained(socket, () => 'late');
+    await tick();
+    close(); // releases the wait, as a real close does
+    await late;
+    expect(sent).toHaveLength(2);
   });
 });
