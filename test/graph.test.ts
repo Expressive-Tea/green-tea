@@ -52,6 +52,22 @@ describe('one producer per token', () => {
   });
 });
 
+// GitHub #43: a node that needs its own token reads a value nobody wrote. With one producer per
+// token, nothing else can provide it either, so only a seed makes the need real.
+describe('self-dependency', () => {
+  it('counts as missing when the token is not seeded', () => {
+    expect(() => topoSort([node('auth', ['user'], ['user'])], [])).toThrow(
+      /cycle detected: auth -> auth \(it needs 'user', which only it provides\)/,
+    );
+  });
+
+  it('passes when the token is seeded, since the node reads the seed', () => {
+    expect(topoSort([node('normalize', ['params'], ['params'])], ['req', 'params']).map((n) => n.name)).toEqual([
+      'normalize',
+    ]);
+  });
+});
+
 const N = (name: string, needs: string[] = []) => ({ name, needs, provides: [name], origin: 'm' });
 
 describe('subgraphFor', () => {

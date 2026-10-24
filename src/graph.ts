@@ -83,8 +83,20 @@ export function topoSort(nodes: GraphNode[], seedKeys: string[], note = ''): Gra
   // validate dependencies exist
   for (const node of nodes) {
     for (const key of node.needs) {
-      if (!seedKeys.includes(key) && !producedBy.has(key)) {
-        throw new Error(`missing dependency: ${key} needed by ${node.name}${note}`);
+      if (seedKeys.includes(key)) continue;
+      const producer = producedBy.get(key);
+
+      if (!producer) throw new Error(`missing dependency: ${key} needed by ${node.name}${note}`);
+
+      // A node that needs its own token is a cycle of one (GitHub #43): it would read a value nobody
+      // wrote yet. `producers` already allows one producer per token, so no other node can supply
+      // it; only a seed makes the need real, and the seed case continued above. Same wording as the
+      // cycle check below, so both read as the one error they are.
+      if (producer === node) {
+        throw new Error(
+          `cycle detected: ${node.name} -> ${node.name} (it needs '${key}', which only it provides)${note}. ` +
+            `Remove '${key}' from its needs, or move the work that produces '${key}' into a step it needs.`,
+        );
       }
     }
   }
