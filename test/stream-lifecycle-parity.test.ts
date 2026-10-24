@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { Bus } from '../src/bus';
 import { createHttpServer } from '../src/http';
 import { buildFetch } from '../src/http/web';
+import { resolveCompression } from '../src/http/compression';
 import type { RouteDef } from '../src/http/types';
 
 const events = (bus: Bus): string[] => {
@@ -158,4 +159,83 @@ describe('stream lifecycle events, on every adapter', () => {
 
     expect(seen).toEqual(['stream:open', 'stream:close']);
   });
+});
+
+// GitHub #40. A source idle between events (an SSE feed waiting on something that may never happen)
+// has a `next()` that does not settle. Both adapters waited on it after the client left: Node kept
+// `pipeStream` running and its closer registered, so shutdown still saw a live stream, and the
+// fetch adapter's `cancel` waited on `return()`, which an async generator only runs once its pending
+// `next()` settles. The source's own `return()` must not be able to hold that up either.
+describe('a client leaving an idle stream', () => {
+  const hang = new Promise<never>(() => {});
+
+  /** Yields once, then waits forever; `return()` does whatever `onReturn` does. */
+  const idle = (onReturn: () => Promise<IteratorResult<unknown>>): AsyncIterable<unknown> => ({
+    [Symbol.asyncIterator]: () => {
+      let sent = false;
+      return {
+        next: () => (sent ? hang : ((sent = true), Promise.resolve({ value: { t: 1 }, done: false }))),
+        return: onReturn,
+      };
+    },
+  });
+
+  const SOURCES: Record<string, () => AsyncIterable<unknown>> = {
+    'an async generator': async function* () {
+      yield { t: 1 };
+      await hang;
+    },
+    'a return() that never settles': () => idle(() => hang),
+    'a return() that throws': () =>
+      idle(() => {
+        throw new Error('return failed');
+      }),
+  };
+
+  /** Fails with a message instead of the test timing out. */
+  const within = <T>(work: Promise<T>, what: string): Promise<T> =>
+    Promise.race([work, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what}: hung`)), 1000))]);
+
+  for (const [source, make] of Object.entries(SOURCES))
+    for (const compression of [undefined, resolveCompression(true)]) {
+      const label = `${source}${compression ? ', compressed' : ''}`;
+
+      it(`node: ${label} — finishes and unregisters on disconnect`, async () => {
+        const bus = new Bus();
+        const closed = new Promise<void>((r) => bus.on('stream:close', () => r()));
+        const streams = new Set<() => void>();
+        const server = createHttpServer(route(make), [], bus, undefined, { streams, compression });
+        await new Promise<void>((r) => server.listen(0, r));
+        const { port } = server.address() as { port: number };
+        const ac = new AbortController();
+
+        try {
+          const res = await fetch(`http://127.0.0.1:${port}/feed`, {
+            signal: ac.signal,
+            headers: { 'accept-encoding': 'gzip' },
+          });
+          await res.body!.getReader().read();
+          ac.abort();
+
+          await within(closed, 'stream:close');
+          expect(streams.size).toBe(0); // nothing left for a graceful shutdown to wait on
+        } finally {
+          server.closeAllConnections();
+          server.close();
+        }
+      });
+
+      it(`fetch: ${label} — cancel settles at once`, async () => {
+        const bus = new Bus();
+        const seen = events(bus);
+        const res = await buildFetch(route(make), { bus, compression })(
+          new Request('http://x/feed', { headers: { 'accept-encoding': 'gzip' } }),
+        );
+        const reader = res.body!.getReader();
+        await reader.read();
+
+        await within(reader.cancel(), 'cancel()');
+        expect(seen).toEqual(['stream:open', 'stream:close']);
+      });
+    }
 });

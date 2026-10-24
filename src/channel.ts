@@ -15,6 +15,20 @@ export function isAsyncIterable(x: unknown): x is AsyncIterable<unknown> {
 }
 
 /**
+ * Internal: tells a source its consumer has gone, without waiting for it to finish. An async
+ * generator runs `return()` only once its pending `next()` settles, which for an idle source may be
+ * never, and a `return()` may also throw or reject. None of that may hold up or break the cleanup
+ * that calls this (GitHub #40). Not exported from the package.
+ */
+export function releaseIterator(iterator: AsyncIterator<unknown> | undefined): void {
+  try {
+    void Promise.resolve(iterator?.return?.()).catch(() => {});
+  } catch {
+    /* a return() that throws synchronously */
+  }
+}
+
+/**
  * Internal: reads a channel synchronously, inside `push`, rather than through an async iterator
  * that only drains once the event loop yields. `boundInbound` needs it to bound a WebSocket burst
  * frame by frame, before anything is queued (#107). Not exported from the package; `Symbol.for`

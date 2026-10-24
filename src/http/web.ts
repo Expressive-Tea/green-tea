@@ -20,6 +20,7 @@ import { answerProbe } from './health';
 import { currentRoutes } from './router';
 import { compressOutcome, compressWebStream } from './compression';
 import type { NeutralOutcome } from './core';
+import { releaseIterator } from '../channel';
 
 /**
  * Wraps an AsyncIterable as a web ReadableStream, encoding each value. Cancels the source on stream
@@ -42,6 +43,9 @@ export function asReadableStream(
   // `cancel` can land after the body has already ended, and an errored stream still unwinds through
   // its own path — so the close is latched rather than emitted from each of the three exits.
   let closed = false;
+  // Settles on `cancel`, so a `pull` waiting on an idle source's `next()` stops waiting (GitHub #40).
+  let cancelled!: (step: undefined) => void;
+  const gone = new Promise<undefined>((resolve) => (cancelled = resolve));
 
   const close = (): void => {
     if (closed) return;
@@ -55,7 +59,9 @@ export function asReadableStream(
     },
     async pull(controller) {
       try {
-        const { value, done } = await iterator.next();
+        const step = await Promise.race([iterator.next(), gone]);
+        if (!step) return;
+        const { value, done } = step;
 
         if (done) {
           close();
@@ -83,9 +89,11 @@ export function asReadableStream(
         controller.close();
       }
     },
-    async cancel() {
+    // Not awaited: `return()` on a generator still waiting in `next()` would hold the cancel open.
+    cancel() {
       close();
-      await iterator.return?.();
+      cancelled(undefined);
+      releaseIterator(iterator);
     },
   });
 }

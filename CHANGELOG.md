@@ -286,6 +286,13 @@ npm treats versions as semver and semver forbids leading zeros.
   forced the server and logged a timeout nobody was waiting for. A synchronous throw is now handled
   like a rejection: `close()` resolves, and the timer is cleared.
 
+- **A client leaving an idle stream ends it at once** (GitHub #40). Both stream adapters waited for
+  the source's pending `next()` after the client had gone, so an SSE feed with nothing to send kept
+  its connection alive: on Node, `stream:close` never fired and the stream stayed registered for
+  graceful shutdown; through `app.fetch`, cancelling the body did not settle. The pull is now raced
+  against the disconnect, and the source's `return()` is called without being waited on, so one
+  that hangs or throws can no longer hold up or break the cleanup. Compressed streams included.
+
 - **`listen()` rejects when the port is taken** (#138). A bind failure such as `EADDRINUSE` or
   `EACCES` arrives as the server's `error` event, which `listen()` did not handle: the promise
   never settled, and the error surfaced as an unhandled one. It now rejects with that error. The

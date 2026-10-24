@@ -5,6 +5,7 @@ import type { Transport } from '../metadata';
 import type { Bus, Correlation } from '../bus';
 import type { NeutralOutcome } from './core';
 import { frameSink } from './compression';
+import { releaseIterator } from '../channel';
 
 const PING_MS = 15_000;
 
@@ -63,7 +64,7 @@ export async function pipeStream(
     if (ping) clearInterval(ping);
     // A client gone mid-stream: the compressor holds zlib memory outside the JS heap until destroyed.
     sink.destroy();
-    void Promise.resolve(iterator.return?.()).catch(() => {});
+    releaseIterator(iterator);
   };
 
   res.on('close', stop);
@@ -78,11 +79,15 @@ export async function pipeStream(
 
   streams?.add(closer);
   const onClose = once(res, 'close');
+  // `next()` is raced against the disconnect (GitHub #40): an idle source's may never settle, and
+  // waiting on it kept this loop and its closer alive long after the client had gone.
+  const gone = onClose.then(() => undefined);
 
   try {
     while (true) {
-      const { value, done } = await iterator.next();
-      if (done) break;
+      const step = await Promise.race([iterator.next(), gone]);
+      if (!step || step.done) break;
+      const { value } = step;
 
       if (!sink.write(encoder.encode(value))) {
         await Promise.race([once(sink.drains, 'drain'), onClose]);
