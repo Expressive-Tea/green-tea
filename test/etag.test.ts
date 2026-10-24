@@ -29,6 +29,12 @@ class Handlers {
     return null;
   }
 
+  @Get('/own-list')
+  @Transformer(() => ({ headers: { ETag: ['"v6"', '"v7"'] }, body: 'v7' }))
+  ownList() {
+    return null;
+  }
+
   @Post('/post')
   post() {
     return { n: 1 };
@@ -178,6 +184,14 @@ describe('handlers (etag: true)', () => {
     const first = await req(etagApp, '/h/own');
     expect(first.headers.get('etag')).toBe('"v7"');
     const res = await req(etagApp, '/h/own', { headers: { 'if-none-match': 'W/"v7"' } });
+    expect(res.status).toBe(304);
+    expect(res.headers.get('etag')).toBe('"v7"');
+  });
+
+  it("T6: a handler-set ETag array is still the handler's: the last value is sent and compared", async () => {
+    const first = await req(etagApp, '/h/own-list');
+    expect(first.headers.get('etag')).toBe('"v7"');
+    const res = await req(etagApp, '/h/own-list', { headers: { 'if-none-match': '"v7"' } });
     expect(res.status).toBe(304);
     expect(res.headers.get('etag')).toBe('"v7"');
   });
