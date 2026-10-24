@@ -118,8 +118,9 @@ npm treats versions as semver and semver forbids leading zeros.
 - **A node that needs the token it provides fails `createApp`** (GitHub #43). The graph check
   skipped a dependency whose producer was the node itself, so a step with `needs: ['user']` and
   `provides: ['user']` booted, and at request time read a value nobody had written. It now fails
-  like any other missing dependency: `missing dependency: user needed by auth — it provides 'user'
-  itself`. Since a token has one producer (GitHub #35), no other node can supply it; only a seeded
+  as the cycle it is, naming the token and the fix: `cycle detected: auth -> auth (it needs 'user',
+  which only it provides). Remove 'user' from its needs, or move the work that produces 'user' into
+  a step it needs.` Since a token has one producer (GitHub #35), no other node can supply it; only a seeded
   token (`req`, `params`) still satisfies a node's own need, because the node reads the seed.
   `overrides` do not exempt the node: they replace its runner after the graph is checked. To
   migrate, remove the token from the node's `needs`, or move the work that produces it into a

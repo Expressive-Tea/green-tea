@@ -57,7 +57,7 @@ describe('one producer per token', () => {
 describe('self-dependency', () => {
   it('counts as missing when the token is not seeded', () => {
     expect(() => topoSort([node('auth', ['user'], ['user'])], [])).toThrow(
-      /missing dependency: user needed by auth — it provides 'user' itself/,
+      /cycle detected: auth -> auth \(it needs 'user', which only it provides\)/,
     );
   });
 

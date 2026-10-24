@@ -88,9 +88,9 @@ describe('one producer per token', () => {
   // check that rejects the node runs before any override could.
   it('a node that needs the token it provides fails boot, with or without an override', () => {
     const loop = adds('loop', { kind: 'step', name: 'loop', needs: ['loop'], provides: ['loop'] });
-    expect(() => createApp({ modules: [AppModule], plugins: [loop] })).toThrow(/missing dependency: loop needed by loop/);
+    expect(() => createApp({ modules: [AppModule], plugins: [loop] })).toThrow(/cycle detected: loop -> loop/);
     expect(() => createApp({ modules: [AppModule], plugins: [loop], overrides: { loop: 1 } })).toThrow(
-      /missing dependency: loop needed by loop/,
+      /cycle detected: loop -> loop/,
     );
   });
 
