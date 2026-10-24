@@ -280,6 +280,12 @@ npm treats versions as semver and semver forbids leading zeros.
   second resolved while a database could still be open. Every caller now gets the promise of the
   teardown already in flight, and it still runs once.
 
+- **A graceful close that throws synchronously no longer rejects `close()`** (GitHub #47). On Deno
+  and Bun, `closeWithDeadline` called the graceful path directly, so a throw before it returned a
+  promise escaped as a rejection of `close()`, while the deadline timer stayed armed and later
+  forced the server and logged a timeout nobody was waiting for. A synchronous throw is now handled
+  like a rejection: `close()` resolves, and the timer is cleared.
+
 - **`listen()` rejects when the port is taken** (#138). A bind failure such as `EADDRINUSE` or
   `EACCES` arrives as the server's `error` event, which `listen()` did not handle: the promise
   never settled, and the error surfaced as an unhandled one. It now rejects with that error. The

@@ -44,7 +44,9 @@ export function closeWithDeadline(
     };
 
     // A graceful path that rejects still has to end the shutdown: the deadline covers a slow
-    // close, not a broken one, and leaving close() pending forever is the worse failure.
-    void graceful().then(finish, finish);
+    // close, not a broken one, and leaving close() pending forever is the worse failure. Called
+    // inside `then` so a graceful path that throws before returning its promise counts as a
+    // rejection too, rather than rejecting close() and leaving the timer to force a closed server.
+    void Promise.resolve().then(graceful).then(finish, finish);
   });
 }
