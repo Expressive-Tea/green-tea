@@ -8,6 +8,7 @@ import {
   boundInbound,
   controlBounds,
   wsMessageBytes,
+  HELLO_FRAME_BYTES,
   WS_HIGH_WATER_MARK,
   type WsSocket,
   type WsRequest,
@@ -54,7 +55,8 @@ function handleMeshUpgrade(
 
   // An RPC carries a whole request body, so once the peer authenticates the channel is bounded by
   // the teapot's body limit rather than `maxWsMessageBytes` (#120). `wss` is built with that bound
-  // as `maxPayload`; until the hello is accepted, `boundInbound` holds the peer to hello size.
+  // as `maxPayload`; until the hello is accepted, `boundInbound` holds the peer to hello size, and
+  // `capPreAuthBytes` keeps `ws` from assembling anything larger first.
   const bounds = controlBounds(limits, meshControl.maxFrameBytes);
 
   // nodeSocket, not the raw ws: the control channel is the last consumer that spoke the
@@ -63,11 +65,46 @@ function handleMeshUpgrade(
   // an untracked control channel leaves the teapot's server.close() waiting on it forever.
   // serveFrames swallows its own failures, so the floating promise cannot reject.
   wss.handleUpgrade(req, socket, head, (ws: any) => {
-    const neutral = boundInbound(nodeSocket(ws), bounds.preAuth, bounds.authed);
+    const lift = capPreAuthBytes(ws, socket, head);
+    const neutral = boundInbound(nodeSocket(ws), bounds.preAuth, bounds.authed, lift);
 
     void trackUntil(neutral, meshControl.handle(neutral), streams);
   });
   return true;
+}
+
+/** Bytes an unauthenticated control peer may send: one hello-sized frame plus headers and a close frame. */
+const PRE_AUTH_WIRE_BYTES = HELLO_FRAME_BYTES + 1024;
+
+/**
+ * Closes a control peer that sends more than a hello's worth of bytes before its hello is accepted.
+ * `maxPayload` is set once per `WebSocketServer`, and the control channel's must fit an
+ * authenticated RPC (about 7 MB at the defaults), so without this an unauthenticated peer could
+ * make `ws` assemble a frame that size before `boundInbound` sees it and refuses it. This counts
+ * raw socket bytes instead, so the peer is closed `1009` about 64 KiB in. Returns the function that
+ * stops counting, for when the peer authenticates.
+ *
+ * Installed in the `handleUpgrade` callback, after `ws` has attached its own `data` listener: a
+ * listener added earlier would switch the socket to flowing mode and lose chunks `ws` never saw.
+ */
+function capPreAuthBytes(ws: any, socket: any, head: Buffer): () => void {
+  let received = head.length;
+
+  const count = (chunk: Buffer) => {
+    received += chunk.length;
+
+    if (received > PRE_AUTH_WIRE_BYTES) {
+      socket.off('data', count);
+      // 1009, as every other runtime closes an oversized frame. Paused, so `ws` reads nothing more
+      // of it; `end` still flushes the close frame. `ws` destroys the socket at its close timeout.
+      ws.close(1009, 'message too big');
+      socket.pause();
+      socket.end();
+    }
+  };
+
+  socket.on('data', count);
+  return () => socket.off('data', count);
 }
 
 /** Accepts an upgrade to the reserved mesh path on an app without a control channel, then closes it 1008. */

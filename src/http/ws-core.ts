@@ -174,12 +174,14 @@ function exceedsBytes(msg: unknown, max: number): boolean {
  * Every other capability is the original socket's.
  *
  * `widened`, when given, is a second set of bounds that {@link widenInbound} switches to later: the
- * mesh control channel starts at hello size and widens once its peer authenticates.
+ * mesh control channel starts at hello size and widens once its peer authenticates. `onWiden` runs
+ * then too, for an adapter that holds a bound of its own until that point.
  */
 export function boundInbound(
   socket: WsSocket,
   limits?: Pick<RequestLimits, 'maxWsMessageBytes' | 'maxWsQueue'>,
   widened?: InboundLimits,
+  onWiden?: () => void,
 ): WsSocket {
   const fanout = new InboundFanout(socket, wsMessageBytes(limits), limits?.maxWsQueue ?? DEFAULT_MAX_WS_QUEUE);
 
@@ -189,7 +191,14 @@ export function boundInbound(
 
   return Object.create(socket, {
     inbound: { value: { [Symbol.asyncIterator]: () => fanout.subscribe() } },
-    ...(widened && { [WIDEN_INBOUND]: { value: () => fanout.widen(widened) } }),
+    ...(widened && {
+      [WIDEN_INBOUND]: {
+        value: () => {
+          fanout.widen(widened);
+          onWiden?.();
+        },
+      },
+    }),
   }) as WsSocket;
 }
 
