@@ -455,7 +455,11 @@ export function createApp(opts: {
       etag: opts.etag,
     });
     server.on('close', () => closeLinks(meshLinks));
-    await new Promise<void>((resolve) => server!.listen(port, resolve));
+    await bind(server, port).catch((err: unknown) => {
+      // Never listened: `close()` treats the app as one that never served, and `listen()` can retry.
+      server = undefined;
+      throw err;
+    });
     // After the socket is up, so a boot that throws never leaves a handler behind pointing at an
     // app that never served.
     handleSignals(close);
@@ -1993,6 +1997,21 @@ function runTeardown(teardown: TeardownRegistry, logger: Logger, budgetMs: numbe
     };
 
     void teardown.run(logger).then(finish, finish);
+  });
+}
+
+/**
+ * `server.listen`, settled either way. A bind failure (`EADDRINUSE`, `EACCES`) arrives as an
+ * `error` event, never the listening callback, so without the listener `listen()` would hang
+ * and the error would surface as an unhandled one (#138).
+ */
+function bind(server: http.Server, port: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, () => {
+      server.off('error', reject);
+      resolve();
+    });
   });
 }
 

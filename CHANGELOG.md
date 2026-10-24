@@ -233,6 +233,12 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Fixed
 
+- **`listen()` rejects when the port is taken** (#138). A bind failure such as `EADDRINUSE` or
+  `EACCES` arrives as the server's `error` event, which `listen()` did not handle: the promise
+  never settled, and the error surfaced as an unhandled one. It now rejects with that error. The
+  app counts as never having listened, so `close()` resolves and a second `listen()` can try
+  another port.
+
 - **WebSocket outbound respects backpressure** (#41). A `@Ws` handler's async iterator was pulled
   as fast as it could yield, whatever the peer read, so a fast producer and a slow client grew the
   send buffer without limit: 10,000 frames of 64 KiB put 640 MiB in memory at once. The pump now
