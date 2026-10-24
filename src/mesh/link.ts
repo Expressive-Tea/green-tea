@@ -459,6 +459,9 @@ function backoffBounds(
  * identity — the graph captured `rpc` at boot — and reconnects underneath it.
  *
  * `Ctor` is injectable to exercise both client implementations on a single runtime.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in a minor release.
  */
 export function connectLink(args: {
   url: string;

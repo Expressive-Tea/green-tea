@@ -18,7 +18,7 @@ export const VERSION = '26.9.0-beta.2';
 
 // Application
 export { createApp } from './app';
-export type { App, InspectLine, Explain, MeshConfig } from './app';
+export type { App, AppOptions, InspectLine, Explain, ExplainNode, MeshConfig } from './app';
 
 // Graph visualization
 export { toMermaid, toDOT } from './graph-viz';
@@ -79,7 +79,7 @@ export type { StepFn, CompiledFlow } from './flow';
 
 // Parameter decorators
 export { needs, ctx, param, query, body, headers, header, cookies, cookie, inbound, abort } from './params';
-export type { Query, Headers, Context, ArgSpec, ArgDecorator } from './params';
+export type { Query, RequestHeaders, Headers, Context, ArgSpec, ArgDecorator } from './params';
 
 // Cookies
 export { setCookie, parseCookies } from './cookies';
@@ -98,13 +98,14 @@ export type { StreamEncoder, SseEvent, SseFields } from './encoders';
 
 // HTTP, security & validation
 export type { RequestLimits } from './http';
+export type { WsRequest, WsSocket } from './http/ws-core';
 export type { CompressionOptions } from './http/compression';
 export { UNMATCHED_ROUTE } from './http/core';
 export type { TlsOptions, CorsOptions, SecurityOptions } from './security';
 export type { UploadedFile, MultipartBody } from './multipart';
 export type { StandardSchemaV1 } from './standard-schema';
 
-// Mesh
+// Mesh — experimental (`createApp({ experimental: true })`): outside the API freeze, may change in a minor.
 export { connectLink } from './mesh/link';
 export { buildRemote, envelopeFrom } from './mesh/teacup';
 export { buildManifest, createMeshControl, MESH_CONTROL_PATH } from './mesh/teapot';

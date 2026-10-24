@@ -125,7 +125,12 @@ export interface RoutePlan {
   args: ArgSpec[];
 }
 
-/** Mesh networking options: a secret to gate this node's exports and/or remote teapots to connect to. */
+/**
+ * Mesh networking options: a secret to gate this node's exports and/or remote teapots to connect to.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in a minor release.
+ */
 export interface MeshConfig {
   secret?: string;
   teapots?: Array<{ url: string; secret: string }>;

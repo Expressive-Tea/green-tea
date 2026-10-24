@@ -22,6 +22,9 @@ import {
  *
  * Reserved in every app, mesh or not (D17): `createApp` refuses a route that claims it, and an upgrade
  * to it on an app without a control channel closes `1008` on every adapter.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in a minor release.
  */
 export const MESH_CONTROL_PATH = '/__mesh__/control';
 
@@ -70,7 +73,12 @@ export function controlFrameLimit(maxBodyBytes = DEFAULT_MAX_BODY_BYTES): number
   return WORST_ESCAPE * maxBodyBytes + ENVELOPE_HEADROOM;
 }
 
-/** Assemble a {@link Manifest} from exported step tokens and buffered routes. */
+/**
+ * Assemble a {@link Manifest} from exported step tokens and buffered routes.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in a minor release.
+ */
 export function buildManifest(args: { steps: string[]; routes: RouteEntry[] }): Manifest {
   return { steps: [...args.steps], routes: args.routes };
 }
@@ -275,7 +283,12 @@ async function serveFrames(
   }
 }
 
-/** Build a control handler that authenticates peers and serves scope/route RPCs from the manifest. */
+/**
+ * Build a control handler that authenticates peers and serves scope/route RPCs from the manifest.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in a minor release.
+ */
 export function createMeshControl(deps: MeshControlDeps): {
   path: string;
   maxFrameBytes: number;
