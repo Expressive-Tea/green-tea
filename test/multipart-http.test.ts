@@ -153,6 +153,22 @@ describe('multipart limits on app.fetch (#105)', () => {
     expect(await r.text()).toContain('Invalid multipart body');
   });
 
+  // GitHub #39: busboy's own 1 MiB field limit used to apply whatever maxBodyBytes allowed, and cut
+  // the field without an error. A field is now bounded only by the body limit, on both adapters.
+  it('a text field over 1 MiB reaches the handler whole when maxBodyBytes allows it', async () => {
+    @Route('/') class C { @Post('/u', { maxBodyBytes: 2_000_000 }) u(@body() b: any) { return { length: b.fields.big.length }; } }
+    @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
+    app = createApp({ modules: [CMod] });
+    const big = () => { const fd = new FormData(); fd.set('big', 'x'.repeat(1_100_000)); return fd; };
+
+    const viaFetch = await app.fetch(new Request('http://x/u', { method: 'POST', body: big() }));
+    expect(await viaFetch.json()).toEqual({ length: 1_100_000 });
+
+    const server = await app.listen(0);
+    const viaNode = await fetch(`http://127.0.0.1:${(server.address() as any).port}/u`, { method: 'POST', body: big() });
+    expect(await viaNode.json()).toEqual({ length: 1_100_000 });
+  });
+
   it('T7: the server-level maxParts applies when the route sets none', async () => {
     @Route('/') class C { @Post('/u') u(@body() b: any) { return b; } }
     @Module({ mountpoint: '/', controllers: [C] }) class CMod {}

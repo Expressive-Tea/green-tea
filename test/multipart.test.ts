@@ -79,6 +79,14 @@ describe('parseMultipart', () => {
     await expect(parseMultipart(b, B, { maxParts: 2, duplicates: 'last' })).rejects.toThrow();
   });
 
+  // GitHub #39: busboy cuts a field at its size limit and only flags it, so the parser has to refuse
+  // the body rather than hand the handler partial data.
+  it('a field over maxFieldBytes → rejects with 413 instead of truncating', async () => {
+    const b = body([field('a', 'x'.repeat(10))]);
+    await expect(parseMultipart(b, B, { ...opts, maxFieldBytes: 4 })).rejects.toMatchObject({ status: 413 });
+    expect((await parseMultipart(b, B, { ...opts, maxFieldBytes: 10 })).fields.a).toBe('x'.repeat(10));
+  });
+
   it('malformed input with no matching boundary → rejects', async () => {
     await expect(parseMultipart(Buffer.from('garbage'), B, opts)).rejects.toThrow();
   });

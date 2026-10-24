@@ -21,6 +21,8 @@ export interface MultipartBody {
 export interface MultipartOpts {
   maxParts: number;
   duplicates: 'array' | 'last';
+  /** Largest text field accepted, in bytes. Unset leaves busboy's own default of 1 MiB. */
+  maxFieldBytes?: number;
 }
 
 /**
@@ -79,6 +81,7 @@ function loadBusboy(): ((cfg: unknown) => NodeJS.WritableStream & NodeJS.EventEm
  * @param raw The full (already size-capped) request body.
  * @param boundary The boundary token (see {@link extractBoundary}).
  * @throws HttpError 501 when the optional `busboy` peer dependency is not installed.
+ * @throws HttpError 413 when a text field is larger than `maxFieldBytes`.
  * @throws Error 'Invalid multipart body' on malformed input or when `maxParts` is exceeded.
  */
 export function parseMultipart(raw: Buffer, boundary: string, opts: MultipartOpts): Promise<MultipartBody> {
@@ -93,16 +96,25 @@ export function parseMultipart(raw: Buffer, boundary: string, opts: MultipartOpt
     const fail = () => reject(new Error('Invalid multipart body'));
     let bb: NodeJS.WritableStream & NodeJS.EventEmitter;
 
+    // busboy flags a field as truncated once it *reaches* `fieldSize`, so a field of exactly
+    // `maxFieldBytes` needs one byte of headroom to count as whole.
+    const fieldSize = opts.maxFieldBytes === undefined ? undefined : opts.maxFieldBytes + 1;
+
     try {
       bb = busboy({
         headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
-        limits: { parts: opts.maxParts },
+        limits: { parts: opts.maxParts, fieldSize },
       });
     } catch {
       return fail();
     }
 
-    bb.on('field', (name: string, value: string) => addField(body.fields, name, value, opts.duplicates));
+    bb.on('field', (name: string, value: string, info: { valueTruncated: boolean }) => {
+      // busboy cuts a field at `fieldSize` and only flags it. Partial data is not the field the
+      // client sent, so refuse the body as too large, like any other over-limit body.
+      if (info.valueTruncated) return reject(new HttpError(413, 'Payload Too Large'));
+      addField(body.fields, name, value, opts.duplicates);
+    });
 
     bb.on('file', (name: string, stream: Readable, info: { filename?: string; mimeType?: string }) => {
       const chunks: Buffer[] = [];
