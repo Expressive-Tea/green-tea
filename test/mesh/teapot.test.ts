@@ -165,4 +165,38 @@ describe('createMeshControl', () => {
     const ids = t.sent.filter((f: any) => f.type === 'rpc-res').map((f: any) => f.id);
     expect(ids).toEqual(['fast', 'slow']);
   });
+
+  it('holds rpc responses while the peer is backed up, and sends them once it drains (#41)', async () => {
+    const t = fakeSocket();
+    let open: () => void = () => {};
+    let gate: Promise<void> | undefined;
+    t.socket.drained = () => gate ?? Promise.resolve();
+    make().handle(t.socket);
+    await t.deliver({ type: 'hello', v: V, secret: 'good' });
+    gate = new Promise<void>((resolve) => (open = resolve));
+    await t.deliver({ type: 'rpc-req', id: '1', kind: 'scope', name: 'config', ctx: {} });
+    await t.deliver({ type: 'rpc-req', id: '2', kind: 'scope', name: 'secretsvc', ctx: {} });
+    expect(t.sent.filter((f: any) => f.type === 'rpc-res')).toEqual([]);
+    open();
+    await settle();
+    expect(t.sent.filter((f: any) => f.type === 'rpc-res').map((f: any) => [f.id, f.ok])).toEqual([
+      ['1', true],
+      ['2', false],
+    ]);
+  });
+
+  it('drops a held response when the socket closes while waiting (#41)', async () => {
+    const t = fakeSocket();
+    let gate: Promise<void> | undefined;
+    t.socket.drained = () => gate ?? Promise.resolve();
+    make().handle(t.socket);
+    await t.deliver({ type: 'hello', v: V, secret: 'good' });
+    let open: () => void = () => {};
+    gate = new Promise<void>((resolve) => (open = resolve));
+    await t.deliver({ type: 'rpc-req', id: '1', kind: 'scope', name: 'config', ctx: {} });
+    t.close();
+    open(); // a real socket releases its drained() waiters on close
+    await settle();
+    expect(t.sent.filter((f: any) => f.type === 'rpc-res')).toEqual([]);
+  });
 });

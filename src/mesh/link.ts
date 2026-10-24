@@ -119,7 +119,11 @@ function sendRpc(
     }, timeoutMs);
 
     pending.set(id, { name, resolve: resolveCall, reject: rejectCall, timer });
-    socket.send(encode({ type: 'rpc-req', id, kind, name, ctx }));
+    // Not before the socket has room (#41); the timeout already runs, so a teapot that stops
+    // reading still answers 504. Settled while waiting (timeout, close): nothing left to send.
+    void (socket.drained?.() ?? Promise.resolve()).then(() => {
+      if (pending.has(id) && !socket.abort.aborted) socket.send(encode({ type: 'rpc-req', id, kind, name, ctx }));
+    });
   });
 }
 
