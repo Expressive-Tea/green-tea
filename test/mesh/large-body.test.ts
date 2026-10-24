@@ -105,9 +105,12 @@ describe('mesh RPC body near maxBodyBytes (#120)', () => {
   });
 
   it('a body over maxBodyBytes is refused 413 by the teacup, and the channel stays open (T2)', async () => {
-    const { post, close } = await pair();
+    // A small limit, so the refused body fits in the socket buffer. Over the 1 MB default, the 413
+    // and its `connection: close` land mid-upload and the client can see EPIPE instead: the
+    // transport racing the answer, not a different answer (the edge suite does the same).
+    const { post, close } = await pair(1_000);
     try {
-      expect((await post(json(1_000_001))).status).toBe(413);
+      expect((await post(json(1_001))).status).toBe(413);
       expect((await post(json(1_000))).status).toBe(200);
     } finally {
       await close();
