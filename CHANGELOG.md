@@ -99,6 +99,13 @@ npm treats versions as semver and semver forbids leading zeros.
   `app.upgrade` already did. An app with no `@Ws`/`@Stream` routes and no mesh attaches no upgrade
   listener on Node, as before, so there the request still reaches the HTTP route table.
 
+- **Static files are revalidated, not re-downloaded** (#114, D12). Every static hit carries a weak
+  `ETag` (`W/"<size>-<mtime>"`), `Last-Modified` and `Cache-Control: no-cache`. A matching
+  `If-None-Match`, or `If-Modified-Since` when there is no `If-None-Match`, answers `304` from the
+  file's `stat` without reading it. A `HEAD` no longer reads the file either. `no-cache` stops
+  browsers from reusing a file for a lifetime they guessed from `Last-Modified`. To keep the old
+  behaviour, set `static: { cacheControl }` to whatever your proxy expects.
+
 ### Added
 
 - **Health probes: `createApp({ health: true })`** (#115). Off by default. `GET`/`HEAD /__live__`
@@ -177,12 +184,6 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Changed
 
-- **Static files are revalidated, not re-downloaded** (#114, D12). Every static hit carries a weak
-  `ETag` (`W/"<size>-<mtime>"`), `Last-Modified` and `Cache-Control: no-cache`. A matching
-  `If-None-Match`, or `If-Modified-Since` when there is no `If-None-Match`, answers `304` from the
-  file's `stat` without reading it. A `HEAD` no longer reads the file either. `no-cache` stops
-  browsers from reusing a file for a lifetime they guessed from `Last-Modified`. To keep the old
-  behaviour, set `static: { cacheControl }` to whatever your proxy expects.
 - **Every `304` is bodiless** (#114). A `304` has no body and no `content-*` headers on any adapter,
   including one from `throw new NotModified()`, which used to go out with the default JSON
   envelope's `content-type`.
