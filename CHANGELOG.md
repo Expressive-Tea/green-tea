@@ -59,6 +59,13 @@ npm treats versions as semver and semver forbids leading zeros.
   against each other. A local route against a remote one keeps the deliberate local override and
   its warning.
 
+  To fix a pair that now fails, make the router's choice explicit. Make the two constraints
+  disjoint (`\d{1,3}` and `\d{4,}`), keep one route and branch inside its handler, or move one
+  under a static segment of its own (`/u/:id(\d+)` and `/u/short/:n(\d{1,3})`). A plain param
+  reported as unreachable never answered a request: delete it, or narrow the constraint that
+  shadows it so some segments are left over. For a WebSocket pair, declare the constrained route
+  first.
+
   The check is exact. The safe subset makes every constraint a sequence of (character set, min,
   max) blocks, and the check walks the product of two such sequences. It costs
   O(|A|·|B|·(|A|+|B|)·K) per pair, with K ≤ 2048. Measured at under 0.1 ms for `\d{0,2048}`
@@ -92,6 +99,8 @@ npm treats versions as semver and semver forbids leading zeros.
   always refused it, so the same route worked on one runtime and not the others. A pattern whose
   first segment is not the literal `__mesh__` (`/:org/:repo`, `/:rest*`) still boots; the reserved
   path is answered ahead of the route table on every runtime, so such a route never sees it.
+  To migrate, move the route to another path, for example `/mesh/control`. Nothing replaces
+  `/__mesh__/control` itself: it never reached the route on Deno, Bun or the edge.
 
   An upgrade to `/__mesh__/control` on an app with no control channel is now refused identically
   everywhere: the Node listener accepts it and closes `1008` with
