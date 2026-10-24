@@ -58,6 +58,22 @@ test('runtime module metadata without mountpoint names module and missing field'
   expect(() => createApp({ modules: [BrokenModule] })).toThrow(/BrokenModule.*mountpoint/);
 });
 
+test("an empty mountpoint still mounts at the root, as it did before the missing-mountpoint check", async () => {
+  @Route('/')
+  class RootCtl {
+    @Get('/hi')
+    hi() {
+      return { ok: true };
+    }
+  }
+
+  @Module({ mountpoint: '', controllers: [RootCtl] })
+  class RootModule {}
+
+  const res = await createApp({ modules: [RootModule] }).fetch(new Request('http://x/hi'));
+  expect(res.status).toBe(200);
+});
+
 test('ready() is a no-op on a non-mesh app, so one protocol works for both', async () => {
   // The point: code holding an `App` should not have to know whether it is a mesh app.
   // `await app.ready(); app.graph()` is uniform — here it changes nothing and boots nothing.
