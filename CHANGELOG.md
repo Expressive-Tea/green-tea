@@ -270,9 +270,9 @@ npm treats versions as semver and semver forbids leading zeros.
   the raw `Content-Type` header, case-sensitively, so `Content-Type: Application/JSON` reached the
   handler as a string while `text/plain; x=application/json` was parsed as JSON. The same applied
   to urlencoded and multipart bodies. The parser now compares the media type, the part before any
-  `;`, trimmed and lowercased, exactly. **A type that only contains one of the three no longer
-  selects its parser:** `application/json-patch+json` used to be parsed as JSON and now arrives as
-  text, like any other `+json` type always has. Parse it in the handler.
+  `;`, trimmed and lowercased, exactly. Any `+json` type (RFC 6839) is parsed as JSON too:
+  `application/problem+json` and `application/vnd.api+json`, which used to arrive as text, now
+  arrive parsed, and `application/json-patch+json`, which matched the old substring, still does.
 
 - **`listen()` rejects when the port is taken** (#138). A bind failure such as `EADDRINUSE` or
   `EACCES` arrives as the server's `error` event, which `listen()` did not handle: the promise

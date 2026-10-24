@@ -74,7 +74,9 @@ export async function parseRequestBody(
 ): Promise<ParseResult> {
   const type = mediaType(contentType);
 
-  if (buf !== undefined && type === 'application/json') {
+  // `+json` is the structured-syntax suffix for JSON (RFC 6839): `application/problem+json`,
+  // `application/vnd.api+json` and `application/json-patch+json` are JSON documents too.
+  if (buf !== undefined && (type === 'application/json' || type.endsWith('+json'))) {
     try {
       return { body: JSON.parse(buf.toString('utf8')) };
     } catch {

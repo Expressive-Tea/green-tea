@@ -394,6 +394,9 @@ describe('request hardening', () => {
 
     expect(await post('Text/Plain; x=application/json', '{"a":1}')).toEqual({ got: '{"a":1}' });
     expect(await post('Application/JSON; charset=utf-8', '{"a":1}')).toEqual({ got: { a: 1 } });
+    expect(await post('application/vnd.api+json', '{"a":1}')).toEqual({ got: { a: 1 } });
+    expect(await post('application/json-patch+json', '[]')).toEqual({ got: [] });
+    expect(await post('application/jsonx', '{"a":1}')).toEqual({ got: '{"a":1}' });
     expect(await post('APPLICATION/X-WWW-FORM-URLENCODED', 'a=1')).toEqual({ got: { a: '1' } });
     expect(await post('text/plain; x=application/x-www-form-urlencoded', 'a=1')).toEqual({ got: 'a=1' });
     server.close();
