@@ -12,10 +12,15 @@ export default defineConfig({
   target: 'node22',
   // Give the ESM output a real `require` (via createRequire) so the lazy require('ws') / require('busboy')
   // (optional peer deps) resolve instead of hitting esbuild's "Dynamic require not supported" stub.
+  // The call is guarded because it runs at module scope: on workerd `import.meta.url` is not a file
+  // URL and `createRequire` throws, which failed the whole worker at load (#93). `require` is then
+  // undefined, and src/node-require.ts falls back to `process.getBuiltinModule` or reports the miss
+  // in its callers' own terms. The static `node:module` import stays: edge already needs
+  // `nodejs_compat`, which provides it, and Node 22.0-22.2 have no `getBuiltinModule` to replace it.
   esbuildOptions(options, context) {
     if (context.format === 'esm') {
       options.banner = {
-        js: "import { createRequire as _createRequire } from 'node:module'; const require = _createRequire(import.meta.url);",
+        js: "import { createRequire as _createRequire } from 'node:module'; const require = (() => { try { return _createRequire(import.meta.url); } catch { return undefined; } })();",
       };
     }
   },

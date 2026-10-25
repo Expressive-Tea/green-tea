@@ -23,6 +23,7 @@ coverage/
 test/edge/_worker.mjs
 test/edge/_parity-worker.mjs
 test/edge/_compression-worker.mjs
+test/edge/_dist-worker.mjs
 
 # Bun writes this on `bun install`, and nothing here consumes it: `npm run test:bun` runs
 # `bun test` against the node_modules npm installed, which package-lock.json already pins.

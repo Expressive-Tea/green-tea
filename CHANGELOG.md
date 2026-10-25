@@ -347,6 +347,13 @@ npm treats versions as semver and semver forbids leading zeros.
   `@headers(['X-Trace'])` keeps the names as written in the bag it hands over, so the handler reads
   `X-Trace` back; `@headers()` with no argument still returns the lower-cased bag. Node, Deno, Bun
   and the edge share this path.
+- **The npm ESM build loads on Cloudflare Workers** (#93). tsup gives every ESM file a
+  `createRequire(import.meta.url)` banner so the lazy `require('ws')`/`require('busboy')` work, and
+  it ran at module scope. On workerd `import.meta.url` is not a file URL, so `createRequire` threw
+  and the whole worker failed to load: `@green-tea/core/edge` from npm could not be used at all.
+  The edge suite never noticed because it bundles `src/`. The call is now guarded; where it fails,
+  `require` is left undefined and the existing fallback takes over. `npm run test:edge` now also
+  builds and boots the published `dist/` on workerd. Node, Deno, Bun and JSR are unchanged.
 
 - **`listen()` rejects when the port is taken** (#138). A bind failure such as `EADDRINUSE` or
   `EACCES` arrives as the server's `error` event, which `listen()` did not handle: the promise
