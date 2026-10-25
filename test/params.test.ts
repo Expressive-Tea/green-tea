@@ -110,6 +110,16 @@ describe('@headers / @header', () => {
     expect(args[1]).toEqual({ authorization: 'Bearer t0ken', 'x-trace': 'abc' });
   });
 
+  // GitHub #37: adapters store header names lower-cased; the decorator name is matched without case.
+  it('@header and @headers([...]) match the name without case, keeping the written names', async () => {
+    class Ctl {
+      handle(@header('Authorization') _auth: string, @headers(['X-Trace', 'x-count']) _some: unknown) {}
+    }
+    const args = await resolveArgs(getArgs(Ctl, 'handle'), { headers: reqHeaders });
+    expect(args[0]).toBe('Bearer t0ken');
+    expect(args[1]).toEqual({ 'X-Trace': 'abc', 'x-count': '5' });
+  });
+
   it('@header(name, schema) validates the picked header', async () => {
     class Ctl {
       handle(@header('x-count', numFromStr) _count: number) {}

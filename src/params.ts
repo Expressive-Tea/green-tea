@@ -147,14 +147,17 @@ function resolveOne(spec: ArgSpec, context: Context): unknown {
   const bag = spec.source === 'cookies' ? cookiesOf(context) : context[spec.source];
   if (typeof bag !== 'object' || bag === null) return bag; // can't pick from a non-object; return as-is
   const values = bag as Record<string, unknown>;
+  // Every adapter stores header names lower-cased, so `@header('Content-Type')` looks up
+  // `content-type` (GitHub #37). A picked bag keeps the names as the handler wrote them.
+  const at = spec.source === 'headers' ? (key: string) => values[key.toLowerCase()] : (key: string) => values[key];
 
   if (spec.keys) {
     const picked: Record<string, unknown> = {};
-    for (const key of spec.keys) picked[key] = values[key];
+    for (const key of spec.keys) picked[key] = at(key);
     return picked;
   }
 
-  if (spec.key !== undefined) return values[spec.key];
+  if (spec.key !== undefined) return at(spec.key);
   return values;
 }
 
