@@ -147,6 +147,7 @@ describe('multipart limits on app.fetch (#105)', () => {
     @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
     app = createApp({ modules: [CMod] });
 
+    expect((await app.fetch(new Request('http://x/u', { method: 'POST', body: form(2) }))).status).toBe(200); // #118
     const r = await app.fetch(new Request('http://x/u', { method: 'POST', body: form(3) }));
 
     expect(r.status).toBe(400);
@@ -175,6 +176,7 @@ describe('multipart limits on app.fetch (#105)', () => {
     app = createApp({ modules: [CMod], limits: { maxParts: 2 } });
 
     expect((await app.fetch(new Request('http://x/u', { method: 'POST', body: form(1) }))).status).toBe(200);
+    expect((await app.fetch(new Request('http://x/u', { method: 'POST', body: form(2) }))).status).toBe(200);
     expect((await app.fetch(new Request('http://x/u', { method: 'POST', body: form(3) }))).status).toBe(400);
   });
 });
