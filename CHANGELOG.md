@@ -126,6 +126,15 @@ npm treats versions as semver and semver forbids leading zeros.
   migrate, remove the token from the node's `needs`, or move the work that produces it into a
   separate provider or step the node needs.
 
+- **A handler that returns `undefined` answers `204 No Content`** (GitHub #38). The default JSON
+  transformer passed the value to `JSON.stringify`, which returns `undefined` rather than a string:
+  the Node server sent an empty `200` with `content-type: application/json`, and the fetch adapter
+  threw a `TypeError`, so Deno, Bun and the edge answered `500` for a handler that did nothing
+  wrong. Every runtime now sends `204` with no body and no `content-type`. A handler that returns
+  `null` still gets `200` with `null`. A client that checked for `200` after a handler with no
+  `return` sees `204` instead; return a value to keep a `200`. A route with its own `@Transformer`
+  is not affected.
+
 ### Added
 
 - **Health probes: `createApp({ health: true })`** (#115). Off by default. `GET`/`HEAD /__live__`

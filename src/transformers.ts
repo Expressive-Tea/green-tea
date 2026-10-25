@@ -24,12 +24,14 @@ export interface ErrorRequest {
  */
 export type ErrorRenderer = (error: unknown, req: ErrorRequest) => ErrorResponse | undefined | void;
 
-/** Default transformer: serialize a handler's return value as a JSON `200` response. */
-export const JsonTransformer: TransformerFn = (value) => ({
-  status: 200,
-  headers: { 'content-type': 'application/json' },
-  body: JSON.stringify(value),
-});
+/**
+ * Default transformer: serialize a handler's return value as a JSON `200` response. A handler that
+ * returns `undefined` (no `return`) answers `204 No Content` with no body, on every runtime (GitHub #38).
+ */
+export const JsonTransformer: TransformerFn = (value) => {
+  if (value === undefined) return { status: 204, body: '' };
+  return { status: 200, headers: { 'content-type': 'application/json' }, body: JSON.stringify(value) };
+};
 
 /**
  * Map a thrown value to a JSON error response (422 for validation, `HttpError` status, else 500).
