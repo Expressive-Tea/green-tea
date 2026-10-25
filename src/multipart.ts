@@ -99,11 +99,14 @@ export function parseMultipart(raw: Buffer, boundary: string, opts: MultipartOpt
     // busboy flags a field as truncated once it *reaches* `fieldSize`, so a field of exactly
     // `maxFieldBytes` needs one byte of headroom to count as whole.
     const fieldSize = opts.maxFieldBytes === undefined ? undefined : opts.maxFieldBytes + 1;
+    // Same for parts: busboy emits `partsLimit` once the count *reaches* `parts`, so a body of
+    // exactly `maxParts` parts needs one of headroom to be accepted (Gitea #118).
+    const parts = opts.maxParts + 1;
 
     try {
       bb = busboy({
         headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
-        limits: { parts: opts.maxParts, fieldSize },
+        limits: { parts, fieldSize },
       });
     } catch {
       return fail();

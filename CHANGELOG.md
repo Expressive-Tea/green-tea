@@ -327,6 +327,12 @@ npm treats versions as semver and semver forbids leading zeros.
   handing the handler partial data. The Node server and `app.fetch` parse multipart through the
   same path, so the fix applies to both.
 
+- **`maxParts: N` accepts exactly N parts** (#118). busboy signals its parts limit once the count
+  reaches it, so a body of exactly `maxParts` parts was rejected with `400 Invalid multipart body`
+  and only N−1 got through. busboy now gets one part of headroom, the same way `fieldSize` does:
+  N parts are accepted and N+1 are rejected, as the option's name says. Both the route-level and
+  the server-level `maxParts` were affected, on the Node server and `app.fetch` alike.
+
 - **`listen()` rejects when the port is taken** (#138). A bind failure such as `EADDRINUSE` or
   `EACCES` arrives as the server's `error` event, which `listen()` did not handle: the promise
   never settled, and the error surfaced as an unhandled one. It now rejects with that error. The

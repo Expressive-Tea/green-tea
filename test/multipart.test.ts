@@ -79,6 +79,12 @@ describe('parseMultipart', () => {
     await expect(parseMultipart(b, B, { maxParts: 2, duplicates: 'last' })).rejects.toThrow();
   });
 
+  // Gitea #118: busboy signals the limit when the count reaches it, which used to reject exactly N.
+  it('exactly maxParts parts → accepted', async () => {
+    const b = body([field('a', '1'), field('b', '2')]);
+    expect((await parseMultipart(b, B, { maxParts: 2, duplicates: 'last' })).fields).toEqual({ a: '1', b: '2' });
+  });
+
   // GitHub #39: busboy cuts a field at its size limit and only flags it, so the parser has to refuse
   // the body rather than hand the handler partial data.
   it('a field over maxFieldBytes → rejects with 413 instead of truncating', async () => {
