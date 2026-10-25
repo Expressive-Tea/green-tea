@@ -332,6 +332,12 @@ npm treats versions as semver and semver forbids leading zeros.
   and only N−1 got through. busboy now gets one part of headroom, the same way `fieldSize` does:
   N parts are accepted and N+1 are rejected, as the option's name says. Both the route-level and
   the server-level `maxParts` were affected, on the Node server and `app.fetch` alike.
+- **`@header('Content-Type')` finds the header** (GitHub #37). Every adapter stores request
+  header names lower-cased, and `@header`/`@headers` looked the name up as written, so any name
+  with a capital letter reached the handler as `undefined`. The name is now matched without case.
+  `@headers(['X-Trace'])` keeps the names as written in the bag it hands over, so the handler reads
+  `X-Trace` back; `@headers()` with no argument still returns the lower-cased bag. Node, Deno, Bun
+  and the edge share this path.
 
 - **`listen()` rejects when the port is taken** (#138). A bind failure such as `EADDRINUSE` or
   `EACCES` arrives as the server's `error` event, which `listen()` did not handle: the promise
