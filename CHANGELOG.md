@@ -319,6 +319,14 @@ npm treats versions as semver and semver forbids leading zeros.
   rejection. `createApp` was not affected in practice, because it runs each provider once during
   the memoized boot and registers the finished value, but the container no longer depends on that.
 
+- **A multipart text field over 1 MiB is no longer cut short** (GitHub #39). busboy applies its
+  own 1 MiB `fieldSize` default unless told otherwise, so with `maxBodyBytes` raised above that a
+  1,100,000-character field reached the handler as its first 1,048,576, and nothing said it had
+  been cut. A field is now bounded by the route's body limit, the same one the whole body is held
+  to. If busboy still reports a field as truncated, the request fails with `413` rather than
+  handing the handler partial data. The Node server and `app.fetch` parse multipart through the
+  same path, so the fix applies to both.
+
 - **`listen()` rejects when the port is taken** (#138). A bind failure such as `EADDRINUSE` or
   `EACCES` arrives as the server's `error` event, which `listen()` did not handle: the promise
   never settled, and the error surfaced as an unhandled one. It now rejects with that error. The

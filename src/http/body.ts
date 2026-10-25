@@ -71,6 +71,7 @@ export async function parseRequestBody(
   contentType: string,
   duplicates: 'array' | 'last',
   maxParts: number,
+  maxFieldBytes?: number,
 ): Promise<ParseResult> {
   const type = mediaType(contentType);
 
@@ -93,9 +94,10 @@ export async function parseRequestBody(
     if (!boundary) return { error: 'Invalid multipart body' };
 
     try {
-      return { body: await parseMultipart(buf, boundary, { maxParts, duplicates }) };
+      return { body: await parseMultipart(buf, boundary, { maxParts, duplicates, maxFieldBytes }) };
     } catch (error) {
-      // HttpError = the busboy peer dep is missing (501); anything else = malformed input (400).
+      // HttpError = the busboy peer dep is missing (501) or a field is over the limit (413);
+      // anything else = malformed input (400).
       if (isHttpError(error)) return { error: error.message, status: error.status };
       return { error: 'Invalid multipart body' };
     }
@@ -128,12 +130,13 @@ export function acquireBody(
   // this whole path without a single promise, and an `async` wrapper here would allocate one
   // regardless. Same reason `handle()` is not async.
   return isPromise(acquired)
-    ? acquired.then((settled) => parseAcquired(settled, matched, opts, req))
-    : parseAcquired(acquired, matched, opts, req);
+    ? acquired.then((settled) => parseAcquired(settled, limit, matched, opts, req))
+    : parseAcquired(acquired, limit, matched, opts, req);
 }
 
 function parseAcquired(
   acquired: { bytes: Buffer | undefined } | BodyFailure,
+  limit: number,
   matched: MatchedRoute,
   opts: HttpOptions | undefined,
   req: ErrorRequest,
@@ -149,7 +152,9 @@ function parseAcquired(
   const duplicates = matched.def.bodyDuplicates ?? opts?.bodyDuplicates ?? 'last';
   const maxParts = matched.def.maxParts ?? opts?.limits?.maxParts ?? 1000;
 
-  return parseRequestBody(acquired.bytes, contentType, duplicates, maxParts).then((parsed) =>
+  // A field is bounded by the body limit alone. busboy's own 1 MiB default would otherwise cut any
+  // larger field that `maxBodyBytes` was raised to admit.
+  return parseRequestBody(acquired.bytes, contentType, duplicates, maxParts, limit).then((parsed) =>
     'error' in parsed
       ? { fail: renderError(new HttpError(parsed.status ?? 400, parsed.error), req, opts?.onError, opts?.logger) }
       : { body: parsed.body },
