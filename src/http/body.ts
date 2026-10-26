@@ -46,7 +46,9 @@ export type BodyReader = (source: unknown, limit: number) => MaybePromise<{ byte
  * and the running total still enforces the limit on whatever actually arrives.
  */
 export function declaresOverLimit(contentLength: string | null | undefined, limit: number): boolean {
-  return contentLength != null && /^\d+$/.test(contentLength) && Number(contentLength) > limit;
+  // The numeric test first: nearly every request is under the limit, so the shape check below runs
+  // only for the rare one that would be refused.
+  return contentLength != null && Number(contentLength) > limit && /^\d+$/.test(contentLength);
 }
 
 /**

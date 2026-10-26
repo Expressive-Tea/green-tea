@@ -3,21 +3,60 @@ import { HttpError } from '../signals';
 import { declaresOverLimit } from './body';
 
 /** Reads the full request body, enforcing the max-bytes ceiling (throws 413 if exceeded). */
-export async function readBody(req: http.IncomingMessage, maxBodyBytes: number): Promise<Buffer | undefined> {
+export function readBody(req: http.IncomingMessage, maxBodyBytes: number): Promise<Buffer | undefined> {
   // A declared length over the limit is refused without waiting for the first chunk, which could
   // otherwise sit until the request timeout. The fetch adapter makes the same check.
-  if (declaresOverLimit(req.headers['content-length'], maxBodyBytes)) throw new HttpError(413, 'Payload Too Large');
+  if (declaresOverLimit(req.headers['content-length'], maxBodyBytes))
+    return Promise.reject(new HttpError(413, 'Payload Too Large'));
 
-  const chunks: Buffer[] = [];
-  let total = 0;
+  // Listeners rather than `for await`: the async iterator costs a promise and a microtask per chunk,
+  // which a JSON POST pays on every request. The semantics are the iterator's: the running total
+  // still enforces the limit, an over-limit body destroys the request as leaving the loop did, and a
+  // stream that errors or closes before `end` rejects.
+  return new Promise<Buffer | undefined>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
 
-  for await (const chunk of req) {
-    total += (chunk as Buffer).length;
-    if (total > maxBodyBytes) throw new HttpError(413, 'Payload Too Large');
-    chunks.push(chunk as Buffer);
-  }
+    const settle = (): void => {
+      req.off('data', onData);
+      req.off('end', onEnd);
+      req.off('error', onError);
+      req.off('close', onClose);
+    };
 
-  return chunks.length === 0 ? undefined : Buffer.concat(chunks);
+    const onData = (chunk: Buffer): void => {
+      total += chunk.length;
+
+      if (total <= maxBodyBytes) {
+        chunks.push(chunk);
+        return;
+      }
+
+      settle();
+      req.destroy();
+      reject(new HttpError(413, 'Payload Too Large'));
+    };
+
+    const onEnd = (): void => {
+      settle();
+      resolve(chunks.length === 0 ? undefined : chunks.length === 1 ? chunks[0] : Buffer.concat(chunks));
+    };
+
+    const onError = (err: Error): void => {
+      settle();
+      reject(err);
+    };
+
+    const onClose = (): void => {
+      settle();
+      reject(Object.assign(new Error('Premature close'), { code: 'ERR_STREAM_PREMATURE_CLOSE' }));
+    };
+
+    req.on('data', onData);
+    req.on('end', onEnd);
+    req.on('error', onError);
+    req.on('close', onClose);
+  });
 }
 
 /** Returns the first comma-separated token of a header value (handles array-valued headers). */
