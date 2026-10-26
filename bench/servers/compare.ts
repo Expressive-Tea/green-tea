@@ -18,12 +18,17 @@ function makeStep(n: number) {
 }
 const steps = [1, 2, 3, 4, 5].map(makeStep);
 
+// ~8 KB of JSON: well over the 1024-byte compression threshold, and repetitive the way list
+// responses are, so the encoders do real work rather than bailing out on incompressible input.
+const BIG = Array.from({ length: 120 }, (_, i) => ({ id: i, name: `user ${i}`, email: `user${i}@example.com`, active: i % 2 === 0 }));
+
 @Route('/')
 class Bench {
   @Get('/hello') hello() { return { hello: 'world' }; }
   @Get('/users/:id') user(@param('id') id: string) { return { id }; }
   @Get('/pipeline') pipeline(@needs('s3') s3: number) { return { hello: 'world', s3 }; }
   @Post('/validate') validate(@body(emailSchema) b: any) { return { email: b.email }; }
+  @Get('/big') big() { return BIG; }
   @Get('/steps/5') steps5(@needs('s5') s5: number) { return { hello: 'world', s5 }; }
   // Reads the counter without resetting it — the read itself carries no Origin, so it cannot
   // change what it reports.
@@ -68,10 +73,12 @@ const cors =
       }
     : undefined;
 
+// Only passed when asked for, so the file still boots against a revision without compression.
 const app = createApp({
   modules: [BenchModule],
   security: process.env.GT_SECURE === '1',
   ...(cors ? { cors } : {}),
+  ...(process.env.GT_COMPRESS === '1' ? { compression: true } : {}),
 });
 
 async function main() {
