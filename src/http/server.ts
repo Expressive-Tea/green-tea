@@ -15,6 +15,7 @@ import {
   watchingRequests,
   type HandleResult,
   type Preflight,
+  type NeutralOutcome,
 } from './core';
 import type { BodyFailure, BodyReader } from './body';
 import type { RouteTable, WsRouteDef, MeshControl, HttpOptions } from './types';
@@ -184,44 +185,51 @@ function createRequestHandler(cfg: HandlerConfig) {
       }
     }
 
-    await writeResult(req, res, result, { opts, bus, correlation });
+    const written = writeResult(req, res, result, { opts, bus, correlation });
+    if (written) await written;
   }
 }
 
 /**
  * Writes what `handle()` produced: a preflight, or an outcome after `compressOutcome` (CARD-16).
  * Module scope rather than inside `serve`, whose closure would charge every branch here again.
+ *
+ * Deliberately not `async`, like `handle()`: a buffered response without compression is written
+ * synchronously and returns nothing to await, so the common request allocates no promise here.
+ * Only a stream, or a compressed body, returns one.
  */
-async function writeResult(
+function writeResult(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   result: HandleResult | Preflight,
   ctx: { opts: HttpOptions | undefined; bus: Bus | undefined; correlation: Correlation },
-): Promise<void> {
-  const { opts, bus, correlation } = ctx;
-
+): Promise<void> | undefined {
   if ('preflight' in result) {
     res.writeHead(204, result.preflight);
     res.end();
-    return;
+    return undefined;
   }
 
-  // Not awaited unless compression actually returned a promise: an app without it keeps the
-  // synchronous write it had.
-  const decided = compressOutcome(
-    opts?.compression,
-    { method: req.method ?? 'GET', headers: req.headers },
-    result.outcome,
-  );
-  const outcome = decided instanceof Promise ? await decided : decided;
+  const compression = ctx.opts?.compression;
+  if (!compression) return writeOutcome(res, result.outcome, ctx);
 
-  if (outcome.kind === 'stream') {
-    await pipeStream(res, outcome, bus, opts?.streams, correlation);
-    return;
-  }
+  const decided = compressOutcome(compression, { method: req.method ?? 'GET', headers: req.headers }, result.outcome);
+  return decided instanceof Promise
+    ? decided.then((outcome) => writeOutcome(res, outcome, ctx))
+    : writeOutcome(res, decided, ctx);
+}
+
+/** Pipes a stream (returning its promise) or writes a buffered outcome in one go (returning nothing). */
+function writeOutcome(
+  res: http.ServerResponse,
+  outcome: NeutralOutcome,
+  ctx: { opts: HttpOptions | undefined; bus: Bus | undefined; correlation: Correlation },
+): Promise<void> | undefined {
+  if (outcome.kind === 'stream') return pipeStream(res, outcome, ctx.bus, ctx.opts?.streams, ctx.correlation);
 
   res.writeHead(outcome.status, outcome.headers);
   res.end(outcome.body);
+  return undefined;
 }
 
 /**

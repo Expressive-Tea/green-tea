@@ -75,6 +75,15 @@ const CASES: Case[] = [
   // all-static, so it takes the full scan rather than the early exit a literal path gets.
   { name: 'param, 50 routes', path: '/users/42', env: { GT_ROUTES: '50' } },
   { name: 'param, 200 routes', path: '/users/42', env: { GT_ROUTES: '200' } },
+  // Compression (CARD-16). `json 8KB uncompressed` is the same response uncompressed, so each compressed case
+  // has its own baseline in the table. `hello + compression` sits under the threshold: the cost of
+  // deciding not to encode, which is what most small responses pay once compression is on. Without
+  // `accept-encoding`, the 8 KB case measures negotiation alone.
+  { name: 'json 8KB uncompressed', path: '/big' },
+  { name: 'hello + compression', path: '/hello', env: { GT_COMPRESS: '1' }, headers: { 'accept-encoding': 'gzip, br' } },
+  { name: 'json 8KB + compression, identity', path: '/big', env: { GT_COMPRESS: '1' } },
+  { name: 'json 8KB + gzip', path: '/big', env: { GT_COMPRESS: '1' }, headers: { 'accept-encoding': 'gzip' } },
+  { name: 'json 8KB + br', path: '/big', env: { GT_COMPRESS: '1' }, headers: { 'accept-encoding': 'br' } },
 ];
 
 const ONLY = process.env.AB_ONLY;
