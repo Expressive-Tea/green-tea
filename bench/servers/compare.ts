@@ -86,11 +86,28 @@ const app = createApp({
   ...(process.env.GT_COMPRESS === '1' ? { compression: true } : {}),
 });
 
+// Each runtime through its own adapter, the way an app deploys there: Deno and Bun take the fetch
+// path (`src/http/web.ts`), Node the `node:http` one. `AB_RUNTIME` in the harness picks the binary.
+async function listen(): Promise<number> {
+  const g = globalThis as { Deno?: unknown; Bun?: unknown };
+  if (g.Deno) {
+    const { serveDeno } = await import('../../src/deno');
+    return new Promise((resolve) => {
+      void serveDeno(app, { port: 0, hostname: '127.0.0.1', onListen: (a: { port: number }) => resolve(a.port) });
+    });
+  }
+  if (g.Bun) {
+    const { serveBun } = await import('../../src/bun');
+    return (await serveBun(app, { port: 0, hostname: '127.0.0.1' })).port;
+  }
+  const server = await app.listen(0);
+  server.keepAliveTimeout = 5000;
+  return (server.address() as any).port;
+}
+
 async function main() {
   try { if (app.inspect('/hello').length === 0) throw new Error('empty'); }
   catch { console.error('DECORATORS_NOT_APPLIED'); process.exit(1); }
-  const server = await app.listen(0);
-  server.keepAliveTimeout = 5000;
-  console.log(`READY ${(server.address() as any).port}`);
+  console.log(`READY ${await listen()}`);
 }
 main().catch((e) => { console.error(e); process.exit(1); });
