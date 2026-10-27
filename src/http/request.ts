@@ -6,8 +6,15 @@ import { declaresOverLimit } from './body';
 export function readBody(req: http.IncomingMessage, maxBodyBytes: number): Promise<Buffer | undefined> {
   // A declared length over the limit is refused without waiting for the first chunk, which could
   // otherwise sit until the request timeout. The fetch adapter makes the same check.
-  if (declaresOverLimit(req.headers['content-length'], maxBodyBytes))
-    return Promise.reject(new HttpError(413, 'Payload Too Large'));
+  const contentLength = req.headers['content-length'];
+  if (declaresOverLimit(contentLength, maxBodyBytes)) return Promise.reject(new HttpError(413, 'Payload Too Large'));
+
+  // No `Transfer-Encoding` and no (or a zero) `Content-Length` is a request without a body (RFC 9112
+  // §6.3) — every GET. Node's parser has already finished it, so there is nothing to wait for, and
+  // subscribing to the stream anyway measured ~4% on an 8 KB GET response. Node drains the unread
+  // request itself when the response ends.
+  if (req.headers['transfer-encoding'] === undefined && (contentLength === undefined || contentLength === '0'))
+    return Promise.resolve(undefined);
 
   // Listeners rather than `for await`: the async iterator costs a promise and a microtask per chunk,
   // which a JSON POST pays on every request. The semantics are the iterator's: the running total

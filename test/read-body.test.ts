@@ -4,7 +4,8 @@ import { PassThrough } from 'node:stream';
 import type http from 'node:http';
 import { readBody } from '../src/http/request';
 
-const request = (headers: Record<string, string> = {}) =>
+// Chunked by default: a request with neither header has no body and never touches the stream.
+const request = (headers: Record<string, string> = { 'transfer-encoding': 'chunked' }) =>
   Object.assign(new PassThrough(), { headers }) as unknown as http.IncomingMessage & PassThrough;
 
 describe('readBody', () => {
@@ -19,6 +20,14 @@ describe('readBody', () => {
     const none = readBody(empty, 100);
     empty.end();
     expect(await none).toBeUndefined();
+  });
+
+  it('a request without a body resolves undefined without subscribing to the stream', async () => {
+    for (const headers of [{}, { 'content-length': '0' }] as Record<string, string>[]) {
+      const req = request(headers);
+      expect(await readBody(req, 100)).toBeUndefined();
+      expect(req.listenerCount('data')).toBe(0);
+    }
   });
 
   it('a body over the limit rejects 413 and destroys the request', async () => {
