@@ -272,7 +272,9 @@ npm treats versions as semver and semver forbids leading zeros.
   introspection routes (`devGraph`, `devOpenapi`) now sit before remote routes in that table, so
   in the one case where a teapot exports the same path at the same specificity, the dev route wins.
 
-- **The Node request path does less per request.** A JSON `POST` reads its body with stream
+- **The Node request path does less per request.** A request without a body (no
+  `Transfer-Encoding`, no or a zero `Content-Length`, RFC 9112 §6.3), which is every `GET`, no
+  longer touches the request stream at all. A JSON `POST` reads its body with stream
   listeners instead of `for await`, which cost a promise and a microtask per chunk; the response is
   written without an `async` wrapper when nothing needs awaiting, and without building the
   compression request when compression is off; the `content-length` limit check runs its shape test
