@@ -9,7 +9,7 @@ import { acquireBody, type BodyReader } from './body';
 import { bodyEtag, findHeader, isNotModified, notModifiedHeaders, staticEtag } from './conditional';
 import type { StaticHit } from '../views';
 import type { Encoding } from './compression';
-import type { RouteDef, HttpOptions } from './types';
+import type { RouteDef, HttpOptions, MatchedRoute } from './types';
 import type { StreamEncoder } from '../encoders';
 import type { Bus } from '../bus';
 
@@ -41,7 +41,11 @@ export interface NeutralRequest {
   /** The runtime's own request object, passed back to {@link readBody} untouched and never inspected here. */
   source: unknown;
   secure: boolean;
-  ip: string;
+  /**
+   * The client address, resolved only when something reads `ctx.ip`. A function of `source` rather
+   * than a closure, so an adapter passes one module-level function and allocates nothing per request.
+   */
+  resolveIp: (source: unknown, opts: HttpOptions | undefined) => string;
   requestId: string;
   traceId?: string;
 }
@@ -358,6 +362,76 @@ async function observedDispatch(
   return result;
 }
 
+/**
+ * The request a route handler receives.
+ *
+ * `ip` is resolved on its first read and kept. Most routes never read it, and on Bun resolving it
+ * is a native call. A step may assign it, as it may any key. The accessor is on the prototype rather
+ * than in an object literal: a literal with an accessor is a slow object in V8 and JSC, and every
+ * read of every key paid for it, which cost Node and Deno 15-24%.
+ */
+class RouteRequest {
+  method: string;
+  url: string;
+  headers: NeutralRequest['headers'];
+  query: Record<string, string>;
+  protocol: 'http' | 'https';
+  requestId: string;
+  traceId: string | undefined;
+  private resolved: string | undefined = undefined;
+
+  constructor(
+    private readonly req: NeutralRequest,
+    private readonly opts: HttpOptions | undefined,
+    public params: Record<string, string>,
+    public body: unknown,
+  ) {
+    this.method = req.method;
+    this.url = req.url;
+    this.headers = req.headers;
+    this.query = parseQuery(req.url);
+    this.protocol = req.secure ? 'https' : 'http';
+    this.requestId = req.requestId;
+    this.traceId = req.traceId;
+  }
+
+  get ip(): string {
+    return (this.resolved ??= this.req.resolveIp(this.req.source, this.opts));
+  }
+
+  set ip(value: string) {
+    this.resolved = value;
+  }
+
+  /**
+   * A stream body runs after the response has started, when the socket the address would come
+   * from may already be gone, so once a stream is returned an address nothing has read yet is `''`.
+   */
+  seal(): void {
+    this.resolved ??= '';
+  }
+}
+
+/** Runs the matched route's handler, turning a throw into the standard error envelope. */
+async function runHandler(
+  matched: MatchedRoute,
+  req: NeutralRequest,
+  body: unknown,
+  opts: HttpOptions | undefined,
+): Promise<PipelineResult> {
+  const request = new RouteRequest(req, opts, matched.params, body);
+  let result: PipelineResult;
+
+  try {
+    result = await matched.def.handler(request);
+  } catch (error) {
+    result = renderError(error, req, opts?.onError, opts?.logger);
+  }
+
+  if (isStreamResult(result)) request.seal();
+  return result;
+}
+
 async function dispatch(
   routes: RouteDef[],
   opts: HttpOptions | undefined,
@@ -428,24 +502,7 @@ async function dispatch(
   // caller merges `injected` into it exactly as it does for every other outcome.
   if ('fail' in acquired) return { injected, outcome: { kind: 'buffered', ...acquired.fail } };
 
-  let result: PipelineResult;
-
-  try {
-    result = await matched.def.handler({
-      method: req.method,
-      url: req.url,
-      headers: req.headers,
-      params: matched.params,
-      query: parseQuery(req.url),
-      body: acquired.body,
-      protocol: req.secure ? 'https' : 'http',
-      ip: req.ip,
-      requestId: req.requestId,
-      traceId: req.traceId,
-    });
-  } catch (error) {
-    result = renderError(error, req, opts?.onError, opts?.logger);
-  }
+  const result = await runHandler(matched, req, acquired.body, opts);
 
   if (isStreamResult(result)) {
     const encoder = pickEncoder(matched.def.transport, String(req.headers.accept ?? ''));

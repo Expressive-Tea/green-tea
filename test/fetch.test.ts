@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createApp, Provider, Route, Get, Post, Module, needs, body, ctx } from '../src/index';
+import { createApp, Provider, Step, Route, Get, Post, Sse, Module, needs, body, ctx } from '../src/index';
 import { countingStream } from './helpers/counting-stream';
 import { setPeer } from '../src/http/peer';
 
@@ -153,13 +153,107 @@ describe('app.fetch trustProxy gates x-forwarded-for', () => {
     expect(copy.peerOf(request)).toBe('192.0.2.1');
   });
 
-  it('T8: only the adapter\'s own Request carries the peer — a copy of it does not', async () => {
+  it("T8: only the adapter's own Request carries the peer — a copy of it does not", async () => {
     const original = new Request('http://x/ip/whoami');
     setPeer(original, '127.0.0.1');
 
     const res = await createApp({ modules: [IpModule] }).fetch(new Request(original));
 
     expect(await res.json()).toEqual({ ip: '' });
+  });
+});
+
+// `ctx.ip` resolves on its first read. A peer recorded as a resolver, as Bun records its server, is
+// asked only when something reads the address, at most once per request, and not from inside a
+// stream body, which runs after the response has started.
+@Route('/lazy')
+class LazyIpCtl {
+  @Get('/none') none() {
+    return { ok: true };
+  }
+  @Get('/twice') twice(@ctx() c: any) {
+    return { ip: c.ip, again: c.ip };
+  }
+  @Sse('/stream') stream(@ctx() c: any) {
+    return (async function* () {
+      yield c.ip === '' ? 'empty' : c.ip;
+    })();
+  }
+}
+@Module({ mountpoint: '/', controllers: [LazyIpCtl] })
+class LazyIpModule {}
+
+@Step({ provides: 'seen' })
+class SeesIp {
+  run(c: any) {
+    return { seen: c.ip };
+  }
+}
+@Route('/early')
+class EarlyIpCtl {
+  @Sse('/stream') stream(@needs('seen') seen: string, @ctx() c: any) {
+    return (async function* () {
+      yield `${seen}|${c.ip}`;
+    })();
+  }
+}
+@Module({ mountpoint: '/', steps: [SeesIp], controllers: [EarlyIpCtl] })
+class EarlyIpModule {}
+
+@Step({ provides: 'ip' })
+class AssignsIp {
+  run() {
+    return { ip: '198.51.100.1' };
+  }
+}
+@Route('/assigned')
+class AssignedIpCtl {
+  @Get('/') whoami(@needs('ip') ip: string, @ctx() c: any) {
+    return { ip, ctx: c.ip };
+  }
+}
+@Module({ mountpoint: '/', steps: [AssignsIp], controllers: [AssignedIpCtl] })
+class AssignedIpModule {}
+
+describe('ctx.ip is resolved only when read', () => {
+  const resolver = () => {
+    const source = { calls: 0, requestIP: () => (source.calls++, { address: '203.0.113.9' }) };
+    return source;
+  };
+  const via = async (app: ReturnType<typeof createApp>, path: string) => {
+    const request = new Request(`http://x${path}`);
+    const peer = resolver();
+    setPeer(request, peer);
+    const res = await app.fetch(request);
+    return { text: await res.text(), calls: peer.calls };
+  };
+
+  it('a route that never reads ctx.ip never asks for the peer', async () => {
+    expect((await via(createApp({ modules: [LazyIpModule] }), '/lazy/none')).calls).toBe(0);
+  });
+
+  it('reading ctx.ip twice asks once', async () => {
+    const { text, calls } = await via(createApp({ modules: [LazyIpModule] }), '/lazy/twice');
+    expect(JSON.parse(text)).toEqual({ ip: '203.0.113.9', again: '203.0.113.9' });
+    expect(calls).toBe(1);
+  });
+
+  it('inside a stream body ctx.ip is empty, and the peer is never asked', async () => {
+    const { text, calls } = await via(createApp({ modules: [LazyIpModule] }), '/lazy/stream');
+    expect(text).toContain('data: "empty"');
+    expect(calls).toBe(0);
+  });
+
+  it('a step that reads ctx.ip before the stream starts keeps it for the stream', async () => {
+    const { text, calls } = await via(createApp({ modules: [EarlyIpModule] }), '/early/stream');
+    expect(text).toContain('data: "203.0.113.9|203.0.113.9"');
+    expect(calls).toBe(1);
+  });
+
+  it('a step may assign ctx.ip, and the peer is then never asked', async () => {
+    const { text, calls } = await via(createApp({ modules: [AssignedIpModule] }), '/assigned');
+    expect(JSON.parse(text)).toEqual({ ip: '198.51.100.1', ctx: '198.51.100.1' });
+    expect(calls).toBe(0);
   });
 });
 
@@ -276,9 +370,7 @@ describe('app.fetch bounded body reads (#105)', () => {
   });
 
   it('T9: a route limit above the server limit wins', async () => {
-    const res = await limitsApp.fetch(
-      post('/limits/large', 'x'.repeat(1_500_000), { 'content-type': 'text/plain' }),
-    );
+    const res = await limitsApp.fetch(post('/limits/large', 'x'.repeat(1_500_000), { 'content-type': 'text/plain' }));
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ length: 1_500_000 });

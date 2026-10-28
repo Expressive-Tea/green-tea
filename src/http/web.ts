@@ -245,12 +245,24 @@ function outcomeToResponse(
 }
 
 /** The first `x-forwarded-for` hop when the proxy is trusted, else `''`. */
-function forwardedFor(headers: Record<string, string>, opts: HttpOptions | undefined): string {
+function forwardedFor(request: Request, opts: HttpOptions | undefined): string {
   if (!opts?.trustProxy) return '';
 
-  return String(headers['x-forwarded-for'] ?? '')
-    .split(',')[0]
-    .trim();
+  return (request.headers.get('x-forwarded-for') ?? '').split(',')[0].trim();
+}
+
+/**
+ * `ctx.ip` on the fetch path, for `NeutralRequest.resolveIp`. Mirrors Node's `deriveIp`
+ * (src/http/request.ts): only trust `x-forwarded-for` when the proxy is trusted, and take its first
+ * hop, because an untrusted XFF is client-spoofable. Otherwise the socket peer, which only the Deno
+ * and Bun adapters can supply; a bare `app.fetch` has none, so there the answer is still ''. Ahead of
+ * both, under `trustProxy` only: the address the edge adapter read from `cf-connecting-ip`.
+ * Cloudflare sets that header itself, while XFF can carry hops the client supplied, so on the edge
+ * it wins (CARD-23).
+ */
+function fetchIp(source: unknown, opts: HttpOptions | undefined): string {
+  const request = source as Request;
+  return trustedProxyClient(request, opts?.trustProxy) || forwardedFor(request, opts) || peerOf(request);
 }
 
 /**
@@ -324,14 +336,7 @@ export function buildFetch(routes: RouteTable, opts: HttpOptions | undefined) {
           readBody,
           source: request,
           secure,
-          // Mirrors Node's `deriveIp` (src/http/request.ts): only trust `x-forwarded-for` when the
-          // proxy is trusted, and take its first hop — an untrusted XFF is client-spoofable.
-          // Otherwise the socket peer, which only the Deno and Bun adapters can supply; a bare
-          // `app.fetch` has none, so there the answer is still ''.
-          // Ahead of both, under `trustProxy` only: the address the edge adapter read from
-          // `cf-connecting-ip`. Cloudflare sets that header itself, while XFF can carry hops the
-          // client supplied, so on the edge it wins (CARD-23).
-          ip: trustedProxyClient(request, opts?.trustProxy) || forwardedFor(headers, opts) || peerOf(request),
+          resolveIp: fetchIp,
         },
         // Already computed above for the shed-503 path; handing it down keeps `cors.origins` to
         // one call per request.

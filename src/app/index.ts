@@ -1722,6 +1722,40 @@ function createRouteTable(buildLocal: () => RouteDef[]): {
   };
 }
 
+/**
+ * The context every HTTP pipeline starts from: what the providers gave, then the request's own keys.
+ * `ctx.ip` reads and writes through to `ctx.req.ip`, which resolves on first read. A class so the
+ * accessor sits on the prototype: a literal with an accessor is a slow object, and every step and
+ * handler read of every key paid for it.
+ */
+class HttpSeed {
+  [key: string]: unknown;
+  req: Parameters<RouteDef['handler']>[0];
+  params: Record<string, string>;
+  query: Record<string, string>;
+  body: unknown;
+  headers: Record<string, string | string[] | undefined>;
+  protocol: 'http' | 'https';
+
+  constructor(provided: Record<string, unknown>, req: Parameters<RouteDef['handler']>[0]) {
+    Object.assign(this, provided);
+    this.req = req;
+    this.params = req.params;
+    this.query = req.query;
+    this.body = req.body;
+    this.headers = req.headers;
+    this.protocol = req.protocol;
+  }
+
+  get ip(): string {
+    return this.req.ip;
+  }
+
+  set ip(value: string) {
+    this.req.ip = value;
+  }
+}
+
 /** Compiles every non-ws route plan into an HTTP route that seeds and runs the pipeline. */
 function buildHttpRoutes(routePlans: RoutePlan[], deps: PipelineDeps): RouteDef[] {
   const { providedSeed, planSteps, bus, onError, logger } = deps;
@@ -1754,16 +1788,7 @@ function buildHttpRoutes(routePlans: RoutePlan[], deps: PipelineDeps): RouteDef[
             method: plan.method,
             transport: plan.transport,
           },
-          seed: {
-            ...provided,
-            req,
-            params: req.params,
-            query: req.query,
-            body: req.body,
-            headers: req.headers,
-            protocol: req.protocol,
-            ip: req.ip,
-          },
+          seed: new HttpSeed(provided, req),
         });
       },
     }));

@@ -127,8 +127,9 @@ export async function serveBun(app: App, options?: BunServeShortOptions): Promis
         return new Response('WebSocket upgrade failed', { status: 400 });
       }
 
-      // The same object goes to `app.fetch`, which is what lets it find the peer again.
-      setPeer(request, server.requestIP(request)?.address ?? '');
+      // The same object goes to `app.fetch`, which is what lets it find the peer again. The server,
+      // not its answer: `requestIP` runs only if something reads `ctx.ip` (see `peer.ts`).
+      setPeer(request, server);
       return app.fetch(request);
     },
     websocket: {

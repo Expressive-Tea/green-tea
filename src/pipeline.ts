@@ -120,7 +120,9 @@ export async function runPipeline(args: {
 }): Promise<PipelineResult> {
   const { steps, handler, transformer, seed, bus, transport, onError, logger, correlation = {} } = args;
   // context is intentionally `any`: each step merges arbitrary keys into the accumulator
-  let context: any = { ...seed };
+  // The seed itself, not a copy. Both callers build it fresh per request, and a spread would evaluate
+  // `ctx.ip`'s accessor, resolving on every request the address most routes never read.
+  let context: any = seed;
 
   try {
     context = await runSteps(steps, context, bus, correlation);

@@ -12,18 +12,30 @@
 // with no shared chunk, so each carries its own copy of this one: a module-private map in
 // `@green-tea/core/bun` would record peers that `app.fetch` from `@green-tea/core` never sees. An app
 // that loads core both as ESM and as CommonJS has the same split.
+//
+// Bun records its server rather than an address. `server.requestIP()` is a native call that builds
+// an object, and making it on every request measured 7–11% on Bun; recording the server is free, and
+// the address is asked for only when something reads `ctx.ip`. Deno hands the address over already
+// resolved, so it records the string.
 const KEY = Symbol.for('@green-tea/core:peer');
-const registry = globalThis as { [KEY]?: WeakMap<Request, string> };
-const peers = (registry[KEY] ??= new WeakMap<Request, string>());
 
-/** Records `ip` as the peer of `request`. An empty address — a unix socket has none — is not recorded. */
-export function setPeer(request: Request, ip: string): void {
-  if (ip) peers.set(request, ip);
+/** Names a request's socket peer on demand: Bun's server. */
+export interface PeerSource {
+  requestIP(request: Request): { address: string } | null;
+}
+
+const registry = globalThis as { [KEY]?: WeakMap<Request, string | PeerSource> };
+const peers = (registry[KEY] ??= new WeakMap<Request, string | PeerSource>());
+
+/** Records the peer of `request`. An empty address — a unix socket has none — is not recorded. */
+export function setPeer(request: Request, peer: string | PeerSource): void {
+  if (peer) peers.set(request, peer);
 }
 
 /** The peer an adapter recorded for `request`, or `''` when none did. */
 export function peerOf(request: Request): string {
-  return peers.get(request) ?? '';
+  const peer = peers.get(request);
+  return typeof peer === 'object' ? (peer.requestIP(request)?.address ?? '') : (peer ?? '');
 }
 
 // The client address a runtime adapter read from a header its platform's proxy sets — today only the
