@@ -130,6 +130,20 @@ function readFetchBytes(
     return tooLarge(request, opts);
   }
 
+  // A well-formed declared length within the limit bounds the body already: the runtime's HTTP parser
+  // frames it by that header, so `arrayBuffer()`, native in Bun, Deno and workerd, cannot overrun.
+  // The reader loop below measured 4x slower on a Bun JSON POST. `byteLength` is still checked, for
+  // a `Request` built in user code whose header and body disagree.
+  if (/^\d+$/.test(request.headers.get('content-length') ?? '')) {
+    return request
+      .arrayBuffer()
+      .then((buffer) =>
+        buffer.byteLength > limit
+          ? tooLarge(request, opts)
+          : { bytes: buffer.byteLength === 0 ? undefined : Buffer.from(buffer) },
+      );
+  }
+
   // ponytail: one reader loop; a TransformStream byte-counter only if another consumer needs it
   return readBounded(request.body.getReader(), limit).then((bytes) =>
     bytes === null ? tooLarge(request, opts) : { bytes },

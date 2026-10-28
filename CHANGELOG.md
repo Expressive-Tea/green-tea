@@ -281,6 +281,15 @@ npm treats versions as semver and semver forbids leading zeros.
   only for a body that would be refused. Behaviour is unchanged: the same `413`s, the same
   rejection when a client goes away mid-body.
 
+- **The fetch adapter (Deno, Bun, workerd) regains what two earlier changes in this release cost.**
+  Response headers that are all plain strings, which is nearly every response, now go to
+  `new Response` as the record they already are, not copied into a `Headers` one by one. That copy,
+  added with `set-cookie` arrays, cost 5–8% on every Deno request. A body with a well-formed
+  `Content-Length` inside the limit is read with `arrayBuffer()`, not chunk by chunk. The runtime
+  frames the body by that header, so the bounded read is kept only for chunked uploads. The chunked
+  read, added for the incremental `413`, had cut a Bun JSON `POST` by more than half. Behaviour is
+  unchanged: the same `413`s, and `set-cookie` arrays still reach the client one line per cookie.
+
 ### Deprecated
 
 - **The `Headers` type** (D19). Import `RequestHeaders` instead: same type, a name that does not

@@ -284,6 +284,14 @@ describe('app.fetch bounded body reads (#105)', () => {
     expect(await res.json()).toEqual({ length: 1_500_000 });
   });
 
+  it('a declared content-length under the limit does not let a longer body through', async () => {
+    const body = countingStream(1, 20);
+
+    const res = await limitsApp.fetch(post('/limits/small', body.stream, { 'content-length': '5' }));
+
+    expect(res.status).toBe(413);
+  });
+
   it('a malformed content-length is ignored, and the stream count enforces the limit', async () => {
     const body = countingStream(1, 20);
 
