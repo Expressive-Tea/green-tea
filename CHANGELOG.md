@@ -272,6 +272,33 @@ npm treats versions as semver and semver forbids leading zeros.
   introspection routes (`devGraph`, `devOpenapi`) now sit before remote routes in that table, so
   in the one case where a teapot exports the same path at the same specificity, the dev route wins.
 
+- **`ctx.ip` is resolved when it is read, not on every request.** The client address is now
+  worked out the first time a step, a handler or a plugin such as rate-limit reads `ctx.ip`, and
+  kept for the rest of the request. A route that never reads it pays nothing. The rules are
+  unchanged: the first `x-forwarded-for` hop under `trustProxy`, otherwise the socket peer. What
+  the address costs to resolve depends on the runtime:
+
+  | Runtime | Where the address comes from | Cost when read |
+  | --- | --- | --- |
+  | Node | `req.socket.remoteAddress`, cached by Node per connection | negligible |
+  | Deno | `info.remoteAddr`, handed over by `Deno.serve` | negligible |
+  | Bun | `server.requestIP()`, a native call per request | 7–11% of a small request |
+  | edge | the `cf-connecting-ip` header, under `trustProxy` | negligible |
+
+  The Bun figure is what reading the address costs on every request. Before this change every Bun
+  request paid it, whether anything read `ctx.ip` or not. Behind a proxy that sets
+  `x-forwarded-for`, `trustProxy: true` takes the address from the header on every runtime and
+  never asks the socket.
+
+  Measured against the previous commit, on a Ryzen 3700X with 4 pinned cores, 15 cases including
+  gzip and brotli: Bun is 3–11% faster on every case that never reads `ctx.ip`; a `POST` gains
+  about 1%, because the body read dominates it. Node and Deno are unchanged, within ±4%.
+
+  **Inside a stream body `ctx.ip` is `''`** unless a step or the handler read it before returning
+  the stream. The body runs after the response has started, when the socket the address would come
+  from may already be gone. A route that needs the address in a stream reads it first, as
+  rate-limit already does.
+
 - **The Node request path does less per request.** A request without a body (no
   `Transfer-Encoding`, no or a zero `Content-Length`, RFC 9112 §6.3), which is every `GET`, no
   longer touches the request stream at all. A JSON `POST` reads its body with stream

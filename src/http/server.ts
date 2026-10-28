@@ -45,6 +45,11 @@ function errorRequest(req: http.IncomingMessage): ErrorRequest {
  * @param meshControl Optional mesh gateway hook for a reserved upgrade path.
  * @param opts Limits, TLS, security, CORS, and body-parsing options.
  */
+/** `ctx.ip` on Node, for `NeutralRequest.resolveIp`: the forwarded hop under `trustProxy`, else the socket peer. */
+function nodeIp(source: unknown, opts: HttpOptions | undefined): string {
+  return deriveIp(source as http.IncomingMessage, opts?.trustProxy ?? false);
+}
+
 export function createHttpServer(
   routes: RouteTable,
   wsRoutes: WsRouteDef[] = [],
@@ -174,7 +179,7 @@ function createRequestHandler(cfg: HandlerConfig) {
           readBody,
           source: req,
           secure,
-          ip: deriveIp(req, trustProxy),
+          resolveIp: nodeIp,
         },
         injected,
       );
