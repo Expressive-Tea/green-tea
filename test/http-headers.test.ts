@@ -41,8 +41,22 @@ describe('array header values (D11)', () => {
     });
   });
 
+  it('toWebHeaders returns a record of plain strings untouched', () => {
+    const record = { 'content-type': 'application/json', vary: 'origin' };
+    expect(toWebHeaders(record)).toBe(record);
+  });
+
+  it('toWebHeaders drops undefined values', () => {
+    const h = toWebHeaders({ 'content-type': 'text/plain', 'x-gone': undefined }) as Headers;
+    expect(h.has('x-gone')).toBe(false);
+    expect(h.get('content-type')).toBe('text/plain');
+  });
+
   it('toWebHeaders appends one set-cookie per element', () => {
-    const h = toWebHeaders({ 'set-cookie': ['a=1; Expires=Tue, 01 Jan 2030 00:00:00 GMT', 'b=2'], 'x-list': ['a', 'b'] });
+    const h = toWebHeaders({
+      'set-cookie': ['a=1; Expires=Tue, 01 Jan 2030 00:00:00 GMT', 'b=2'],
+      'x-list': ['a', 'b'],
+    }) as Headers;
     expect(h.getSetCookie()).toEqual(['a=1; Expires=Tue, 01 Jan 2030 00:00:00 GMT', 'b=2']);
     expect(h.get('x-list')).toBe('a, b');
   });
