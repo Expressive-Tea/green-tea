@@ -19,7 +19,7 @@ The smallest module and route that shows it:
 ## Environment
 
 - green-tea version:
-- Runtime and version: <!-- Node 22.12 / Deno 2.1 / Bun 1.1 / Cloudflare Workers -->
+- Runtime and version: <!-- e.g. Node 22.20 / Deno 2.5 / Bun 1.3 / Cloudflare Workers -->
 - OS:
 
 <!--
