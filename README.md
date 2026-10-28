@@ -43,6 +43,8 @@ Less to hold in your head. That's the tea.
 npm install @green-tea/core@beta reflect-metadata
 ```
 
+Requires Node 22 or newer. Node 18 and 20 are end-of-life and are not supported. Deno, Bun and Cloudflare Workers run the same code.
+
 `@green-tea/core` — **beta**, RC-track. One runtime dependency: `reflect-metadata`. Two optional peers you install only if you use them:
 
 ```bash
@@ -152,13 +154,22 @@ without growing the runtime dependency tree past `reflect-metadata`:
 
 ## Benchmarks
 
-We built a reproducible [autocannon harness](./BENCHMARKS.md) comparing green-tea to Express 5, Fastify 5, NestJS (on both Express and Fastify), and raw Node `http` — and we wrote it to be **hard on ourselves**, not flattering.
+green-tea keeps a reproducible [autocannon](https://github.com/mcollina/autocannon) harness in
+`bench/`, and it is written to be hard on green-tea rather than flattering. It answers two
+different questions, and they need different setups:
 
-On that harness green-tea is in the same class as Fastify and NestJS-on-Fastify, roughly 2.8× ahead of Express, and behind raw `http` with no framework at all. Within that class the shape reproduces on two very different machines: green-tea is **behind** Fastify on the JSON, routing and pipeline scenarios, and **ahead** of it on POST-plus-validation. How far behind is a property of the box rather than a constant — 2-8% on a laptop M4 Max, 7-15% on an idle desktop Ryzen — which is why the table carries its hardware and its date, and why a percentage quoted without them says little. Read [BENCHMARKS.md](./BENCHMARKS.md) rather than a sentence here: a ranking written into prose once is a claim nobody re-measures.
+- **How does green-tea compare to other frameworks?** `npm run bench` runs green-tea, Express 5,
+  Fastify 5, NestJS on Express and on Fastify, and raw Node `http` through the same scenarios on
+  one box, then writes [BENCHMARKS.md](./BENCHMARKS.md).
+- **Did the last N commits cost anything?** `npm run bench:compare` runs two versions of green-tea
+  on one box in one sitting, alternating sides, so the difference is the code rather than the
+  machine's mood that day.
 
-The question a release actually has to pass is the other one — *did the last N commits cost anything* — and comparing today's numbers against a table generated weeks ago answers it with two machines in a mood rather than two versions. `npm run bench:compare` runs both trees on one box in one sitting, alternating sides; `26.9.0-beta.1 → 26.9.0-beta.2` came out flat on every case.
-
-Read the honest caveats in [BENCHMARKS.md](./BENCHMARKS.md): the numbers are single-box + loopback (absolute throughput is overstated and differences compressed — trust the *ratios*), the cross-framework table runs green-tea with `security:false` for header parity, and the real cost of secure-by-default is measured separately. Regenerate any time with `npm run bench`.
+This section carries no numbers on purpose. A ranking written into prose is a claim nobody
+re-measures, and it goes stale with the next release. The figures, the hardware and date they
+were taken on, and the caveats live in [BENCHMARKS.md](./BENCHMARKS.md). The caveats include
+single-box loopback, trusting the ratios over the absolute numbers, and green-tea running with
+`security: false` for header parity, with the cost of secure-by-default measured separately.
 
 ## How it compares
 
@@ -300,7 +311,7 @@ green-tea is **beta**, on the road to a release candidate. Express and Fastify h
 
 **mesh is alpha.** Distributed DI works, but discovery, load-balancing, and failover are not built, and its API and wire protocol may change between releases. It is gated behind an explicit opt-in — `createApp({ mesh, experimental: true })` — and `createApp` throws if you configure `mesh` without it. Don't ship mesh to production yet.
 
-**What a teapot exports: steps and routes, and nothing else.** A `@Provider` marked `export: true` fails the boot with an error that says why — a provider's value *is* the object it builds, a pool or a client or a `db`, and the mesh moves data, not objects. Export a `@Step` instead: it runs on the teapot, per request, and its result is what comes back. That is also what lets a teacup boot without its teapot: a remote step holds nothing between requests, so a teacup whose teapot never answers still starts once the `bootTimeoutMs` grace runs out — it warns and carries on. Be precise about what that means, because it is narrower than it sounds. A teapot that never connected sent no manifest, so nothing of it reached the graph: its routes **404** rather than `503`, since nothing was registered to match, and a local step that `@needs` one of its tokens **still fails the boot**, naming the teapot that did not connect. That failure is deliberate — it is the check that catches a typo in a token name, which no amount of waiting will fix. `503` is what you get from a teapot that connected and *later* died, where the link and its exports do exist. So what the change buys is the teacup that does *not* depend on that teapot starting anyway, rather than refusing over a dependency it never had. Keeping a *needed* token serving while its teapot is legitimately away is a known gap, not an oversight: the intended answer is the `expects` list in [the mesh degrade plan](./docs/plans/2026-08-18-mesh-degrade-plan.md), which is planned and not built.
+**What a teapot exports: steps and routes, and nothing else.** A `@Provider` marked `export: true` fails the boot with an error that says why — a provider's value *is* the object it builds, a pool or a client or a `db`, and the mesh moves data, not objects. Export a `@Step` instead: it runs on the teapot, per request, and its result is what comes back. That is also what lets a teacup boot without its teapot: a remote step holds nothing between requests, so a teacup whose teapot never answers still starts once the `bootTimeoutMs` grace runs out — it warns and carries on. Be precise about what that means, because it is narrower than it sounds. A teapot that never connected sent no manifest, so nothing of it reached the graph: its routes **404** rather than `503`, since nothing was registered to match, and a local step that `@needs` one of its tokens **still fails the boot**, naming the teapot that did not connect. That failure is deliberate — it is the check that catches a typo in a token name, which no amount of waiting will fix. `503` is what you get from a teapot that connected and *later* died, where the link and its exports do exist. So what the change buys is the teacup that does *not* depend on that teapot starting anyway, rather than refusing over a dependency it never had. Keeping a *needed* token serving while its teapot is legitimately away is a known gap, not an oversight: the intended answer is a per-teapot `expects` list that declares what a teapot would export, which is planned and not built.
 
 **What is settled, and what is still moving.** Present state, not a roadmap and not the API freeze — this is spare-time work by one person, and a schedule it cannot keep would cost more than it earns. The **graph is the settled part**: `needs`/`provides`, the order derived from them, and the boot-time failure when nothing provides a key have not changed since the beta hardening on 7 July, and `@Provider`, `@Step`, `@Route` and handler shapes still mean what they meant then — the decorator *set* has grown (`@Head`, `@Options`, `@Html`), which only ever adds. **Still moving:** the plugin API, which became `{ name, mount }` and gained `onShutdown`; the runtime entry points, where `serveDeno()` and `serveBun()` became async so they boot before they bind; `createApp`'s options, which gain fields most months; and the pipeline context, which in July became one object mutated in place rather than copied per step — so a step that captured it now sees later steps' writes. **Alpha:** mesh, above. Legacy decorators are a standing *external* risk rather than a green-tea one — see [Why legacy decorators](#why-legacy-decorators). The [matcha](https://github.com/Expressive-Tea/matcha) CLI ships from its own repository on its own version line, so nothing here speaks for it.
 
@@ -345,7 +356,7 @@ consumer would have received.
 - ✅ **HTML** — `@Html` (string / file / template), a built-in template engine with a bring-your-own `viewEngine` hook, and `static` serving.
 - ✅ **router completeness for beta** — safe constrained params, deterministic precedence, explicit/automatic HEAD and OPTIONS, strict path validation, and ambiguity checks across local and mesh routes.
 - ✅ **observability** — a correlated lifecycle event stream (request id, trace id, route pattern, per-step timings) and an injectable `Logger`. Exporters live outside core.
-- **next** — API freeze + first published release, mesh sub-specs (discovery, load-balancing, failover), official plugins, and a radix-tree matcher for very large route tables.
+- **next** — API freeze + first stable release, mesh sub-specs (discovery, load-balancing, failover), official plugins, and a radix-tree matcher for very large route tables.
 
 ## Versioning
 

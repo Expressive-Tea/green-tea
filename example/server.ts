@@ -122,6 +122,7 @@ if (require.main === module) {
     console.log('teapot on http://localhost:3002');
     const teacupApp = createApp({
       modules: [TeacupModule],
+      experimental: true,
       mesh: { teapots: [{ url: `ws://127.0.0.1:3002${MESH_CONTROL_PATH}`, secret: 'demo-secret' }] },
     });
     teacupApp.listen(3003).then(() => console.log('teacup on http://localhost:3003'));

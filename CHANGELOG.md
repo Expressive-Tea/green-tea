@@ -646,8 +646,8 @@ npm treats versions as semver and semver forbids leading zeros.
   So the change is for the teacup that does *not* depend on that teapot: it starts, rather than
   refusing over a dependency it never had. It is not graceful degradation of the dependency, and
   cannot be — answering `503` for an absent teapot's tokens means knowing what it *would* have
-  exported, and only a declaration can say. That declaration is the `expects` list in
-  `docs/plans/2026-08-18-mesh-degrade-plan.md`, which is planned and not built. Two things are
+  exported, and only a declaration can say. That declaration is a per-teapot `expects` list,
+  which is planned and not built. Two things are
   unchanged: a **permanent refusal** — a wrong secret, a protocol mismatch — still fails the boot
   without spending the grace, because it is the teapot's decision rather than the network's and will
   be the same decision in thirty seconds; and the missing-token error, which now says "local or

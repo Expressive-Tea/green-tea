@@ -74,7 +74,7 @@ So go through the diff the way you would go through a stranger's, because that i
 **What assistants tend to get wrong here in particular** — worth checking before you push:
 
 - They add dependencies. Core has one runtime dependency, and that is a design constraint rather than an oversight.
-- They write for Node and assume the rest follows. It doesn't — green-tea also runs on Deno, Bun and the edge, and `npm test` does not cover them.
+- They write for Node and assume the rest follows. It doesn't — green-tea also runs on Deno, Bun and the edge, and `npm test` is the Node suite only. CI runs the other three, and `npm run test:all` runs them locally.
 - They delete comments they read as redundant. In this codebase a comment usually carries reasoning the code can't show on its own.
 - They skip the test.
 
@@ -120,16 +120,19 @@ If it prints nothing, run `git config core.hooksPath .githooks` yourself. If you
 something other than npm, check this before your first commit rather than after.
 
 `npm test` runs the Node suite under Vitest. The other three runtimes have their own commands
-and their own toolchains, and none of them run in CI:
+and their own toolchains:
 
 ```bash
 npm run test:deno   # needs deno
 npm run test:bun    # needs bun
 npm run test:edge   # Miniflare
+npm run test:all    # all four, plus the JSR gate (deno publish --dry-run)
 ```
 
-You are not expected to install all three to fix a typo. You are expected to run the one your
-change touches, and to say in the pull request which ones you ran.
+CI runs all three on every push and pull request, in the `runtimes` job, and each one gates a
+merge just as the Node suite does. You are not expected to install all three to fix a typo. You
+are expected to run the one your change touches, and to say in the pull request which ones you ran,
+so a red Bun job is not the first time anyone hears about it.
 
 ## Before you open a pull request
 
@@ -142,7 +145,11 @@ npm run typecheck # must be clean — this includes the compile-time-guarantee t
 npm test          # all tests must pass
 npm run complexity:check
 npm run build
+npm audit --omit=dev   # only what ships blocks; CI reports the rest
 ```
+
+plus the runtime suite for whatever your change touches (see *Local setup* above). CI runs Deno,
+Bun and the edge in its `runtimes` job.
 
 - Write tests for new behavior (TDD welcome). We use Vitest.
 - `complexity:check` caps the cognitive complexity of every function in `src/`. What it measures is how much you have to hold in your head to follow a function from top to bottom, and it charges nesting more heavily than branching: a condition inside a closure inside a function costs several times what the same condition costs at the top level. Going over the threshold is not a verdict on your code — it means one function has grown to ask too much of whoever reads it next. The fix is nearly always to lift a nested closure out to module scope, where its branches are charged once instead of three times over. Raising `COMPLEXITY_MAX` is not the fix, even though the script suggests it.

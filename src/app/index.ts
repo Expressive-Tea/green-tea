@@ -1023,7 +1023,7 @@ function assertNeedsSatisfiable(
  * never got, because a teapot that did not connect sent no manifest and so nobody knows what it
  * would have exported. Its routes 404 like any unregistered path, and a local node that needs one
  * of its tokens still fails the boot in finalize(), named. Serving 503 for those tokens instead
- * needs an `expects` declaration — see docs/plans/2026-08-18-mesh-degrade-plan.md, still planned.
+ * needs an `expects` declaration, which is planned and not built.
  */
 async function connectUntilDeadline(
   mesh: MeshConfig,
