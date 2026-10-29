@@ -317,6 +317,11 @@ npm treats versions as semver and semver forbids leading zeros.
   read, added for the incremental `413`, had cut a Bun JSON `POST` by more than half. Behaviour is
   unchanged: the same `413`s, and `set-cookie` arrays still reach the client one line per cookie.
 
+- **`app.fetch` stops awaiting the boot once it has finished.** Since the health probes, every
+  request went through an `async` wrapper around the memoized boot, which cost a promise and
+  microtask hops even after the app was up. The first request still waits for the boot, and a boot
+  that failed still fails every request.
+
 ### Deprecated
 
 - **The `Headers` type** (D19). Import `RequestHeaders` instead: same type, a name that does not
