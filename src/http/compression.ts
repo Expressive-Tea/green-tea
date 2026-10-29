@@ -192,14 +192,6 @@ const COMPRESSIBLE =
 
 type Headers = Record<string, string | string[]>;
 
-/** A header's value as one string, case-insensitively, or `undefined`. */
-function read(headers: Headers, name: string): string | undefined {
-  const key = findHeader(headers, name);
-  if (key === undefined) return undefined;
-  const value = headers[key];
-  return Array.isArray(value) ? value.join(', ') : value;
-}
-
 /**
  * Whether the response's representation could vary by `Accept-Encoding` at all. When it cannot —
  * already encoded, a range, no or an incompressible type, `no-transform` — core neither encodes
@@ -207,10 +199,39 @@ function read(headers: Headers, name: string): string | undefined {
  * responses still get `Vary`, so a shared cache keys them correctly.
  */
 function eligible(headers: Headers): boolean {
-  if (read(headers, 'content-encoding') !== undefined || read(headers, 'content-range') !== undefined) return false;
-  const type = read(headers, 'content-type');
-  if (!type || !COMPRESSIBLE.test(type)) return false;
-  return !/(^|[\s,])no-transform\s*(,|$)/i.test(read(headers, 'cache-control') ?? '');
+  // One pass over the keys rather than one `read` per header: every response with compression on
+  // comes through here, and four case-insensitive scans plus two regexes cost ~8% of a small Deno
+  // request. The first key of each name wins, as `findHeader` would pick it.
+  let type: string | undefined;
+  let cacheControl: string | undefined;
+
+  for (const key of Object.keys(headers)) {
+    const value = headers[key];
+    if (value === undefined) continue;
+    const lower = key.toLowerCase();
+    if (lower === 'content-encoding' || lower === 'content-range') return false;
+    if (lower === 'content-type') type ??= Array.isArray(value) ? value.join(', ') : value;
+    else if (lower === 'cache-control') cacheControl ??= Array.isArray(value) ? value.join(', ') : value;
+  }
+
+  if (!type || !compressibleType(type)) return false;
+  return cacheControl === undefined || !NO_TRANSFORM.test(cacheControl);
+}
+
+const NO_TRANSFORM = /(^|[\s,])no-transform\s*(,|$)/i;
+
+// ponytail: a one-entry memo, since an app answers nearly every response with the same type or two;
+// a bounded map if a mix of types ever measures.
+let lastType: string | undefined;
+let lastCompressible = false;
+
+function compressibleType(type: string): boolean {
+  if (type !== lastType) {
+    lastType = type;
+    lastCompressible = COMPRESSIBLE.test(type);
+  }
+
+  return lastCompressible;
 }
 
 function withVary(headers: Headers): Headers {
