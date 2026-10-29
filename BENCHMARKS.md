@@ -4,9 +4,9 @@
 
 ## Environment
 
-- **Date**: 2026-09-22
-- **Commit**: daf0fed
-- **Node**: v22.22.2
+- **Date**: 2026-10-29
+- **Commit**: 4566f31
+- **Node**: v22.23.1
 - **OS**: linux
 - **CPU**: AMD Ryzen 7 3700X 8-Core Processor (16 cores)
 - **RAM**: 67 GB
@@ -29,72 +29,72 @@
 
 | Framework | req/s (median) | p50 (ms) | p99 (ms) | p999 (ms) | CV | min–max req/s |
 | --- | --- | --- | --- | --- | --- | --- |
-| raw-http | 41,631 | 2.00 | 3.00 | 4.00 | 0.6% | 41,343–41,974 |
-| nestjs-fastify | 32,419 | 3.00 | 4.00 | 6.00 | 0.5% | 32,103–32,583 |
-| fastify | 32,170 | 3.00 | 3.00 | 5.00 | 1.3% | 31,236–32,356 |
-| green-tea | 29,777 | 3.00 | 6.00 | 7.00 | 0.4% | 29,557–29,873 |
-| express | 10,546 | 8.00 | 13.00 | 18.00 | 0.4% | 10,480–10,625 |
-| nestjs-express | 9,680 | 9.00 | 15.00 | 21.00 | 0.6% | 9,567–9,739 |
+| raw-http | 47,469 | 2.00 | 3.00 | 4.00 | 0.6% | 47,193–48,004 |
+| green-tea | 37,599 | 2.00 | 3.00 | 5.00 | 0.5% | 37,162–37,654 |
+| fastify | 36,740 | 2.00 | 3.00 | 4.00 | 0.6% | 36,641–37,244 |
+| nestjs-fastify | 36,205 | 2.00 | 3.00 | 4.00 | 0.7% | 35,969–36,627 |
+| express | 11,099 | 8.00 | 12.00 | 14.00 | 0.6% | 11,000–11,183 |
+| nestjs-express | 10,067 | 9.00 | 13.00 | 16.00 | 0.5% | 9,991–10,122 |
 
 ### Route param
 
 | Framework | req/s (median) | p50 (ms) | p99 (ms) | p999 (ms) | CV | min–max req/s |
 | --- | --- | --- | --- | --- | --- | --- |
-| raw-http | 41,756 | 2.00 | 3.00 | 4.00 | 1.1% | 40,953–42,017 |
-| fastify | 31,708 | 3.00 | 4.00 | 5.00 | 0.5% | 31,359–31,847 |
-| nestjs-fastify | 29,880 | 3.00 | 4.00 | 6.00 | 0.3% | 29,745–29,961 |
-| green-tea | 28,706 | 3.00 | 6.00 | 7.00 | 0.6% | 28,562–29,051 |
-| express | 10,376 | 9.00 | 12.00 | 17.00 | 0.4% | 10,364–10,453 |
-| nestjs-express | 9,257 | 10.00 | 15.00 | 21.00 | 0.2% | 9,244–9,285 |
+| raw-http | 47,661 | 2.00 | 3.00 | 4.00 | 0.7% | 47,062–48,028 |
+| fastify | 36,135 | 2.00 | 3.00 | 4.00 | 0.5% | 35,868–36,391 |
+| green-tea | 35,001 | 2.00 | 4.00 | 5.00 | 0.2% | 34,879–35,088 |
+| nestjs-fastify | 33,253 | 3.00 | 3.00 | 4.00 | 0.8% | 32,969–33,756 |
+| express | 10,889 | 8.00 | 12.00 | 14.00 | 0.2% | 10,872–10,925 |
+| nestjs-express | 9,589 | 10.00 | 14.00 | 16.00 | 0.5% | 9,535–9,676 |
 
 ### Pipeline (3 steps) (approximation)
 
 | Framework | req/s (median) | p50 (ms) | p99 (ms) | p999 (ms) | CV | min–max req/s |
 | --- | --- | --- | --- | --- | --- | --- |
-| raw-http | 39,897 | 2.00 | 3.00 | 5.00 | 0.6% | 39,847–40,441 |
-| fastify | 31,436 | 3.00 | 4.00 | 6.00 | 0.6% | 31,079–31,563 |
-| nestjs-fastify | 29,403 | 3.00 | 4.00 | 6.00 | 0.6% | 29,151–29,689 |
-| green-tea | 26,839 | 3.00 | 6.00 | 8.00 | 0.1% | 26,783–26,872 |
-| express | 10,365 | 9.00 | 12.00 | 18.00 | 1.3% | 10,171–10,542 |
-| nestjs-express | 9,256 | 10.00 | 15.00 | 22.00 | 0.5% | 9,187–9,302 |
+| raw-http | 46,361 | 2.00 | 3.00 | 4.00 | 0.2% | 46,192–46,509 |
+| fastify | 35,329 | 2.00 | 3.00 | 5.00 | 0.5% | 35,027–35,536 |
+| green-tea | 33,375 | 2.00 | 3.00 | 5.00 | 0.5% | 33,092–33,569 |
+| nestjs-fastify | 32,767 | 3.00 | 3.00 | 4.00 | 0.5% | 32,559–32,995 |
+| express | 10,936 | 8.00 | 13.00 | 14.00 | 0.8% | 10,755–11,024 |
+| nestjs-express | 9,605 | 10.00 | 14.00 | 17.00 | 0.7% | 9,485–9,652 |
 
 ### POST JSON + validation
 
 | Framework | req/s (median) | p50 (ms) | p99 (ms) | p999 (ms) | CV | min–max req/s |
 | --- | --- | --- | --- | --- | --- | --- |
-| raw-http | 31,783 | 3.00 | 5.00 | 6.00 | 0.4% | 31,517–31,825 |
-| green-tea | 22,005 | 4.00 | 7.00 | 9.00 | 0.7% | 21,736–22,187 |
-| fastify | 20,430 | 4.00 | 8.00 | 9.00 | 0.4% | 20,398–20,601 |
-| nestjs-fastify | 18,597 | 4.00 | 8.00 | 11.00 | 0.2% | 18,540–18,658 |
-| express | 8,440 | 11.00 | 16.00 | 24.00 | 0.3% | 8,408–8,492 |
-| nestjs-express | 7,666 | 12.00 | 18.00 | 26.00 | 0.3% | 7,645–7,703 |
+| raw-http | 34,945 | 2.00 | 3.00 | 5.00 | 0.4% | 34,637–35,079 |
+| fastify | 28,345 | 3.00 | 4.00 | 6.00 | 0.4% | 28,239–28,537 |
+| green-tea | 24,495 | 4.00 | 5.00 | 7.00 | 0.5% | 24,379–24,745 |
+| nestjs-fastify | 24,103 | 4.00 | 6.00 | 7.00 | 0.8% | 23,729–24,164 |
+| express | 9,019 | 10.00 | 14.00 | 22.00 | 0.4% | 8,985–9,084 |
+| nestjs-express | 8,107 | 11.00 | 17.00 | 26.00 | 0.4% | 8,078–8,166 |
 
 ## Step-scaling (green-tea)
 
 | Path | Steps | req/s |
 | --- | --- | --- |
-| /steps/0 | 0 | 29,196 |
-| /steps/3 | 3 | 26,564 |
-| /steps/5 | 5 | 25,314 |
+| /steps/0 | 0 | 36,423 |
+| /steps/3 | 3 | 32,436 |
+| /steps/5 | 5 | 30,549 |
 
-Each additional pipeline step costs roughly 776 req/s (-13.3% over 5 steps), on this box.
+Each additional pipeline step costs roughly 1,175 req/s (-16.1% over 5 steps), on this box.
 
 ## green-tea across runtimes
 
 | Scenario | node | deno | bun |
 | --- | --- | --- | --- |
-| JSON hello (overhead) | 30,379 | 51,888 | 46,300 |
-| Route param | 29,204 | 51,786 | 42,788 |
-| Pipeline (3 steps) | 27,208 | 50,692 | 39,644 |
-| POST JSON + validation | 22,609 | 35,743 | 31,960 |
+| JSON hello (overhead) | 38,119 | 61,792 | 54,428 |
+| Route param | 35,335 | 61,919 | 48,444 |
+| Pipeline (3 steps) | 33,776 | 59,521 | 44,956 |
+| POST JSON + validation | 24,759 | 38,561 | 35,268 |
 
 Same application, same built bundle, same box — only the runtime differs. Read across a row, never against the cross-framework tables above: those measure other frameworks on Node, and nobody ran fastify on Bun here. A runtime that is not installed is absent rather than zero.
 ## Cost of secure-by-default (green-tea)
 
 | Label | req/s |
 | --- | --- |
-| security:false (parity) | 29,777 |
-| security:true (default) | 28,919 |
+| security:false (parity) | 37,599 |
+| security:true (default) | 36,508 |
 
 The real cost of running secure-by-default (rather than the parity-mode `security:false` used above) is ~2.9% req/s on this box.
 
@@ -135,6 +135,87 @@ These figures were measured per function and never per version. Every change on 
 was benchmarked as it landed — the numbers are still in the code, cited below — but no one ran this
 file between `26.7` and `26.9`, so nothing added them up. That is the gap this section and
 `npm run bench:compare` exist to close.
+
+### The release gate: `26.9.0-beta.2` → RC.1 (`4566f31`)
+
+Fifteen cases on all three runtimes this time, because the previous gate measured Node alone and
+Deno was the runtime that drifted. Both trees ran on one box in one sitting. Each round alternated
+which side went first, and both sides shared one `node_modules`. The runs used a `node:22` container
+pinned to four cores (`--cpuset-cpus 6,7,14,15`), so the absolute numbers are not comparable with
+the gates below. Only the Δ carries over. Medians of four rounds; an A/A run on the same setup moves
+within ±4%. A Δ marked † has overlapping ranges and says nothing:
+
+| Scenario | Node | Deno | Bun |
+| --- | --- | --- | --- |
+| hello | +15.0% | −4.1% † | −0.6% † |
+| param | +7.7% | −8.2% | −4.3% |
+| pipeline (3 steps) | +14.2% | −3.4% † | −2.9% † |
+| steps5 | +13.6% | −3.4% | −2.8% † |
+| validate (POST) | −2.5% † | −6.1% | −2.3% |
+| hello + security | +12.6% | −5.7% | −1.9% † |
+| hello + cors predicate | +14.8% | −3.7% † | −2.5% † |
+| preflight + cors predicate | −3.2% | −7.5% | −0.9% |
+| param, 50 routes | +14.4% | −5.2% | +0.8% † |
+| param, 200 routes | **+21.4%** | **+13.9%** | **+23.6%** |
+| json 8KB uncompressed | +1.6% | −2.4% † | −0.9% † |
+
+Node got faster almost everywhere. The Node path stopped doing per-request work it did not need,
+and the radix router replaced a matcher that walked past every candidate. Bun is flat apart from
+`param`. Deno lost 3% to 8% on the small cases. These figures are the remainder after the changes
+below:
+
+- **The router is about 5% of it, and it was accepted on purpose.** The radix index costs Deno
+  roughly 5% on a parameterised route in a small table, and it is the reason every runtime gains
+  14% to 24% at two hundred routes. The router's gate allowed up to +5% at ten routes, and this cost
+  is within it.
+- **Two added features cost Deno more than they had to, and both were fixed before this run.** The
+  health probes made `app.fetch` await the boot on every request, which cost 6% on Deno. Cookie
+  support had also added per-request work to the fetch adapter. Both fixes are in this tree.
+- **`ctx.ip` resolution became lazy.** The first attempt at it used getters on an object literal.
+  V8 and JavaScriptCore both treat that as a slow object, and it cost Node and Deno 15% to 24%. The
+  getters moved onto a class prototype before the change merged, and the merged version measures
+  flat.
+- **What remains on Deno is not pinned to a single change.** It is the per-request work that came
+  with this release's features, such as cookies, ETags and the reserved mesh route, spread thinly
+  enough that no one removal recovers it.
+
+#### Compression is new, so there is no `beta.2` number to compare it with
+
+`26.9.0-beta.2` has no compression. On these rows the base side served the same 8 KB body
+uncompressed, so the Δ is what turning compression on costs rather than a regression:
+
+| Scenario | Node | Deno | Bun |
+| --- | --- | --- | --- |
+| hello + compression | +4.9% † | −2.2% † | −3.5% |
+| json 8KB + compression, identity | −5.3% | −10.7% | −5.0% |
+| json 8KB + gzip | −36.3% | −59.3% | −42.4% |
+| json 8KB + br | −51.4% | −75.5% | −39.9% |
+
+A body under the threshold costs nothing measurable, because no `Vary` is set on it any more.
+Before that change, Deno lost 25% on `hello + compression`. An identity response above the
+threshold still carries `Vary: Accept-Encoding`, as RFC 9110 requires. That header costs Deno about
+10% of a small request and Bun about 3%. Encoding 8 KB on every request is the price of the smaller
+response. These are loopback numbers, so the bandwidth the encoding saves does not appear in them.
+
+#### Against the field
+
+The cross-framework tables above were regenerated on the same box as September's, and that run was
+unpinned like September's. This box measured faster across the board this time: `raw-http` rose 10%
+to 16%. So the ratio to `raw-http` is the honest comparison, not the req/s:
+
+| Scenario | green-tea, Sep | green-tea, now | fastify, Sep | fastify, now |
+| --- | --- | --- | --- | --- |
+| JSON hello | 71.5% | **79.2%** | 77.3% | 77.4% |
+| Route param | 68.7% | **73.4%** | 75.9% | 75.8% |
+| Pipeline (3 steps) | 67.3% | **72.0%** | 78.8% | 76.2% |
+| POST JSON + validation | 69.2% | 70.1% | 64.3% | **81.1%** |
+
+The previous gate described a shape: green-tea behind Fastify on `hello`, `param` and `pipeline`,
+and ahead of it on `validate`. That shape has now flipped at both ends. On `hello`, green-tea is
+ahead of Fastify on this box, by 2.3%. The gap on `param` and `pipeline` narrowed from 7-15% to
+3-6%. On `validate`, green-tea's own ratio barely moved. Fastify's rose 17 points between `5.11.0`
+and `5.12.7`, the version the lockfile now pins, and this file has not looked into which Fastify
+change did it. green-tea did not get slower at validation; Fastify got faster.
 
 ### The release gate: `26.9.0-beta.1` → `26.9.0-beta.2`
 
