@@ -192,25 +192,47 @@ const COMPRESSIBLE =
 
 type Headers = Record<string, string | string[]>;
 
-/** A header's value as one string, case-insensitively, or `undefined`. */
-function read(headers: Headers, name: string): string | undefined {
-  const key = findHeader(headers, name);
-  if (key === undefined) return undefined;
-  const value = headers[key];
-  return Array.isArray(value) ? value.join(', ') : value;
-}
-
 /**
  * Whether the response's representation could vary by `Accept-Encoding` at all. When it cannot —
  * already encoded, a range, no or an incompressible type, `no-transform` — core neither encodes
- * nor adds `Vary`. Request-side reasons (HEAD, the client's header) do not appear here: those
+ * nor adds `Vary`. A buffered body under the threshold is the same case, decided in
+ * {@link compressBuffered} once the size is known. Request-side reasons (HEAD, the client's header) do not appear here: those
  * responses still get `Vary`, so a shared cache keys them correctly.
  */
 function eligible(headers: Headers): boolean {
-  if (read(headers, 'content-encoding') !== undefined || read(headers, 'content-range') !== undefined) return false;
-  const type = read(headers, 'content-type');
-  if (!type || !COMPRESSIBLE.test(type)) return false;
-  return !/(^|[\s,])no-transform\s*(,|$)/i.test(read(headers, 'cache-control') ?? '');
+  // One pass over the keys rather than one `read` per header: every response with compression on
+  // comes through here, and four case-insensitive scans plus two regexes cost ~8% of a small Deno
+  // request. The first key of each name wins, as `findHeader` would pick it.
+  let type: string | undefined;
+  let cacheControl: string | undefined;
+
+  for (const key of Object.keys(headers)) {
+    const value = headers[key];
+    if (value === undefined) continue;
+    const lower = key.toLowerCase();
+    if (lower === 'content-encoding' || lower === 'content-range') return false;
+    if (lower === 'content-type') type ??= Array.isArray(value) ? value.join(', ') : value;
+    else if (lower === 'cache-control') cacheControl ??= Array.isArray(value) ? value.join(', ') : value;
+  }
+
+  if (!type || !compressibleType(type)) return false;
+  return cacheControl === undefined || !NO_TRANSFORM.test(cacheControl);
+}
+
+const NO_TRANSFORM = /(^|[\s,])no-transform\s*(,|$)/i;
+
+// ponytail: a one-entry memo, since an app answers nearly every response with the same type or two;
+// a bounded map if a mix of types ever measures.
+let lastType: string | undefined;
+let lastCompressible = false;
+
+function compressibleType(type: string): boolean {
+  if (type !== lastType) {
+    lastType = type;
+    lastCompressible = COMPRESSIBLE.test(type);
+  }
+
+  return lastCompressible;
 }
 
 function withVary(headers: Headers): Headers {
@@ -291,15 +313,20 @@ function compressBuffered(
   if (status === 304) return { ...outcome, headers: withVary(headers) };
   if (status === 204 || !eligible(headers)) return outcome;
 
-  const vary = { ...outcome, headers: withVary(headers) };
-  if (status < 200 || req.method === 'HEAD' || !cfg.encode) return vary;
+  const vary = (): Buffered => ({ ...outcome, headers: withVary(headers) });
+  if (status < 200 || req.method === 'HEAD' || !cfg.encode) return vary();
 
-  const bytes = typeof body === 'string' ? Buffer.from(body) : body;
-  if (bytes.byteLength < cfg.threshold) return vary;
+  // Under the threshold the body is sent identity whatever the client accepts, so `Accept-Encoding`
+  // played no part and there is no `Vary` to send (RFC 9110 §12.5.5). A cache that stores this
+  // response for everyone is right to: every client accepts identity. Skipping it matters on Deno,
+  // which pays ~10% of a small request for a `Vary` header. Measured without allocating the bytes.
+  const size = typeof body === 'string' ? Buffer.byteLength(body) : body.byteLength;
+  if (size < cfg.threshold) return outcome;
 
   const encoding = negotiate(acceptOf(req), cfg.encodings);
-  if (!encoding) return vary;
+  if (!encoding) return vary();
 
+  const bytes = typeof body === 'string' ? Buffer.from(body) : body;
   return encodeBody(bytes, encoding).then((encoded) => ({
     ...outcome,
     headers: encodedHeaders(headers, encoding),

@@ -163,7 +163,10 @@ npm treats versions as semver and semver forbids leading zeros.
   preference. Text, JSON, JavaScript, ndjson, SVG, XML and wasm are compressed. A response that
   already has `Content-Encoding` or `Content-Range`, has no `Content-Type`, or says
   `Cache-Control: no-transform` is left alone. `Vary: Accept-Encoding` is added wherever the request
-  decided the outcome: identity clients, `HEAD`, bodies under the threshold and every `304`.
+  decided the outcome: identity clients, `HEAD` and every `304`. A body under the threshold gets
+  none: it is sent identity whatever the client accepts, and Deno pays about 10% of a small request
+  for the header (about 3% on Bun). On the edge, where Cloudflare encodes, every compressible
+  response keeps `Vary`.
   `Content-Length` is dropped from an encoded body. SSE and ndjson streams are compressed too,
   flushed after every event, error frame and ping, so each event decodes when it arrives.
   Per runtime:

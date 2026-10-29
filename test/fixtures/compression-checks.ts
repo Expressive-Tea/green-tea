@@ -60,7 +60,7 @@ async function negotiation(port: number): Promise<void> {
 /** T7, T8, T11, T15: skips, and the 304 shape. */
 async function skips(port: number): Promise<void> {
   for (const [path, vary] of [
-    ['/c/small', true],
+    ['/c/small', false],
     ['/c/png', false],
     ['/c/notype', false],
     ['/c/range', false],
