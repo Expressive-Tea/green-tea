@@ -135,7 +135,7 @@ for (const adapter of ['node', 'fetch'] as const) {
     });
 
     it.each([
-      ['/c/small', 'T7 under threshold', true],
+      ['/c/small', 'T7 under threshold', false],
       ['/c/png', 'T8 image/png', false],
       ['/c/notype', 'T8 missing content-type', false],
       ['/c/range', 'T8 content-range', false],

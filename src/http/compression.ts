@@ -195,7 +195,8 @@ type Headers = Record<string, string | string[]>;
 /**
  * Whether the response's representation could vary by `Accept-Encoding` at all. When it cannot —
  * already encoded, a range, no or an incompressible type, `no-transform` — core neither encodes
- * nor adds `Vary`. Request-side reasons (HEAD, the client's header) do not appear here: those
+ * nor adds `Vary`. A buffered body under the threshold is the same case, decided in
+ * {@link compressBuffered} once the size is known. Request-side reasons (HEAD, the client's header) do not appear here: those
  * responses still get `Vary`, so a shared cache keys them correctly.
  */
 function eligible(headers: Headers): boolean {
@@ -312,15 +313,20 @@ function compressBuffered(
   if (status === 304) return { ...outcome, headers: withVary(headers) };
   if (status === 204 || !eligible(headers)) return outcome;
 
-  const vary = { ...outcome, headers: withVary(headers) };
-  if (status < 200 || req.method === 'HEAD' || !cfg.encode) return vary;
+  const vary = (): Buffered => ({ ...outcome, headers: withVary(headers) });
+  if (status < 200 || req.method === 'HEAD' || !cfg.encode) return vary();
 
-  const bytes = typeof body === 'string' ? Buffer.from(body) : body;
-  if (bytes.byteLength < cfg.threshold) return vary;
+  // Under the threshold the body is sent identity whatever the client accepts, so `Accept-Encoding`
+  // played no part and there is no `Vary` to send (RFC 9110 §12.5.5). A cache that stores this
+  // response for everyone is right to: every client accepts identity. Skipping it matters on Deno,
+  // which pays ~10% of a small request for a `Vary` header. Measured without allocating the bytes.
+  const size = typeof body === 'string' ? Buffer.byteLength(body) : body.byteLength;
+  if (size < cfg.threshold) return outcome;
 
   const encoding = negotiate(acceptOf(req), cfg.encodings);
-  if (!encoding) return vary;
+  if (!encoding) return vary();
 
+  const bytes = typeof body === 'string' ? Buffer.from(body) : body;
   return encodeBody(bytes, encoding).then((encoded) => ({
     ...outcome,
     headers: encodedHeaders(headers, encoding),
