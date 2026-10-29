@@ -1810,6 +1810,15 @@ function buildAppFetch(
 ): (request: Request) => Promise<Response> {
   let handler: ((request: Request) => Promise<Response>) | undefined;
 
+  // Awaits the boot, then builds the table. Only until the first request has done so: a built table
+  // means the boot succeeded, and awaiting a settled boot again costs every request a promise and
+  // microtask hops (about 6% of a small request on Deno).
+  const firstRequest = async (request: Request): Promise<Response> => {
+    await ensureBooted(); // idempotent: no-op once any of fetch/upgrade/listen has booted
+    handler ??= buildFetch(getRoutes, fetchOpts);
+    return handler(request);
+  };
+
   return async (request: Request): Promise<Response> => {
     // Before the boot, or `/__ready__` could never say `booting`: it would wait for the boot to end.
     // The boot is still started, not awaited: on the edge, or under a bare `Deno.serve(app.fetch)`,
@@ -1822,13 +1831,7 @@ function buildAppFetch(
       return probe;
     }
 
-    await ensureBooted(); // idempotent: no-op once any of fetch/upgrade/listen has booted
-
-    if (!handler) {
-      handler = buildFetch(getRoutes, fetchOpts);
-    }
-
-    return handler(request);
+    return handler ? handler(request) : firstRequest(request);
   };
 }
 
