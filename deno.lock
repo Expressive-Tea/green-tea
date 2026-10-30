@@ -19,6 +19,7 @@
     "packageJson": {
       "dependencies": [
         "npm:@eslint/js@^9.39.5",
+        "npm:@microsoft/api-extractor@^7.59.4",
         "npm:@nestjs/common@^11.1.28",
         "npm:@nestjs/core@^11.1.28",
         "npm:@nestjs/platform-express@^11.1.28",
