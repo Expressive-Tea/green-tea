@@ -2,12 +2,22 @@ import type { Link } from './link';
 import type { RequestEnvelope } from './protocol';
 import type { ResponseShape } from '../pipeline';
 
-/** Local proxy for a remote scope: runs the RPC and returns its token→value binding. */
+/**
+ * Local proxy for a remote scope: runs the RPC and returns its token→value binding.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in a minor release.
+ */
 export interface RemoteScopeNode {
   name: string;
   run: (ctx: any) => Promise<Record<string, unknown>>;
 }
-/** Local proxy for a remote route: forwards the request envelope over the link. */
+/**
+ * Local proxy for a remote route: forwards the request envelope over the link.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in a minor release.
+ */
 export interface RemoteRoute {
   method: string;
   pattern: string;

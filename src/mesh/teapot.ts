@@ -90,7 +90,12 @@ function safeEqual(left: string, right: string): boolean {
   return crypto.timingSafeEqual(leftBuf, rightBuf);
 }
 
-/** Dependencies for the mesh control handler: shared secret, manifest, and scope/route resolvers. */
+/**
+ * Dependencies for the mesh control handler: shared secret, manifest, and scope/route resolvers.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in a minor release.
+ */
 export interface MeshControlDeps {
   secret: string;
   manifest: Manifest;

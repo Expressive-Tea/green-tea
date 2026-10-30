@@ -54,7 +54,12 @@ export interface RequestEnvelope {
   correlation?: { requestId?: string; traceId?: string };
 }
 
-/** Manifest entry for an exported route. */
+/**
+ * Manifest entry for an exported route.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in a minor release.
+ */
 export interface RouteEntry {
   method: string;
   pattern: string;
