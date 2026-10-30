@@ -147,7 +147,7 @@ npm treats versions as semver and semver forbids leading zeros.
   declarations, but nothing exported them, so code could call the API and could not name what it
   passed or got back. From the root: `ModuleOptions`, `Ctor`, `BusLike`, `ArgSource`,
   `GraphNodeView`, `GraphRouteView`, `StandardIssue`, `StandardResult`, and, for the experimental
-  mesh, `Link`, `ReconnectOptions`, `ManifestPolicy`, `SocketCtor`, `EventfulSocket`, `RouteEntry`,
+  mesh (tagged `@experimental`, outside the freeze), `Link`, `ReconnectOptions`, `ManifestPolicy`, `SocketCtor`, `EventfulSocket`, `RouteEntry`,
   `RemoteScopeNode`, `RemoteRoute`, `MeshControlDeps` and `ResponseShape`. From `/deno`:
   `DenoServeOptions` and `DenoHttpServer`. From `/bun`: `BunServeOptions` and `BunServer`. From
   `/edge`: `EdgeCtx`. All of them are additions, and nothing was renamed.
