@@ -4,7 +4,7 @@ import 'reflect-metadata';
 import { test } from 'bun:test';
 import { serveBun } from '../../src/bun.ts';
 import { compressionApp } from '../fixtures/compression-app.ts';
-import { checks, serverDoesNotCompress, ticksDuringGzip } from '../fixtures/compression-checks.ts';
+import { checks, gzipOnlyRefusesBr, serverDoesNotCompress, ticksDuringGzip } from '../fixtures/compression-checks.ts';
 
 for (const [name, run] of Object.entries(checks)) {
   test(`compression on Bun.serve: ${name}`, async () => {
@@ -17,6 +17,16 @@ for (const [name, run] of Object.entries(checks)) {
     }
   });
 }
+
+test("compression on Bun.serve: T6 encodings ['gzip'] and a br-only client → identity", async () => {
+  const server = await serveBun(compressionApp({ compression: { encodings: ['gzip'] } }), { hostname: '127.0.0.1', port: 0 });
+
+  try {
+    await gzipOnlyRefusesBr(server.port);
+  } finally {
+    await server.close({ timeoutMs: 1000 });
+  }
+});
 
 // The documented Bun facts (CARD-16; `guides/runtimes.md`).
 test('documented: Bun.serve does not compress by itself (core compression off → identity)', async () => {

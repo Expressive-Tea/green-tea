@@ -45,7 +45,7 @@ export const HTML_BODY: string = (() => {
 export const SMALL_BODY = JSON.stringify({ pad: 'x'.repeat(500) }); // 512 B, under the 1024 threshold
 export const BIG_BODY = HTML_BODY.repeat(2); // 102 KiB
 const PNG = 'P'.repeat(4096);
-const TEXT = 'y'.repeat(4096);
+export const TEXT = 'y'.repeat(4096);
 
 const raw = (headers: Record<string, string>, status = 200) => (body: unknown) => ({
   status,
