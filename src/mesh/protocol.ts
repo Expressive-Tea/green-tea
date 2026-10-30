@@ -36,7 +36,7 @@ export const MESH_PROTOCOL_VERSION = 1;
  * green-tea simply ignores them, which costs the correlation of that hop and nothing else.
  *
  * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
- * API freeze, so it may change in a minor release.
+ * API freeze, so it may change in any release.
  */
 export interface RequestEnvelope {
   method: string;
@@ -58,7 +58,7 @@ export interface RequestEnvelope {
  * Manifest entry for an exported route.
  *
  * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
- * API freeze, so it may change in a minor release.
+ * API freeze, so it may change in any release.
  */
 export interface RouteEntry {
   method: string;
@@ -73,7 +73,7 @@ export interface RouteEntry {
  * lazy — the token exists in the teacup's graph, and running it is an RPC.
  *
  * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
- * API freeze, so it may change in a minor release.
+ * API freeze, so it may change in any release.
  */
 export interface Manifest {
   steps: string[];
@@ -88,7 +88,7 @@ export interface Manifest {
  * so a protocol-level heartbeat could not work on every runtime mesh claims to support.
  *
  * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
- * API freeze, so it may change in a minor release.
+ * API freeze, so it may change in any release.
  */
 export type Frame =
   | { type: 'hello'; v: number; secret: string }

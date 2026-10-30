@@ -15,7 +15,7 @@ export interface PipelineStep {
  * A fully materialized HTTP response produced by a transformer.
  *
  * @experimental Public only through the mesh (`MeshControlDeps`, `RemoteRoute`), which needs
- * `createApp({ experimental: true })`: outside the API freeze, so it may change in a minor release.
+ * `createApp({ experimental: true })`: outside the API freeze, so it may change in any release.
  */
 export interface ResponseShape {
   status: number;

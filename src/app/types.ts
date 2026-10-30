@@ -129,7 +129,7 @@ export interface RoutePlan {
  * Mesh networking options: a secret to gate this node's exports and/or remote teapots to connect to.
  *
  * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
- * API freeze, so it may change in a minor release.
+ * API freeze, so it may change in any release.
  */
 export interface MeshConfig {
   secret?: string;

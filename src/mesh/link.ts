@@ -9,7 +9,7 @@ import { encode, decode, MESH_PROTOCOL_VERSION, type Manifest, type RequestEnvel
  * Client handle to a remote mesh server: its manifest, an RPC caller, and a close().
  *
  * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
- * API freeze, so it may change in a minor release.
+ * API freeze, so it may change in any release.
  */
 export interface Link {
   manifest: Manifest;
@@ -21,7 +21,7 @@ export interface Link {
  * Backoff bounds for reconnection. `false` disables reconnecting entirely.
  *
  * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
- * API freeze, so it may change in a minor release.
+ * API freeze, so it may change in any release.
  */
 export interface ReconnectOptions {
   /** Delay before the first retry; doubles from here (default: 500ms). */
@@ -38,7 +38,7 @@ export interface ReconnectOptions {
  * cadences, and silently changing what the default means is the worst kind of breaking change.
  *
  * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
- * API freeze, so it may change in a minor release.
+ * API freeze, so it may change in any release.
  */
 export type ManifestPolicy = 'refuse';
 
@@ -474,7 +474,7 @@ function backoffBounds(
  * `Ctor` is injectable to exercise both client implementations on a single runtime.
  *
  * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
- * API freeze, so it may change in a minor release.
+ * API freeze, so it may change in any release.
  */
 export function connectLink(args: {
   url: string;
