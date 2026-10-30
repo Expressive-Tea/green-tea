@@ -10,6 +10,23 @@ export interface TlsOptions {
   passphrase?: string;
 }
 
+/**
+ * Set on an app created with `tls`, so the adapters that serve through their runtime's own listener
+ * (`serveDeno`, `serveBun`) can refuse it. Only Node's `listen()` reads `tls`; anywhere else it would
+ * serve plain HTTP to someone who asked for HTTPS. Symbol-keyed because it is adapter plumbing.
+ */
+export const TLS_REQUESTED: unique symbol = Symbol.for('green-tea.tls-requested');
+
+/** Throws when `app` was created with `tls`, which `adapter` cannot honour. */
+export function refuseTls(app: object, adapter: string): void {
+  if ((app as { [TLS_REQUESTED]?: boolean })[TLS_REQUESTED]) {
+    throw new Error(
+      `${adapter} does not support createApp({ tls }); it would serve plain HTTP. ` +
+        `Configure TLS on the runtime's own server or terminate it at a proxy, and drop \`tls\`.`,
+    );
+  }
+}
+
 /** CORS policy. `origins` may be a literal, list, `'*'`, or a predicate. */
 export interface CorsOptions {
   origins: string | string[] | '*' | ((origin: string) => boolean);

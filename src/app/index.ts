@@ -45,7 +45,7 @@ import { getArgs, getHandlerNeeds, resolveArgs } from '../params';
 import { buildOpenApi, type OpenApiInfo } from '../openapi';
 import { connectLink, isPermanentRefusal, type Link } from '../mesh/link';
 import { Rooms } from '../rooms';
-import type { TlsOptions, SecurityOptions, CorsOptions } from '../security';
+import { TLS_REQUESTED, type TlsOptions, type SecurityOptions, type CorsOptions } from '../security';
 import { buildRemote, type RemoteRoute as TeacupRemoteRoute } from '../mesh/teacup';
 import {
   buildManifest,
@@ -533,6 +533,9 @@ export function createApp(opts: AppOptions): App {
 
     // `edgeHandler` calls this: on the edge core never encodes, whatever detection concluded.
     [MARK_EDGE]: edgeMarker(compression),
+
+    // `serveDeno` and `serveBun` refuse an app that asked for TLS only Node's listener can give.
+    [TLS_REQUESTED]: Boolean(opts.tls),
   });
 }
 
