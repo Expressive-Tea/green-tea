@@ -16,7 +16,7 @@ export type Headers = RequestHeaders;
 /** Per-request bag that accumulates values produced by steps and providers. */
 export type Context = Record<string, unknown>;
 
-type ArgSource = 'ctx' | 'needs' | 'params' | 'query' | 'body' | 'headers' | 'cookies' | 'inbound' | 'abort';
+export type ArgSource = 'ctx' | 'needs' | 'params' | 'query' | 'body' | 'headers' | 'cookies' | 'inbound' | 'abort';
 /** Describes how a single handler parameter is sourced and (optionally) validated. */
 export interface ArgSpec {
   index: number;

@@ -22,7 +22,7 @@ export type { App, AppOptions, InspectLine, Explain, ExplainNode, MeshConfig } f
 
 // Graph visualization
 export { toMermaid, toDOT } from './graph-viz';
-export type { GraphView } from './graph-viz';
+export type { GraphView, GraphNodeView, GraphRouteView } from './graph-viz';
 export { buildOpenApi } from './openapi';
 export type { OpenApiDoc, OpenApiInfo, OpenApiRoute } from './openapi';
 
@@ -48,7 +48,7 @@ export {
   Options,
   Html,
 } from './metadata';
-export type { Transport, HttpMethod, RouteDecorator, TransformerFn } from './metadata';
+export type { Transport, HttpMethod, RouteDecorator, TransformerFn, ModuleOptions, Ctor } from './metadata';
 export type { Plugin, PluginApi, ScopeApi, ScopeNode } from './plugin';
 export type { Hooks } from './app';
 export type { TeardownFn } from './lifecycle';
@@ -79,7 +79,7 @@ export type { StepFn, CompiledFlow } from './flow';
 
 // Parameter decorators
 export { needs, ctx, param, query, body, headers, header, cookies, cookie, inbound, abort } from './params';
-export type { Query, RequestHeaders, Headers, Context, ArgSpec, ArgDecorator } from './params';
+export type { Query, RequestHeaders, Headers, Context, ArgSpec, ArgSource, ArgDecorator } from './params';
 
 // Cookies
 export { setCookie, parseCookies } from './cookies';
@@ -87,7 +87,7 @@ export type { CookieOptions } from './cookies';
 
 // Observability
 export { createDefaultLogger, logRequests, withConsoleFallback } from './logger';
-export type { Logger, LogLevel, LogFields } from './logger';
+export type { Logger, LogLevel, LogFields, BusLike } from './logger';
 
 // Streaming
 export { channel, isAsyncIterable } from './channel';
@@ -103,10 +103,15 @@ export type { CompressionOptions } from './http/compression';
 export { UNMATCHED_ROUTE } from './http/core';
 export type { TlsOptions, CorsOptions, SecurityOptions } from './security';
 export type { UploadedFile, MultipartBody } from './multipart';
-export type { StandardSchemaV1 } from './standard-schema';
+export type { StandardSchemaV1, StandardIssue, StandardResult } from './standard-schema';
 
 // Mesh — experimental (`createApp({ experimental: true })`): outside the API freeze, may change in a minor.
 export { connectLink } from './mesh/link';
 export { buildRemote, envelopeFrom } from './mesh/teacup';
 export { buildManifest, createMeshControl, MESH_CONTROL_PATH } from './mesh/teapot';
-export type { Manifest, RequestEnvelope, Frame } from './mesh/protocol';
+export type { Manifest, RequestEnvelope, Frame, RouteEntry } from './mesh/protocol';
+export type { Link, ManifestPolicy, ReconnectOptions } from './mesh/link';
+export type { SocketCtor, EventfulSocket } from './http/ws-adapter';
+export type { RemoteScopeNode, RemoteRoute } from './mesh/teacup';
+export type { MeshControlDeps } from './mesh/teapot';
+export type { ResponseShape } from './pipeline';

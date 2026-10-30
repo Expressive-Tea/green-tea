@@ -118,13 +118,15 @@ function newSub<T>(onReturn: () => void): Sub<T> {
  * Creates a fan-out {@link Channel}. Values pushed are delivered to every active subscriber.
  * @param opts.buffer Per-subscriber queue cap; drops oldest when exceeded (default: unbounded).
  */
-export function channel<T>(opts: { buffer?: number } = {}): TappableChannel<T> {
+export function channel<T>(opts: { buffer?: number } = {}): Channel<T> {
   const cap = opts.buffer ?? Infinity;
   const subs = new Set<Omit<Sub<T>, 'iterator'>>();
   let done = false;
   let closedFlag = false;
 
-  return {
+  // Public type stays `Channel<T>` (as in beta.2): the tap is internal plumbing, found by `ws-core`
+  // through the symbol rather than through this signature.
+  const ch: TappableChannel<T> = {
     get closed() {
       return closedFlag;
     },
@@ -161,4 +163,5 @@ export function channel<T>(opts: { buffer?: number } = {}): TappableChannel<T> {
       return () => subs.delete(sink);
     },
   };
+  return ch;
 }

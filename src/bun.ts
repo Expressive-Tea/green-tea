@@ -1,6 +1,7 @@
 import { channel } from './channel';
 import type { Channel } from './channel';
 import type { App } from './app/types';
+import { refuseTls } from './security';
 import {
   WS_MAX_MESSAGE_BYTES,
   DEFAULT_MAX_WS_MESSAGE_BYTES,
@@ -32,7 +33,8 @@ interface BunWebSocketHandler {
   drain?(ws: BunServerWebSocket): void;
   error?(ws: BunServerWebSocket, error?: unknown): void;
 }
-interface BunServer {
+/** The part of the server `Bun.serve` returns that {@link BunServeResult} builds on. */
+export interface BunServer {
   port: number;
   // Returns a promise, verified on Bun 1.3 — the previous `void` here was simply wrong, and it
   // hid the fact that this is awaitable at all.
@@ -53,14 +55,18 @@ export interface BunServeResult extends BunServer {
    */
   close(options?: { timeoutMs?: number }): Promise<void>;
 }
-interface BunServeOptions {
+interface BunNativeServeOptions {
   port?: number;
   hostname?: string;
   fetch(request: Request, server: BunServer): Response | Promise<Response> | undefined;
   websocket?: BunWebSocketHandler;
 }
-type BunServeShortOptions = { port?: number; hostname?: string };
-declare const Bun: { serve(options: BunServeOptions): BunServer };
+/** Options for {@link serveBun}; passed through to `Bun.serve`. */
+export interface BunServeOptions {
+  port?: number;
+  hostname?: string;
+}
+declare const Bun: { serve(options: BunNativeServeOptions): BunServer };
 
 /** Per-connection state stashed on ws.data between fetch (upgrade) and the open/message/close callbacks. */
 interface BunConnData {
@@ -104,7 +110,7 @@ function bunSocket(ws: BunServerWebSocket): WsSocket {
  *
  * **Boots before it binds**, which is why it is async — see the `await app.boot()` below.
  */
-export async function serveBun(app: App, options?: BunServeShortOptions): Promise<BunServeResult> {
+export async function serveBun(app: App, options?: BunServeOptions): Promise<BunServeResult> {
   // The same gate `listen()` runs before it binds a socket, and for the same reason: resolve the
   // graph and run the provider factories here, so a missing key or an unreachable pool is a startup
   // failure rather than a 500 on every request.
@@ -113,6 +119,7 @@ export async function serveBun(app: App, options?: BunServeShortOptions): Promis
   // the first request would fix the failure in place and the runtime would answer from it forever,
   // without ever reaching `onError`. This was documented as something the caller should remember to
   // do, which made the correct use of a core helper depend on reading a README.
+  refuseTls(app, 'serveBun');
   await app.boot();
 
   const server = Bun.serve({

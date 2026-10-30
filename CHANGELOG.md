@@ -135,7 +135,22 @@ npm treats versions as semver and semver forbids leading zeros.
   `return` sees `204` instead; return a value to keep a `200`. A route with its own `@Transformer`
   is not affected.
 
+- **`serveDeno()` and `serveBun()` reject an app created with `tls`.** Only Node's `listen()` ever
+  read `tls`; Deno and Bun serve through their runtime's own listener, so the same app came up as
+  plain HTTP there, without a word, for someone who had asked for HTTPS. Both adapters now reject
+  before they boot or bind. Migrate by dropping `tls` from `createApp` and configuring TLS on the
+  runtime's server, or terminating it at a proxy. An app without `tls` is unaffected.
+
 ### Added
+
+- **Every type a public signature uses can now be imported.** These were already in the
+  declarations, but nothing exported them, so code could call the API and could not name what it
+  passed or got back. From the root: `ModuleOptions`, `Ctor`, `BusLike`, `ArgSource`,
+  `GraphNodeView`, `GraphRouteView`, `StandardIssue`, `StandardResult`, and, for the experimental
+  mesh, `Link`, `ReconnectOptions`, `ManifestPolicy`, `SocketCtor`, `EventfulSocket`, `RouteEntry`,
+  `RemoteScopeNode`, `RemoteRoute`, `MeshControlDeps` and `ResponseShape`. From `/deno`:
+  `DenoServeOptions` and `DenoHttpServer`. From `/bun`: `BunServeOptions` and `BunServer`. From
+  `/edge`: `EdgeCtx`. All of them are additions, and nothing was renamed.
 
 - **Health probes: `createApp({ health: true })`** (#115). Off by default. `GET`/`HEAD /__live__`
   answers `200 {"status":"ok"}` whenever the process answers. `/__ready__` answers

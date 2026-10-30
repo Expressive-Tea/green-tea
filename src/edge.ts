@@ -8,7 +8,8 @@ import { MARK_EDGE } from './http/compression';
 interface EdgeWebSocket extends EventfulSocket {
   accept(): void;
 }
-interface EdgeCtx {
+/** The Workers execution context {@link edgeHandler} receives as its third argument. */
+export interface EdgeCtx {
   waitUntil(promise: Promise<unknown>): void;
 }
 declare const WebSocketPair: { new (): { 0: EdgeWebSocket; 1: EdgeWebSocket } };

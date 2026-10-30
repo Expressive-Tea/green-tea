@@ -129,7 +129,8 @@ export function logRequests(bus: BusLike, logger: Logger): () => void {
 }
 
 /** The slice of {@link Bus} request logging needs — `on` only, matching what a plugin is handed. */
-interface BusLike {
+/** The part of a {@link Bus} that {@link logRequests} subscribes to. */
+export interface BusLike {
   on(event: 'request:end' | 'request:failed', listener: (payload: EventPayload) => void): () => void;
 }
 
