@@ -49,6 +49,10 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # The committed reports in api/ are the frozen surface (CARD-22, D20). A PR that changes a
+      # public type fails here until it regenerates them with `npm run api`, so the change shows up
+      # in the diff a reviewer reads instead of only in the published declarations.
+      - run: npm run api:check
       # Supply chain, deliberately after the code gates: an advisory published by a third party
       # must never decide whether a contributor gets to see their own lint and typecheck output.
       # Only what we ship blocks — with `reflect-metadata` as the sole runtime dependency, a
