@@ -567,6 +567,41 @@ function emptyRegistry(): Registry {
   };
 }
 
+/**
+ * Wraps a provider's `provide()` or a step's `run()` so its result is checked against the contract:
+ * an object holding every token the node provides. Without this, `return client` instead of
+ * `return { db: client }` booted fine. `db` was then `undefined`, and the client's own properties
+ * were spread over every request's context. The check stays synchronous for a synchronous node,
+ * so a plain step pays a type test rather than an extra microtask on the hot path.
+ */
+function keyedRunner(kind: string, name: string, provides: readonly string[], run: Runner): Runner {
+  const check = (output: unknown): unknown => {
+    if (output !== null && typeof output === 'object' && provides.every((token) => token in output)) return output;
+    const example = provides.map((token) => `${token}: <value>`).join(', ');
+    throw new TypeError(
+      `${kind} '${name}' returned ${describeOutput(output)}, but it must return an object holding what it ` +
+        `provides: return { ${example} }`,
+    );
+  };
+
+  return (ctx) => {
+    const output = run(ctx);
+    return output instanceof Promise ? output.then(check) : check(output);
+  };
+}
+
+function describeOutput(output: unknown): string {
+  if (output === null || output === undefined) return String(output);
+  if (typeof output !== 'object') return `a ${typeof output}`;
+  const keys = Object.keys(output);
+  return keys.length
+    ? `an object with ${keys
+        .slice(0, 5)
+        .map((k) => `'${k}'`)
+        .join(', ')}`
+    : 'an empty object';
+}
+
 /** Registers a module's `@Provider` classes as app-scope provider nodes. */
 function collectProviders(providers: Ctor[], origin: string, registry: Registry): void {
   for (const ProviderClass of providers) {
@@ -585,7 +620,10 @@ function collectProviders(providers: Ctor[], origin: string, registry: Registry)
       );
     const instance: any = new ProviderClass();
     registry.providerInstances.set(meta.provides, instance);
-    registry.setRunner(meta.provides, (ctx) => instance.provide(ctx));
+    registry.setRunner(
+      meta.provides,
+      keyedRunner('provider', meta.provides, [meta.provides], (ctx) => instance.provide(ctx)),
+    );
   }
 }
 
@@ -596,7 +634,10 @@ function collectSteps(steps: Ctor[], origin: string, registry: Registry): void {
     registry.stepNodes.push({ name: meta.provides, needs: meta.needs, provides: [meta.provides], origin });
     if (meta.export) registry.exportedSteps.push(meta.provides);
     const instance: any = new StepClass();
-    registry.setRunner(meta.provides, (ctx) => instance.run(ctx));
+    registry.setRunner(
+      meta.provides,
+      keyedRunner('step', meta.provides, [meta.provides], (ctx) => instance.run(ctx)),
+    );
   }
 }
 
@@ -854,7 +895,10 @@ function mountPlugins(plugins: Plugin[] | undefined, bus: Bus, registry: Registr
     const node = { name: scopeNode.name, needs: scopeNode.needs, provides: scopeNode.provides, origin: 'plugin' };
     if (scopeNode.kind === 'provider') registry.providerNodes.push(node);
     else registry.stepNodes.push(node);
-    registry.setRunner(scopeNode.name, scopeNode.run);
+    registry.setRunner(
+      scopeNode.name,
+      keyedRunner(`plugin ${scopeNode.kind}`, scopeNode.name, scopeNode.provides, scopeNode.run),
+    );
   }
 }
 

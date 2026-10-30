@@ -51,7 +51,7 @@ describe('CARD-17: health probes through app.fetch', () => {
     class SlowDb {
       async provide() {
         await new Promise<void>((resolve) => (finish = resolve));
-        return {};
+        return { slowDb: {} };
       }
     }
     @Module({ mountpoint: '/', controllers: [Ctl], providers: [SlowDb] })
@@ -76,7 +76,7 @@ describe('CARD-17: health probes through app.fetch', () => {
     class Watched {
       provide() {
         started = true;
-        return {};
+        return { watched: {} };
       }
     }
     @Module({ mountpoint: '/', controllers: [Ctl], providers: [Watched] })

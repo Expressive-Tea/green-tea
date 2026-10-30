@@ -30,7 +30,7 @@ Deno.test('CARD-17 T1: /__ready__ 503 booting while a slow provider boots, /__li
   class SlowDb {
     async provide() {
       await new Promise<void>((resolve) => (finish = resolve));
-      return {};
+      return { slowDb: {} };
     }
   }
   @Module({ mountpoint: '/', controllers: [Ctl], providers: [SlowDb] })

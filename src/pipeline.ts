@@ -132,6 +132,16 @@ export async function runPipeline(args: {
   try {
     context = await runSteps(steps, context, bus, correlation);
     const result = await handler(context);
+
+    // A handler returns a value and a transformer shapes the response. A Fetch `Response` is not a
+    // value: JSON-encoded, it went out as `200 {}`, with its status, headers and body all lost.
+    if (typeof Response !== 'undefined' && result instanceof Response) {
+      throw new TypeError(
+        'a handler returned a Response object, which green-tea does not send as is. Return a plain value ' +
+          '(sent as JSON), use @Transformer to set the status and headers, or throw an HttpError for an error status',
+      );
+    }
+
     const streaming = isAsyncIterable(result);
     const contract = TRANSPORT_RETURN[transport];
 
