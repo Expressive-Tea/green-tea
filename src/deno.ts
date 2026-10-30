@@ -1,4 +1,5 @@
 import type { App } from './app/types';
+import { refuseTls } from './security';
 import { beginDrain } from './http/health';
 import { eventSocket, toWsRequest, upgradeSafely, type EventfulSocket } from './http/ws-adapter';
 import { closeWithDeadline } from './http/shutdown';
@@ -12,7 +13,8 @@ interface WebSocket extends EventfulSocket {
 
 // Minimal ambient for the Deno globals we use — avoids a @types/deno devDep.
 // Mirrors the real Deno.serve / Deno.upgradeWebSocket signatures we call.
-interface DenoServeOptions {
+/** Options for {@link serveDeno}; passed through to `Deno.serve`. */
+export interface DenoServeOptions {
   port?: number;
   hostname?: string;
   signal?: AbortSignal;
@@ -21,7 +23,8 @@ interface DenoServeOptions {
 interface DenoServeHandlerInfo {
   remoteAddr: { hostname: string; port: number; transport: string };
 }
-interface DenoHttpServer {
+/** The part of the server `Deno.serve` returns that {@link DenoServer} builds on. */
+export interface DenoHttpServer {
   finished: Promise<void>;
   shutdown(): Promise<void>;
 }
@@ -65,6 +68,7 @@ export async function serveDeno(app: App, options?: DenoServeOptions): Promise<D
   // the first request would fix the failure in place and the runtime would answer from it forever,
   // without ever reaching `onError`. This was documented as something the caller should remember to
   // do, which made the correct use of a core helper depend on reading a README.
+  refuseTls(app, 'serveDeno');
   await app.boot();
 
   // Deno's only force-close lever is the abort signal it was served with, so the adapter has to
