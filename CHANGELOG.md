@@ -147,7 +147,7 @@ npm treats versions as semver and semver forbids leading zeros.
   declarations, but nothing exported them, so code could call the API and could not name what it
   passed or got back. From the root: `ModuleOptions`, `Ctor`, `BusLike`, `ArgSource`,
   `GraphNodeView`, `GraphRouteView`, `StandardIssue`, `StandardResult`, and, for the experimental
-  mesh, `Link`, `ReconnectOptions`, `ManifestPolicy`, `SocketCtor`, `EventfulSocket`, `RouteEntry`,
+  mesh (tagged `@experimental`, outside the freeze), `Link`, `ReconnectOptions`, `ManifestPolicy`, `SocketCtor`, `EventfulSocket`, `RouteEntry`,
   `RemoteScopeNode`, `RemoteRoute`, `MeshControlDeps` and `ResponseShape`. From `/deno`:
   `DenoServeOptions` and `DenoHttpServer`. From `/bun`: `BunServeOptions` and `BunServer`. From
   `/edge`: `EdgeCtx`. All of them are additions, and nothing was renamed.
@@ -242,7 +242,7 @@ npm treats versions as semver and semver forbids leading zeros.
   `envelopeFrom`, `buildManifest`, `createMeshControl`, `MESH_CONTROL_PATH`, `Manifest`,
   `RequestEnvelope`, `Frame` and `MeshConfig`. They stay exported, unchanged. The mesh already needs
   `createApp({ experimental: true })`; the tag says the same thing in the types: these are outside
-  the API freeze and may change in a minor release.
+  the API freeze and may change in any release.
 - **Every `304` is bodiless** (#114). A `304` has no body and no `content-*` headers on any adapter,
   including one from `throw new NotModified()`, which used to go out with the default JSON
   envelope's `content-type`.

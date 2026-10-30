@@ -5,14 +5,24 @@ import { connectSocket, type SocketCtor } from '../http/ws-adapter';
 import { sendWhenDrained, type WsSocket } from '../http/ws-core';
 import { encode, decode, MESH_PROTOCOL_VERSION, type Manifest, type RequestEnvelope, type Frame } from './protocol';
 
-/** Client handle to a remote mesh server: its manifest, an RPC caller, and a close(). */
+/**
+ * Client handle to a remote mesh server: its manifest, an RPC caller, and a close().
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in any release.
+ */
 export interface Link {
   manifest: Manifest;
   rpc(kind: 'scope' | 'route', name: string, ctx: RequestEnvelope): Promise<unknown>;
   close(): void;
 }
 
-/** Backoff bounds for reconnection. `false` disables reconnecting entirely. */
+/**
+ * Backoff bounds for reconnection. `false` disables reconnecting entirely.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in any release.
+ */
 export interface ReconnectOptions {
   /** Delay before the first retry; doubles from here (default: 500ms). */
   initialDelayMs?: number;
@@ -26,6 +36,9 @@ export interface ReconnectOptions {
  * Only `'refuse'` exists. It is a named strategy rather than implicit behaviour so that hot graph
  * reconciliation can arrive later as `'reconcile'` *additively* — peers run on separate deploy
  * cadences, and silently changing what the default means is the worst kind of breaking change.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in any release.
  */
 export type ManifestPolicy = 'refuse';
 
@@ -461,7 +474,7 @@ function backoffBounds(
  * `Ctor` is injectable to exercise both client implementations on a single runtime.
  *
  * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
- * API freeze, so it may change in a minor release.
+ * API freeze, so it may change in any release.
  */
 export function connectLink(args: {
   url: string;

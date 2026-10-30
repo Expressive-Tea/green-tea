@@ -11,7 +11,12 @@ export interface PipelineStep {
   origin: string;
   run: (ctx: any) => any;
 }
-/** A fully materialized HTTP response produced by a transformer. */
+/**
+ * A fully materialized HTTP response produced by a transformer.
+ *
+ * @experimental Public only through the mesh (`MeshControlDeps`, `RemoteRoute`), which needs
+ * `createApp({ experimental: true })`: outside the API freeze, so it may change in any release.
+ */
 export interface ResponseShape {
   status: number;
   /** A value may be an array: `set-cookie` arrays are sent one line per element, others joined with `, `. */

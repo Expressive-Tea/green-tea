@@ -2,12 +2,22 @@ import type { Link } from './link';
 import type { RequestEnvelope } from './protocol';
 import type { ResponseShape } from '../pipeline';
 
-/** Local proxy for a remote scope: runs the RPC and returns its token→value binding. */
+/**
+ * Local proxy for a remote scope: runs the RPC and returns its token→value binding.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in any release.
+ */
 export interface RemoteScopeNode {
   name: string;
   run: (ctx: any) => Promise<Record<string, unknown>>;
 }
-/** Local proxy for a remote route: forwards the request envelope over the link. */
+/**
+ * Local proxy for a remote route: forwards the request envelope over the link.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in any release.
+ */
 export interface RemoteRoute {
   method: string;
   pattern: string;
@@ -22,7 +32,7 @@ export interface RemoteRoute {
  * and its events on the far side join the same trace instead of starting a new one.
  *
  * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
- * API freeze, so it may change in a minor release.
+ * API freeze, so it may change in any release.
  */
 export function envelopeFrom(ctx: any): RequestEnvelope {
   const req = ctx?.req;
@@ -44,7 +54,7 @@ export function envelopeFrom(ctx: any): RequestEnvelope {
  * Turn a link's manifest into local proxy nodes: lazy request-scope steps, and routes.
  *
  * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
- * API freeze, so it may change in a minor release.
+ * API freeze, so it may change in any release.
  */
 export function buildRemote(link: Link): { steps: RemoteScopeNode[]; routes: RemoteRoute[] } {
   const steps: RemoteScopeNode[] = link.manifest.steps.map((token) => ({

@@ -24,7 +24,7 @@ import {
  * to it on an app without a control channel closes `1008` on every adapter.
  *
  * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
- * API freeze, so it may change in a minor release.
+ * API freeze, so it may change in any release.
  */
 export const MESH_CONTROL_PATH = '/__mesh__/control';
 
@@ -77,7 +77,7 @@ export function controlFrameLimit(maxBodyBytes = DEFAULT_MAX_BODY_BYTES): number
  * Assemble a {@link Manifest} from exported step tokens and buffered routes.
  *
  * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
- * API freeze, so it may change in a minor release.
+ * API freeze, so it may change in any release.
  */
 export function buildManifest(args: { steps: string[]; routes: RouteEntry[] }): Manifest {
   return { steps: [...args.steps], routes: args.routes };
@@ -90,7 +90,12 @@ function safeEqual(left: string, right: string): boolean {
   return crypto.timingSafeEqual(leftBuf, rightBuf);
 }
 
-/** Dependencies for the mesh control handler: shared secret, manifest, and scope/route resolvers. */
+/**
+ * Dependencies for the mesh control handler: shared secret, manifest, and scope/route resolvers.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in any release.
+ */
 export interface MeshControlDeps {
   secret: string;
   manifest: Manifest;
@@ -287,7 +292,7 @@ async function serveFrames(
  * Build a control handler that authenticates peers and serves scope/route RPCs from the manifest.
  *
  * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
- * API freeze, so it may change in a minor release.
+ * API freeze, so it may change in any release.
  */
 export function createMeshControl(deps: MeshControlDeps): {
   path: string;

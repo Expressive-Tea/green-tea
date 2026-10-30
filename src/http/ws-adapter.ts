@@ -37,7 +37,12 @@ export function toWsRequest(request: Request, ip: string): WsRequest {
   };
 }
 
-/** The subset of a host WebSocket that {@link eventSocket} drives (Deno's WebSocket and workerd's both satisfy it). */
+/**
+ * The subset of a host WebSocket that {@link eventSocket} drives (Deno's WebSocket and workerd's both satisfy it).
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in any release.
+ */
 export interface EventfulSocket {
   readonly readyState: number;
   /** Bytes queued by `send` and not yet written. Deno reports it; a host without it is never waited on. */
@@ -153,7 +158,12 @@ async function pollDrained(host: Pick<EventfulSocket, 'readyState' | 'bufferedAm
   }
 }
 
-/** Constructs a host WebSocket *client*. Both the platform global and the `ws` package satisfy it. */
+/**
+ * Constructs a host WebSocket *client*. Both the platform global and the `ws` package satisfy it.
+ *
+ * @experimental Part of the mesh, which needs `createApp({ experimental: true })`: outside the
+ * API freeze, so it may change in any release.
+ */
 export type SocketCtor = new (url: string) => EventfulSocket;
 
 /**

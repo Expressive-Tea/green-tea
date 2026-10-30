@@ -105,7 +105,7 @@ export type { TlsOptions, CorsOptions, SecurityOptions } from './security';
 export type { UploadedFile, MultipartBody } from './multipart';
 export type { StandardSchemaV1, StandardIssue, StandardResult } from './standard-schema';
 
-// Mesh — experimental (`createApp({ experimental: true })`): outside the API freeze, may change in a minor.
+// Mesh — experimental (`createApp({ experimental: true })`): outside the API freeze, may change in any release.
 export { connectLink } from './mesh/link';
 export { buildRemote, envelopeFrom } from './mesh/teacup';
 export { buildManifest, createMeshControl, MESH_CONTROL_PATH } from './mesh/teapot';
