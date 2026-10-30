@@ -125,7 +125,7 @@ Paths: `/:id`, constrained `/:id(\\d+)`, catch-all `/:path*`. Unmatched path -> 
 
 ### What `provide()` and `run()` return
 
-- `provide(ctx)` runs once at boot (may be async). `ctx` holds the values of its `needs`. It must return `{ [provides]: value }`. Returning the bare value boots fine and the token is silently `undefined`.
+- `provide(ctx)` runs once at boot (may be async). `ctx` holds the values of its `needs`. It must return `{ [provides]: value }`. Returning anything else fails the boot (`provider 'db' returned …, but it must return … { db: <value> }`); a step's `run()` that does so fails the request.
 - `run(ctx)` runs per request (may be async). Return `{ [provides]: value }` to continue; throw to short-circuit. The returned object is `Object.assign`ed into the shared context.
 - Optional `dispose()` on a provider is awaited by `close()`, in reverse boot order (not on the edge).
 - `optional: true` on a provider: a failing boot is logged and degrades instead of aborting (`app.degraded()`).
@@ -135,7 +135,7 @@ Paths: `/:id`, constrained `/:id(\\d+)`, catch-all `/:path*`. Unmatched path -> 
 
 - Plain value (object, array, string, number, `null`) -> `200`, JSON-encoded. A returned string is sent as a JSON string; use `@Html` for HTML.
 - `undefined` (no `return`) -> `204`, no body.
-- Returning a `Response` does not send it: it is JSON-encoded as `{}` with `200`. Use a transformer.
+- Never return a `Response`: it fails the request with a `TypeError`. Return a plain value; use `@Transformer` for status and headers.
 - Errors are thrown, not returned: `Unauthorized(msg?)` 401, `NotFound(msg?)` 404, `Redirect(location)` 302 + `Location`, `NotModified()` 304, `ValidationError` 422 (raised by schemas), `HttpError(status, message?, body?, headers?)` any status. Anything else -> 500 `{"error":"Internal Server Error"}`; the message is not leaked. Default body: `{"error": message}`, or `body` when given.
 - Check errors with `isHttpError(e)` / `isValidationError(e)`, not `instanceof` (fails across two copies of core).
 - Custom rendering of every error response (including 404/405/413): `createApp({ onError(error, req) { return { status, headers, body } | undefined } })`.
@@ -249,7 +249,7 @@ A plugin gets only `bus.on`, `scope.add` and `onShutdown`; it cannot reorder or 
 2. Calling `next()` -> `run(ctx)` returns `{ token: value }` to continue and throws to stop.
 3. `req.user = user` -> `return { user }` from the step, and `@needs('user') user` in the handler.
 4. `res.status(201).json(x)`, `res.cookie()`, `return new Response(...)` -> return the value, plus `@Transformer(fn)` for status/headers/`setCookie()`. A returned `Response` is sent as `{}`.
-5. `provide() { return new Pool() }` -> `provide() { return { db: new Pool() } }`. The bare value leaves `db` undefined with no error.
+5. `provide() { return new Pool() }` -> `provide() { return { db: new Pool() } }`. The bare value fails the boot.
 6. NestJS constructor injection (`constructor(private db: Db)`) -> nothing is injected. Use `needs` + `ctx.db` in providers/steps, `@needs('db')` in handlers.
 7. `@Step({ needs: ['headers'] })` (or `query`, `body`, `cookies`) -> boot error. Use `needs: ['req']` and read `ctx.headers`. For cookies: `parseCookies(ctx.headers.cookie)`.
 8. Expecting an auth step to protect every route -> it runs only where its token is needed. Guard with `@needs('user')` on each protected handler, or a `provides: []` plugin step.
