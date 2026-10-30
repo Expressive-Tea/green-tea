@@ -4,7 +4,7 @@
 // which decodes nothing, so a double encoding cannot hide.
 import http from 'node:http';
 import zlib from 'node:zlib';
-import { JSON_BODY, HTML_BODY, SSE_EVENTS, SSE_GAP_MS } from './compression-app';
+import { JSON_BODY, HTML_BODY, TEXT, SSE_EVENTS, SSE_GAP_MS } from './compression-app';
 
 interface Raw {
   status: number;
@@ -57,7 +57,7 @@ async function negotiation(port: number): Promise<void> {
   }
 }
 
-/** T7, T8, T11, T15: skips, and the 304 shape. */
+/** T7, T8, T11, T15: skips, a handler's own coding, a 204, and the 304 shape. */
 async function skips(port: number): Promise<void> {
   for (const [path, vary] of [
     ['/c/small', false],
@@ -70,6 +70,12 @@ async function skips(port: number): Promise<void> {
     check(r.headers['content-encoding'] === undefined, `${path}: encoded`);
     check(hasVary(r) === vary, `${path}: Vary ${String(r.headers.vary)}`);
   }
+
+  // T8: a handler that set its own content-encoding is left byte-for-byte alone, and a 204 has nothing to encode.
+  const pre = await get(port, '/c/pre', { 'accept-encoding': 'gzip, br' });
+  check(pre.headers['content-encoding'] === 'gzip' && decode(pre.bytes, undefined) === TEXT, 'T8: handler coding touched');
+  const empty = await get(port, '/c/empty', { 'accept-encoding': 'gzip' });
+  check(empty.status === 204 && empty.headers['content-encoding'] === undefined && !hasVary(empty), 'T8: 204 shape');
 
   const head = await get(port, '/c/json', { 'accept-encoding': 'gzip' }, 'HEAD');
   check(head.headers['content-encoding'] === undefined && hasVary(head), 'HEAD: encoded or no Vary');
@@ -131,6 +137,17 @@ async function sse(port: number): Promise<Record<string, number[]>> {
 }
 
 export const checks = { negotiation, skips, etag, ndjson, sse };
+
+/**
+ * T6: with `encodings: ['gzip']`, a client that accepts only br gets identity. Run against
+ * `compressionApp({ compression: { encodings: ['gzip'] } })`.
+ */
+export async function gzipOnlyRefusesBr(port: number): Promise<void> {
+  const r = await get(port, '/c/json', { 'accept-encoding': 'br' });
+  check(r.headers['content-encoding'] === undefined, `T6: encoded as ${String(r.headers['content-encoding'])}`);
+  check(hasVary(r), 'T6: no Vary');
+  check(decode(r.bytes, undefined) === JSON_BODY, 'T6: body differs');
+}
 
 /**
  * How many 1 ms timer ticks fire while `zlib.gzip` (the async API core uses) compresses 16 MB of

@@ -5,7 +5,7 @@
 import 'npm:reflect-metadata';
 import { serveDeno } from '../../src/deno.ts';
 import { compressionApp } from '../fixtures/compression-app.ts';
-import { checks, serverDoesNotCompress, ticksDuringGzip } from '../fixtures/compression-checks.ts';
+import { checks, gzipOnlyRefusesBr, serverDoesNotCompress, ticksDuringGzip } from '../fixtures/compression-checks.ts';
 
 for (const [name, run] of Object.entries(checks)) {
   Deno.test(`compression on Deno.serve: ${name}`, async () => {
@@ -22,6 +22,20 @@ for (const [name, run] of Object.entries(checks)) {
     }
   });
 }
+
+Deno.test("compression on Deno.serve: T6 encodings ['gzip'] and a br-only client → identity", async () => {
+  const server = await serveDeno(compressionApp({ compression: { encodings: ['gzip'] } }), {
+    hostname: '127.0.0.1',
+    port: 0,
+    onListen: () => {},
+  });
+
+  try {
+    await gzipOnlyRefusesBr((server as unknown as { addr: { port: number } }).addr.port);
+  } finally {
+    await server.close({ timeoutMs: 1000 });
+  }
+});
 
 // The documented Deno facts (CARD-16; `guides/runtimes.md`). If one of these starts failing, Deno
 // changed and the docs have to change with it — not the assertion.
