@@ -318,6 +318,7 @@ green-tea is **beta**, on the road to a release candidate. Express and Fastify h
 ## Docs & development
 
 - **[green-tea.expressive-tea.io/docs](https://green-tea.expressive-tea.io/docs)** — getting started, concepts (the graph, `flow`), and guides: routing, DI, validation, uploads, streaming, HTML, security, errors, introspection, OpenAPI, plugins, mesh, runtimes, testing. Its source lives in [green-tea-docs](https://github.com/Expressive-Tea/green-tea-docs).
+- **For LLM coding agents:** [`llms.txt`](./llms.txt) ships in the package (`node_modules/@green-tea/core/llms.txt`) and matches the installed version; the docs serve the whole site as one file at [`/docs/llms-full.txt`](https://green-tea.expressive-tea.io/docs/llms-full.txt).
 - **[matcha](https://github.com/Expressive-Tea/matcha)** — the CLI. `matcha new` scaffolds a project (Node, Deno, or Bun), `matcha create` generates and auto-wires controllers/steps/providers/modules, `matcha run` detects your runtime and watches. A standalone Rust binary — no JS runtime needed to install it.
 
 > **Changing public API? The docs are a separate repository now, and nothing tells you when you break them.**

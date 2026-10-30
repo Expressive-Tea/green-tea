@@ -1,0 +1,320 @@
+# green-tea
+
+> green-tea (`@green-tea/core`) is a TypeScript HTTP framework for Node >= 22, Deno, Bun and Cloudflare Workers in which the request pipeline is a dependency graph, not a middleware chain. Providers (built once at boot) and steps (run per request) declare the tokens they `provides` and `needs`; green-tea derives the execution order, validates the wiring when the app is created, and runs only the part of the graph each route's handler asks for. Handlers declare their inputs with parameter decorators and return plain values. It is not Express, NestJS, Fastify or Hono: there is no `app.use`, no `next()`, no `req`/`res` to mutate, and no constructor injection. This file ships with the package and matches the installed version; read it before writing green-tea code.
+
+## Mental model
+
+- The app is a graph of tokens (strings). A `@Provider({ provides: 'db' })` builds an app-scope singleton once, at boot. A `@Step({ provides: 'user', needs: ['db', 'req'] })` runs per request.
+- Order is derived from `needs`/`provides` by a topological sort. Never order things by hand.
+- A handler declares its dependencies in its signature: `getUser(@needs('user') user, @param('id') id)`. The signature is the contract.
+- A route runs only the transitive closure of its handler's `@needs`. A step nothing on that route needs does not run.
+- The graph is validated by `createApp`: a needed token with no producer throws `handler 'x' needs 'usr' but nothing (local or mesh) provides it — did you mean 'user'?`.
+- One producer per token: two nodes providing the same token fail `createApp`. A node cannot need the token it provides (`cycle detected`).
+- `provide()` and `run(ctx)` return an object keyed by the token (`{ db }`, `{ user }`). It is merged into one per-request context object. Throw to stop the request.
+- No `app.use`, no `next()`, no `req.user = ...`, no `res.status().json()`. Return a value; throw an `HttpError` for an error status.
+- Classes are instantiated by the framework with no constructor arguments, once. Dependencies arrive through `ctx` (providers/steps) or argument decorators (handlers).
+
+## Setup
+
+`npm install @green-tea/core@beta` (every release, RCs included, publishes under the `beta` dist-tag until stable; optional peers: `ws` for `@Ws` on Node, `busboy` for multipart uploads). In `tsconfig.json` set `"experimentalDecorators": true`. `emitDecoratorMetadata` is not needed, and core imports `reflect-metadata` itself.
+
+## Minimal complete app
+
+```ts
+import { createApp, Module, Provider, Step, Route, Get, Post, needs, param, body, Unauthorized, NotFound } from '@green-tea/core';
+
+type User = { id: string; name: string };
+
+@Provider({ provides: 'db' })
+class Database {
+  provide() {
+    const users: Record<string, User> = { u1: { id: 'u1', name: 'Diego' } };
+    return { db: { find: (id: string): User | null => users[id] ?? null } }; // keyed by the token
+  }
+}
+
+@Step({ provides: 'user', needs: ['db', 'req'] })
+class Authenticate {
+  run(ctx: any) {
+    const user = ctx.db.find(ctx.headers['x-token']);
+    if (!user) throw new Unauthorized('invalid token'); // stops the request -> 401
+    return { user };                                    // merged into ctx; continues
+  }
+}
+
+@Route('/users')
+class UserController {
+  @Get('/me')
+  me(@needs('user') user: User) { return user; }        // 200 JSON; static /me wins over /:id
+
+  @Get('/:id')
+  byId(@param('id') id: string, @needs('db') db: { find(id: string): User | null }) {
+    const found = db.find(id);
+    if (!found) throw new NotFound(`no user ${id}`);
+    return found;
+  }
+
+  @Post('/')
+  create(@body() input: { name: string }) { return { created: input.name }; }
+}
+
+@Module({ mountpoint: '/api', providers: [Database], steps: [Authenticate], controllers: [UserController] })
+class ApiModule {}
+
+export const app = createApp({ modules: [ApiModule] });
+```
+
+Serve it. Each entry point boots providers before binding, so a provider that fails rejects the call:
+
+```ts
+await app.listen(3000);                       // Node: always await; rejects on EADDRINUSE or a failed provider
+import { serveDeno } from '@green-tea/core/deno';
+await serveDeno(app, { port: 8000 });         // Deno (async since beta.2: await it)
+import { serveBun } from '@green-tea/core/bun';
+await serveBun(app, { port: 3000 });          // Bun (async: await it)
+import { edgeHandler } from '@green-tea/core/edge';
+export default { fetch: edgeHandler(app) };   // Cloudflare Workers; needs compatibility_flags = ["nodejs_compat"]
+```
+
+Use one entry point per file. `mountpoint: ''` mounts at the root. A controller is served only when listed in a module's `controllers`. `await app.boot()` boots without serving; `await app.close()` drains and runs teardown. The edge has no `listen()`, no filesystem (`static`, `@Html` file modes), no mesh and no teardown.
+
+## Cheat sheet
+
+### Class decorators
+
+| Decorator | Signature | Notes |
+|---|---|---|
+| `@Module` | `Module({ mountpoint: string; providers?: Ctor[]; steps?: Ctor[]; controllers?: Ctor[] })` | `mountpoint` is required |
+| `@Route` | `Route(prefix: string)` | marks a controller. There is no `@Controller` |
+| `@Provider` | `Provider({ provides: string; needs?: string[]; optional?: boolean })` | class has `provide(ctx)`, optional `dispose()`. No `export` option |
+| `@Step` | `Step({ provides: string; needs?: string[]; optional?: boolean; export?: boolean })` | class has `run(ctx)`. `export` is mesh-only |
+
+### Method decorators
+
+| Decorator | Signature | Transport |
+|---|---|---|
+| `@Get @Post @Put @Patch @Delete @Head @Options` | `(path: string, opts?: { duplicates?: 'array' \| 'last'; maxBodyBytes?: number; maxParts?: number; export?: boolean })` | buffered: must return a value |
+| `@Sse` | same | GET, `text/event-stream`: must return an `AsyncIterable` |
+| `@Stream` | same | GET, negotiated: SSE (`Accept: text/event-stream`), WebSocket (`Upgrade`), else ndjson |
+| `@Ws` | same | GET, WebSocket duplex: must return an `AsyncIterable` |
+| `@Transformer` | `Transformer(fn: TransformerFn)` | custom status/headers/body for one handler |
+| `@Html` | bare `@Html`, or `Html(path: string, opts?: { template?: boolean })` | buffered GET/POST only; not combinable with `@Transformer` |
+
+Paths: `/:id`, constrained `/:id(\\d+)`, catch-all `/:path*`. Unmatched path -> 404, wrong method -> 405, a buffered GET answers HEAD, OPTIONS is automatic.
+
+### Argument decorators
+
+| Decorator | Injects | Forms |
+|---|---|---|
+| `@needs(key)` | a graph token (boot-validated edge) | `('user')` |
+| `@ctx()` | the whole context (`ctx.ip`, `ctx.protocol`, tokens) | `()` |
+| `@param` | route params | `()` `('id')` `('id', schema)` |
+| `@query` | parsed query string (values are strings) | `()` `('q')` `(['a','b'])` `(schema)` |
+| `@body` | parsed JSON / urlencoded / multipart body | `()` `('field')` `(schema)` |
+| `@headers` / `@header` | request headers, lower-case keys; lookup is case-insensitive | `()` `('authorization')` `(['a','b'])` `(schema)` / `('x-trace')` `('x-count', schema)` |
+| `@cookies` / `@cookie` | parsed `Cookie` header; `@cookie` is `undefined` when absent | `()` `('sid')` `(['a','b'])` `(schema)` / `('sid')` `('sid', schema)` |
+| `@inbound()` | incoming WebSocket messages (`AsyncIterable`) | `()` |
+| `@abort()` | `AbortSignal` that fires on disconnect | `()` |
+
+### Tokens
+
+- A handler may `@needs` any produced token plus the request tokens `req`, `params`, `query`, `body`, `headers`, `cookies`, `inbound`, `abort`.
+- A provider's or step's `needs` may list produced tokens, `req` and `params` only. `needs: ['headers']` (or `query`, `body`, `cookies`, `ip`) fails `createApp` with `missing dependency: headers needed by <step>`. Declare `needs: ['req']` and read `ctx.headers`, `ctx.query`, `ctx.body`, `ctx.params`, `ctx.req`, `ctx.ip`, `ctx.protocol`. A step does not get `ctx.cookies`: use `parseCookies(ctx.headers.cookie)`.
+- Built-in tokens: `logger` (the app `Logger`: `debug/info/warn/error(message, fields?)`), `rooms` (shared `Rooms`: `room<T>(name)` returns a multicast `Channel<T>`), `events` (read-only `{ on(event, listener) }` of the lifecycle bus).
+- Reserved names: `logger`, `rooms`, `events`, `bus`. Providing one fails boot. `@needs('bus')` fails boot; use `@needs('events')` or a plugin.
+
+### What `provide()` and `run()` return
+
+- `provide(ctx)` runs once at boot (may be async). `ctx` holds the values of its `needs`. It must return `{ [provides]: value }`. Returning the bare value boots fine and the token is silently `undefined`.
+- `run(ctx)` runs per request (may be async). Return `{ [provides]: value }` to continue; throw to short-circuit. The returned object is `Object.assign`ed into the shared context.
+- Optional `dispose()` on a provider is awaited by `close()`, in reverse boot order (not on the edge).
+- `optional: true` on a provider: a failing boot is logged and degrades instead of aborting (`app.degraded()`).
+- One instance per class for the app's life: never keep per-request state on `this` in a step.
+
+## Returning responses
+
+- Plain value (object, array, string, number, `null`) -> `200`, JSON-encoded. A returned string is sent as a JSON string; use `@Html` for HTML.
+- `undefined` (no `return`) -> `204`, no body.
+- Returning a `Response` does not send it: it is JSON-encoded as `{}` with `200`. Use a transformer.
+- Errors are thrown, not returned: `Unauthorized(msg?)` 401, `NotFound(msg?)` 404, `Redirect(location)` 302 + `Location`, `NotModified()` 304, `ValidationError` 422 (raised by schemas), `HttpError(status, message?, body?, headers?)` any status. Anything else -> 500 `{"error":"Internal Server Error"}`; the message is not leaked. Default body: `{"error": message}`, or `body` when given.
+- Check errors with `isHttpError(e)` / `isValidationError(e)`, not `instanceof` (fails across two copies of core).
+- Custom rendering of every error response (including 404/405/413): `createApp({ onError(error, req) { return { status, headers, body } | undefined } })`.
+- Header values are `string | string[]`. A `set-cookie` array is sent as one line per cookie; other arrays are joined with `, `.
+
+```ts
+import { Route, Post, Transformer, setCookie, HttpError, type TransformerFn } from '@green-tea/core';
+
+const created: TransformerFn = (value) => ({
+  status: 201,
+  headers: { 'content-type': 'application/json', 'set-cookie': [setCookie('session', 'abc', { maxAge: 3600 }), setCookie('theme', 'dark', { httpOnly: false })] },
+  body: JSON.stringify(value),
+});
+
+@Route('/auth')
+class Sessions {
+  @Post('/login') @Transformer(created)
+  login() { return { ok: true }; }                 // -> 201 with two Set-Cookie lines
+
+  @Post('/logout')
+  logout() { throw new HttpError(401, 'signed out', undefined, { 'set-cookie': setCookie('session', '', { maxAge: 0 }) }); }
+}
+```
+
+`setCookie(name, value, options?)` defaults to `HttpOnly; SameSite=Lax; Path=/; Secure` and throws on unsafe input. Pass `secure: false` for plain-HTTP dev hosts the browser will not trust. Sessions and signing are not in core.
+
+## Validation, streaming, HTML
+
+Pass any Standard Schema (zod >= 3.24, valibot, arktype) to `@body`, `@query`, `@headers`, `@param`. The handler gets the parsed/coerced output; failure -> `422 {"error":"Validation failed","source":"body","issues":[{"path","message"}]}`. `@param` takes the key first: `@param('id', IdSchema)`. Steps always see the raw `ctx.body`/`ctx.query`.
+
+```ts
+import { z } from 'zod';
+import { Route, Post, Get, Sse, Ws, body, query, needs, inbound, header, sse, Rooms } from '@green-tea/core';
+
+const CreateUser = z.object({ email: z.string().email() });
+const Page = z.object({ page: z.coerce.number() });
+
+@Route('/live')
+class Live {
+  @Post('/users')
+  create(@body(CreateUser) user: { email: string }) { return { created: user.email }; }
+
+  @Get('/list')
+  list(@query(Page) q: { page: number }) { return { page: q.page }; }
+
+  @Sse('/ticks')                                   // each yield is one SSE event
+  ticks(@header('last-event-id') from?: string) {
+    return (async function* () {
+      for (let n = Number(from ?? 0) + 1; n <= 3; n++) yield sse({ n }, { id: String(n) });
+    })();
+  }
+
+  @Ws('/room/:name')                               // consume @inbound, return the outbound iterable
+  join(@needs('rooms') rooms: Rooms, @needs('params') p: { name: string }, @inbound() incoming: AsyncIterable<string>) {
+    const room = rooms.room<string>(p.name);
+    (async () => { for await (const msg of incoming) room.push(msg); })();
+    return room;
+  }
+}
+```
+
+- `channel<T>({ buffer? })` is a multicast `AsyncIterable` with `push`, `close`, `fail` (bounded, drop-oldest). Yield plain values for bare `data:` frames; `sse(data, { id, event, retry })` adds fields.
+- The decorator decides the transport, never the return type: an iterable from `@Get`, or a value from `@Sse`/`@Ws`, is a 500 `TransportMismatchError`.
+- A step that throws `Unauthorized` on a WebSocket route closes the socket with `4000 + status` (4401).
+- `@Html` returns a string as `text/html`; `@Html('page.html')` serves a file (relative to `views`, default `process.cwd()`); `@Html('page.html', { template: true })` renders it with the returned data (`{{ }}` engine, or `viewEngine`). `static: true` serves `./public`. No filesystem modes on the edge.
+
+## createApp options agents commonly need
+
+```ts
+const app = createApp({
+  modules: [ApiModule],                 // required
+  security: true,                       // default: nosniff, X-Frame-Options, Referrer-Policy, HSTS on TLS; false or SecurityOptions
+  cors: { origins: ['https://app.example.com'], credentials: true }, // origins: string | string[] | '*' | (origin) => boolean
+  trustProxy: false,                    // true: X-Forwarded-* feed ctx.ip / ctx.protocol
+  limits: { maxBodyBytes: 1_000_000, requestTimeoutMs: 30_000, maxConcurrentRequests: 0 },
+  health: true,                         // GET/HEAD /__live__ and /__ready__
+  compression: false,                   // true or { threshold, encodings: ['br', 'gzip'] }
+  etag: false,                          // weak ETag + 304 for buffered GET/HEAD
+  static: false,                        // true -> ./public, a dir string, or { dir, cacheControl }
+  logger: undefined,                    // any { debug, info, warn, error }; default structured JSON
+  logRequests: false,                   // one log line per request
+  handleSignals: false,                 // true: SIGINT/SIGTERM run close() and exit
+  overrides: {},                        // tests: replace a token's value or runner
+});
+```
+
+Also: `plugins`, `hooks: [{ onShutdown }]`, `onError`, `shutdownTimeoutMs` (default 10000), `teardownTimeoutMs`, `devGraph` (`GET /__graph__`, dev only), `devOpenapi`, `bodyDuplicates`, `views`, `viewEngine`, `warnGraphDepth`. `tls: { key, cert }` works only with Node's `app.listen()`; `serveDeno()` and `serveBun()` reject an app that sets it. Use the platform or a proxy for TLS there.
+
+To run something on every route regardless of `@needs` (global guard, audit), add a plugin step that provides nothing:
+
+```ts
+import { Unauthorized, type Plugin } from '@green-tea/core';
+
+export const apiKey: Plugin = {
+  name: 'api-key',
+  mount(api) {
+    api.scope.add({ kind: 'step', name: 'apiKey', needs: ['req'], provides: [], run: (ctx) => {
+      if (ctx.headers['x-api-key'] !== process.env.API_KEY) throw new Unauthorized('bad key');
+      return {};
+    } });
+  },
+};
+// createApp({ modules: [ApiModule], plugins: [apiKey] })
+```
+
+A plugin gets only `bus.on`, `scope.add` and `onShutdown`; it cannot reorder or remove other nodes.
+
+## Common mistakes
+
+1. `app.use(authMiddleware)` -> a `@Step({ provides: 'user', needs: ['req'] })` that handlers `@needs('user')`, or a plugin step with `provides: []` for every route.
+2. Calling `next()` -> `run(ctx)` returns `{ token: value }` to continue and throws to stop.
+3. `req.user = user` -> `return { user }` from the step, and `@needs('user') user` in the handler.
+4. `res.status(201).json(x)`, `res.cookie()`, `return new Response(...)` -> return the value, plus `@Transformer(fn)` for status/headers/`setCookie()`. A returned `Response` is sent as `{}`.
+5. `provide() { return new Pool() }` -> `provide() { return { db: new Pool() } }`. The bare value leaves `db` undefined with no error.
+6. NestJS constructor injection (`constructor(private db: Db)`) -> nothing is injected. Use `needs` + `ctx.db` in providers/steps, `@needs('db')` in handlers.
+7. `@Step({ needs: ['headers'] })` (or `query`, `body`, `cookies`) -> boot error. Use `needs: ['req']` and read `ctx.headers`. For cookies: `parseCookies(ctx.headers.cookie)`.
+8. Expecting an auth step to protect every route -> it runs only where its token is needed. Guard with `@needs('user')` on each protected handler, or a `provides: []` plugin step.
+9. `@Controller('/users')` -> `@Route('/users')`, listed in a `@Module({ controllers: [...] })`.
+10. Returning an async generator from `@Get` -> declare `@Sse`, `@Stream` or `@Ws`. Returning a value from `@Sse` fails too.
+11. Returning an HTML string from `@Get` -> sent as a JSON string. Add `@Html`.
+12. `@needs('bus')` or providing `logger`/`rooms`/`events` -> boot error. Use `@needs('events')`, `@needs('logger')`, `@needs('rooms')`.
+13. Two classes `provides: 'user'` -> boot error. One producer per token; rename one, or use `overrides` in tests.
+14. `e instanceof HttpError` -> `isHttpError(e)`.
+15. `app.listen(3000)` without `await`, or `serveDeno(app)` without `await` -> boot and bind failures go unhandled. Always await.
+16. `@param(IdSchema)` -> `@param('id', IdSchema)`.
+17. Multipart `@body('title')` is `undefined` -> `@body() form: MultipartBody`, then `form.fields.title` / `form.files.avatar`.
+18. Inventing a token in `@needs('x')` -> check `matcha tokens` or `app.graph()` first; unknown tokens fail boot.
+
+## Testing
+
+No port needed: `app.fetch(new Request(...))` returns a `Response` on every runtime.
+
+```ts
+import { createApp } from '@green-tea/core';
+
+const test = createApp({
+  modules: [ApiModule],
+  overrides: {
+    db: { find: () => ({ id: 't', name: 'Test' }) }, // plain value: wrapped as { db: value }
+    user: () => ({ user: { id: 'stub' } }),          // a function is the runner: return { token: value }
+  },
+});
+const res = await test.fetch(new Request('http://test/api/users/me'));
+// res.status === 200; await res.json() -> { id: 'stub' }
+```
+
+- An override must name an existing token; an unknown one throws on `boot()` or the first `fetch`, not in `createApp`.
+- A function value is treated as a runner. To override a token whose value is a function, wrap it: `{ hash: () => ({ hash: fakeHash }) }`.
+
+## Inspect an existing app before editing it
+
+```ts
+app.explain('/api/users/me');
+// { pattern, method: 'GET', transport: 'buffer', chain: [{ name, kind: 'provider'|'step'|'handler', origin, needs, provides }, ...] }
+app.graph();      // { nodes: [{ name, kind, origin, needs, provides }], routes: [{ pattern, method, transport, chain: string[] }] }
+app.toMermaid();  // or app.toDOT()
+```
+
+`explain` takes the declared pattern (`/users/:id`, not `/users/42`) and throws `no route: ...` on a miss. `graph().nodes` includes the built-ins (`origin: 'builtin'`).
+
+With matcha (the CLI; `routes`, `tokens` and `--json` need a matcha that lists them in `matcha --help`) run from the project root. It imports `export const app` from `src/app.ts` (override with `--entry`) and calls `app.ready()`, so providers are not booted:
+
+```bash
+matcha routes --json              # every route: method, pattern, transport, chain
+matcha tokens --json              # every token: who provides it, who needs it
+matcha explain /users/:id --json  # one route's chain, in execution order
+matcha graph --format json        # the raw GraphView
+```
+
+Run `matcha tokens` before adding `@needs('x')`: if nothing provides `x`, you must add the provider or step too. Request tokens (`req`, `params`, `body`, ...) are listed as coming from the request. Other generators: `matcha new`, `matcha create controller|step|provider|module|plugin <Name>` (wires the class into its module), `matcha add sse|stream|buffer`.
+
+## Stability
+
+- The public API of `@green-tea/core`, `/deno`, `/bun` and `/edge` is frozen from RC.1: between RC.1 and stable, fixes only. Check `### Breaking` in CHANGELOG.md.
+- Mesh (`mesh` option, `connectLink`, `MeshConfig`, teapot/teacup) is alpha and `@experimental`, gated by `createApp({ experimental: true })`. Do not use it unless the user asks.
+- The `Headers` type is deprecated; import `RequestHeaders` instead.
+
+## Links
+
+- Docs: https://green-tea.expressive-tea.io/docs/
+- Full docs in one file: https://green-tea.expressive-tea.io/docs/llms-full.txt
+- Source: https://github.com/Expressive-Tea/green-tea
