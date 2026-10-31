@@ -575,14 +575,25 @@ function emptyRegistry(): Registry {
  * so a plain step pays a type test rather than an extra microtask on the hot path.
  */
 function keyedRunner(kind: string, name: string, provides: readonly string[], run: Runner): Runner {
-  const check = (output: unknown): unknown => {
-    if (output !== null && typeof output === 'object' && provides.every((token) => token in output)) return output;
+  const fail = (output: unknown): never => {
     const example = provides.map((token) => `${token}: <value>`).join(', ');
     throw new TypeError(
       `${kind} '${name}' returned ${describeOutput(output)}, but it must return an object holding what it ` +
         `provides: return { ${example} }`,
     );
   };
+
+  // A @Provider or @Step provides one token: test it directly rather than through `every` and its
+  // callback, which measured as a 3-4% drop on a 3-step pipeline under Deno and Bun.
+  const [only] = provides;
+  const check =
+    provides.length === 1
+      ? (output: unknown): unknown =>
+          output !== null && typeof output === 'object' && only! in output ? output : fail(output)
+      : (output: unknown): unknown =>
+          output !== null && typeof output === 'object' && provides.every((token) => token in output)
+            ? output
+            : fail(output);
 
   return (ctx) => {
     const output = run(ctx);
