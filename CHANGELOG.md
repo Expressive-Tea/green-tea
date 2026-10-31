@@ -164,6 +164,13 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Added
 
+- **`llms.txt` ships in the package** (`node_modules/@green-tea/core/llms.txt`, and in the JSR
+  package). It is a guide for LLM coding agents, which have no training data on green-tea and fall back
+  on Express habits. It covers the mental model, a complete app, the decorators and built-in tokens,
+  how responses are returned, the options agents usually need, the common mistakes with their correct
+  form, testing, and how to inspect an app before editing it. Every code block typechecks against this
+  release. Projects scaffolded by matcha point their `AGENTS.md` at it.
+
 - **Every type a public signature uses can now be imported.** These were already in the
   declarations, but nothing exported them, so code could call the API and could not name what it
   passed or got back. From the root: `ModuleOptions`, `Ctor`, `BusLike`, `ArgSource`,

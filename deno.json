@@ -12,7 +12,7 @@
     "./edge": "./src/edge.ts"
   },
   "publish": {
-    "include": ["src", "README.md", "CHANGELOG.md", "LICENSE", "deno.json"]
+    "include": ["src", "llms.txt", "README.md", "CHANGELOG.md", "LICENSE", "deno.json"]
   },
   "compilerOptions": {
     "experimentalDecorators": true,

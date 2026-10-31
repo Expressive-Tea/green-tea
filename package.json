@@ -79,6 +79,7 @@
   },
   "files": [
     "dist",
+    "llms.txt",
     "assets",
     "README.md",
     "CHANGELOG.md",
