@@ -141,6 +141,27 @@ npm treats versions as semver and semver forbids leading zeros.
   before they boot or bind. Migrate by dropping `tls` from `createApp` and configuring TLS on the
   runtime's server, or terminating it at a proxy. An app without `tls` is unaffected.
 
+- **`provide()` and `run()` must return an object holding the tokens they provide, and a handler may
+  not return a `Response`.** Both mistakes used to pass silently:
+  - **Providers and steps.** A provider that returned its value bare (`return client` instead of
+    `return { db: client }`) booted. `db` was then `undefined` in every handler, and the client's own
+    properties were spread over the request context. A step that forgot its `return` did the same per
+    request. Now a provider that breaks the contract fails the boot, and a step fails the request. The
+    error names the node and the fix: `provider 'db' returned an object with 'query', but it must return
+    an object holding what it provides: return { db: <value> }`. Plugin nodes added with `scope.add` are
+    held to the same rule for every token in their `provides`. A key whose value is `undefined` still
+    counts (`return { cache: undefined }`).
+  - **Handlers.** A handler that returned a Fetch `Response` was JSON-encoded and went out as `200 {}`,
+    losing its status, headers and body. It now fails the request with a `TypeError` that says what to
+    do instead.
+
+  **Migrate:**
+  - Return `{ <token>: value }` from every `provide()` and `run()`.
+  - Return a plain value from a handler, use `@Transformer` to set the status and headers, or throw an
+    `HttpError` for an error status.
+
+  Code that already followed the documented contract is unaffected.
+
 ### Added
 
 - **Every type a public signature uses can now be imported.** These were already in the
