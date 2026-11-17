@@ -29,45 +29,37 @@ Run the first four before proposing anything as finished. The runtime suites sta
 
 ## Two forges
 
-Development lives on a private Gitea instance. GitHub is a downstream mirror that receives `main` and `develop` automatically — `develop` under the name `contrib` — and release tags only by hand.
+Development lives on GitHub: `develop`, feature branches, pull requests, CI and new issues. A
+private Gitea instance keeps only `main` and release tags, pushed there by hand, so a release can
+be staged on the internal Verdaccio before it goes public. Issues opened on Gitea before
+2026-11-17 stay there until they close; new ones go to GitHub.
 
 ```
-feature/* → develop → main → [promote.yml] → GitHub main
-                │              │
-                └─[promote.yml]┼──→ GitHub contrib ← external PRs
-                ↑              │          │
-                └── carried back by hand ─┘  (a PR into develop)
-                               │
-                    v* tag ────┴─── Gitea: [stage.yml] → Verdaccio
-                               └─── GitHub (pushed by hand): [release.yml] → npm + JSR
+feature/* → develop → main                     (GitHub, pull requests)
+                       │
+              v* tag ──┼── GitHub: [release.yml] → npm + JSR
+                       └── Gitea, pushed by hand when staging: [stage.yml] → Verdaccio
 ```
 
-- **Gitea `develop`** — active development.
-- **Gitea `main`** — staging. Merging here publishes nothing. A `v*` tag here publishes to the internal Verdaccio, never to a public registry.
-- **GitHub `main`** — production mirror. No human touches it. Protected against force-push and deletion, with no review requirement, because `promote.yml` pushes to it directly and a review rule would block that.
-- **GitHub `contrib`** — mirror of `develop`, pushed by `promote.yml` on every develop merge, and where outside contributions land. GitHub only: there is no Gitea `contrib`.
+- **`develop`** — active development, and the base of every pull request, outside contributions included.
+- **`main`** — released code, advanced only by fast-forward from `develop`.
+- **Gitea `main` and tags** — a staging copy. Nothing is developed there. A `v*` tag pushed there publishes to Verdaccio, never to a public registry.
 
-`develop` and `main` on Gitea have direct push disabled with an empty whitelist, so nobody can push to them, admins included. Advance them by opening a PR and merging it.
+Remotes: `origin` is GitHub, `gitea` is the Gitea instance.
 
 ## Procedure
 
-**Promotions are fast-forward-only.** `develop → main` merges with Gitea's fast-forward-only style, so `main` becomes an exact copy of `develop` and no commit is ever born on `main`. This is not a preference: merge-style promotions created seven of the ten commits of drift that had to be cleaned up in August 2026, because each one lived on `main` and never travelled back. Release boundaries are marked by `v*` tags, not by promotion commits.
+**Promotions are fast-forward-only.** `main` becomes an exact copy of `develop` and no commit is ever born on `main`. This is not a preference: merge-style promotions created seven of the ten commits of drift that had to be cleaned up in August 2026, because each one lived on `main` and never travelled back. Release boundaries are marked by `v*` tags, not by promotion commits.
 
 **Only `hotfix/*` can still cause real drift**, since it branches from and returns to `main`. That case genuinely needs a back-merge; nothing else does.
 
-**`tea pr merge` cannot do the promotion.** The CLI offers `merge`, `rebase`, `squash` and `rebase-merge`, and every one of them births a commit on `main` — the drift this section exists to prevent. Gitea's API has the style the CLI lacks, so promote through it:
+GitHub's merge button cannot promote: merge, squash and rebase all write new commits on `main`,
+which is the drift this section exists to prevent. Promote with a plain push instead. Git refuses
+it unless it fast-forwards, so it cannot rewrite `main` either:
 
 ```bash
-curl -X POST -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"Do":"fast-forward-only"}' \
-  "$GITEA_URL/api/v1/repos/$REPO/pulls/<n>/merge"
+git fetch origin && git push origin origin/develop:main
 ```
-
-`$GITEA_URL` and `$REPO` are yours to fill in — this file is mirrored to a public repository, and
-the address of a private forge is not something to publish. `fast-forward-only` is the part that
-matters and is the part the CLI does not offer.
-
-A `405 Not all required status checks successful` means the pull request's own CI has not finished — `main` is protected, and a promotion runs its own checks rather than inheriting `develop`'s. Wait for them; the call is the same afterwards.
 
 **Delete the branch when the work lands.** Both sides, as the last step of merging rather than a chore left for later:
 
@@ -85,13 +77,8 @@ git diff <branch> <main> -- <suspect file>   # empty means the content is alread
 
 Merging such a branch to "recover" the commits duplicates the work and drags stale history along.
 
-**External contributions.** They arrive on GitHub `contrib`. Merge the pull request there, fetch GitHub `contrib` into a branch on Gitea, then open a pull request from it into `develop` and merge it. The next develop push mirrors back to `contrib`, and fast-forwards because `develop` now contains everything `contrib` had. Merge rather than rebase: because promotions are fast-forward-only, `develop` and `main` are the same commit, so there is no main-only history for a merge to drag in. Rebasing would rewrite the contributor's SHAs for no gain and leave `contrib` with commits `develop` does not have, so the mirror push is refused until someone forces it. Merging keeps their commits reaching `main` under their own name and hash.
-
-The exception is a `hotfix/*`, which lands on `main` without passing through `develop` and leaves the two out of step. Back-merge before taking a contribution through, or rebase that one and accept the force-push. If you do rebase, take the commit range from the pull request itself and never "everything since main": if a second contributor branched from `contrib` after the first one merged, the broad range sweeps up work that isn't theirs.
-
-**Nothing to reset after a promotion.** `contrib` follows `develop` through the mirror, and there is no Gitea `contrib` to keep in step. The one thing the mirror will not do is push over external merges that were never carried in: that push is refused, the promote job fails, and the fix is to carry them as above — never to force.
-
-A conflict against `develop` is visible to the contributor through `contrib`, so it can be theirs to resolve: ask them to rebase onto the current `contrib`. Only a conflict against a feature branch that has not merged yet is the maintainer's alone, because that code they cannot see.
+**External contributions** are pull requests against `develop`, reviewed and merged like any other.
+Merge rather than rebase, so the contributor's commits reach `main` under their own name and hash.
 
 ## Releasing
 
@@ -112,14 +99,13 @@ Bumping `package.json` and `deno.json` ahead of the tag is fine and necessary �
 *next* publish will be called, and the docs repo's `verify:release` compares the tag against them.
 A version number is a plan; a changelog heading is a receipt.
 
-**A tag is created twice, on purpose.** Pushing `v*` to Gitea stages that exact commit to
-Verdaccio through the real publish path; pushing the same tag to GitHub publishes it to npm and
-JSR. Nothing promotes the tag for you — `promote.yml` mirrors `main` and only `main`, so the
-second push is a decision made after reading the first run:
+**Stage on Verdaccio first when a release warrants it.** Pushing a `v*` tag to GitHub publishes it
+to npm and JSR, and JSR never gives a version number back. Pushing the same tag to Gitea first runs
+the real publish path against Verdaccio, where a mistake costs only a re-tag:
 
 ```bash
-git push origin v<version>   # Gitea → Verdaccio, reversible
-git push gh v<version>       # GitHub → npm + JSR, permanent on JSR
+git push gitea main v<version>   # optional: Gitea → Verdaccio, reversible
+git push origin v<version>       # GitHub → npm + JSR, permanent on JSR
 ```
 
 The split exists because a mistake caught on Verdaccio costs a re-tag, and the same mistake

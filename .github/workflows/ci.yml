@@ -1,9 +1,9 @@
 name: CI
 on:
   push:
-    branches: [develop, main, contrib]
+    branches: [develop, main]
   pull_request:
-    branches: [develop, main, contrib]
+    branches: [develop, main]
 jobs:
   # Separate job so a missing sign-off reports on its own and doesn't hide behind the code
   # gates, and so it costs nothing on push. Checks that the trailer is present, not that it
