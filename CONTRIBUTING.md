@@ -4,11 +4,9 @@ Thanks for your interest. green-tea is open source, but not anyone can push dire
 
 ## Where to send your changes
 
-Development happens on a private Gitea instance. The GitHub repository is a downstream mirror: it receives `main`, release tags, and `develop` — the last one under the name `contrib`. Which branch you target depends on where you are.
-
-**From GitHub, if you are an outside contributor:** open your pull request against **`contrib`**. Not `main`. `main` on GitHub is a mirror of released code, and merging into it puts the two forges out of sync and breaks the next release push. A maintainer reviews on `contrib` and then carries your commits upstream into Gitea's `develop`, with your authorship and your sign-off intact. `contrib` is a mirror of `develop`, so you are working against the current code rather than the last release.
-
-**From Gitea, if you have access:** follow the branch model below.
+Open your pull request against **`develop`** on GitHub. Not `main`: `main` holds released code and
+only moves forward from `develop`. Maintainers work the same way, so you are always working against
+the current code rather than the last release.
 
 ### Worked example
 
@@ -19,8 +17,8 @@ cd green-tea
 git remote add upstream https://github.com/Expressive-Tea/green-tea.git
 git fetch upstream
 
-# branch from contrib, not from main
-git checkout -b fix/close-timeout upstream/contrib
+# branch from develop, not from main
+git checkout -b fix/close-timeout upstream/develop
 
 # ... make the change, add a test ...
 
@@ -28,9 +26,8 @@ git commit -s -m "fix: add a timeout to app.close()"
 git push origin fix/close-timeout
 ```
 
-Then open the pull request with **`contrib`** as the base branch.
-
-`contrib` follows `develop`, so it moves whenever development does. If your branch has been open a while, rebase onto the current `contrib` before pushing again.
+Then open the pull request with **`develop`** as the base branch. If your branch has been open a
+while, rebase onto the current `develop` before pushing again.
 
 ## Developer Certificate of Origin (DCO)
 
@@ -91,9 +88,8 @@ If your assistant reads repository instructions, `AGENTS.md` has the conventions
 - `feature/<name>` — branch from `develop`.
 - `hotfix/<name>` — branch from `main`.
 - `release/<version>` — release stabilization.
-- `contrib` — GitHub only. A mirror of `develop`, and where outside contributions land before a maintainer carries them into `develop`.
 
-`main` and `develop` are protected: they require a reviewed MR and signed-off commits. (Branch protection is configured on the git server, not in this repo.)
+`main` and `develop` are protected: they require a reviewed pull request and signed-off commits. (Branch protection is configured on GitHub, not in this repo.)
 
 ## Commits
 
