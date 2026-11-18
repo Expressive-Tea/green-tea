@@ -40,7 +40,7 @@ green-tea puts the request on the page instead. You declare what each step **nee
 Less to hold in your head. That's the tea.
 
 ```bash
-npm install @green-tea/core@beta reflect-metadata
+npm install @green-tea/core@rc reflect-metadata
 ```
 
 Requires Node 22 or newer. Node 18 and 20 are end-of-life and are not supported. Deno, Bun and Cloudflare Workers run the same code.
@@ -364,7 +364,7 @@ consumer would have received.
 
 green-tea uses **calendar versioning**: `YY.M.PATCH` (e.g. `26.8.0` = the first release cut in August 2026, patch 0). The month is **not** zero-padded — npm treats versions as semver, which forbids leading zeros. A version tells you *when* it shipped, not how many breaking changes preceded it — those are always called out in the [CHANGELOG](./CHANGELOG.md).
 
-**While in beta**, releases carry a `-beta.N` pre-release suffix on the calendar version (e.g. `26.8.0-beta.0`) and publish under the npm `beta` dist-tag. Until the first stable release there is nothing else to install, so `latest` tracks the newest beta too — `npm install @green-tea/core` and `@green-tea/core@beta` resolve to the same version. Install with the explicit `@beta` tag anyway: the day a stable ships, `latest` moves to it and your installs stay on the channel you meant. Release candidates (`-rc.N`) publish the same way.
+**Before the first stable release**, versions carry a pre-release suffix on the calendar version, and each one publishes under the npm dist-tag of its channel: release candidates (`-rc.N`, e.g. `26.11.0-rc.1`) under `rc`, betas (`-beta.N`) under `beta`. The `beta` tag stays on the last beta, `26.9.0-beta.2`. Until a stable release exists there is nothing else to install, so `latest` follows the newest prerelease too — today `npm install @green-tea/core` and `@green-tea/core@rc` resolve to the same version. Install with the explicit `@rc` tag anyway: the day a stable ships, `latest` moves to it and your installs stay on the channel you meant.
 
 ### API stability
 
