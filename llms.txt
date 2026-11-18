@@ -16,7 +16,7 @@
 
 ## Setup
 
-`npm install @green-tea/core@beta` (every release, RCs included, publishes under the `beta` dist-tag until stable; optional peers: `ws` for `@Ws` on Node, `busboy` for multipart uploads). In `tsconfig.json` set `"experimentalDecorators": true`. `emitDecoratorMetadata` is not needed, and core imports `reflect-metadata` itself.
+`npm install @green-tea/core@rc` (each prerelease publishes under its own dist-tag, `rc` for release candidates and `beta` for betas, and until the first stable release `latest` follows the newest one; optional peers: `ws` for `@Ws` on Node, `busboy` for multipart uploads). In `tsconfig.json` set `"experimentalDecorators": true`. `emitDecoratorMetadata` is not needed, and core imports `reflect-metadata` itself.
 
 ## Minimal complete app
 
