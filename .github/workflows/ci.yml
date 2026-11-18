@@ -10,7 +10,8 @@ jobs:
   # matches the author — a mismatch is a judgement call for a reviewer, an absent trailer
   # is not, and telling a contributor on their first push beats telling them on review.
   dco:
-    if: github.event_name == 'pull_request'
+    # Dependabot cannot sign off its commits; its pull requests are the one exemption.
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
