@@ -243,6 +243,8 @@ export const apiKey: Plugin = {
 
 A plugin gets only `bus.on`, `scope.add` and `onShutdown`; it cannot reorder or remove other nodes.
 
+The official plugins (`@green-tea/jwt`, `@green-tea/metrics`, `@green-tea/rate-limit`) ship no llms.txt: read the installed one's `node_modules/@green-tea/<name>/README.md`.
+
 ## Common mistakes
 
 1. `app.use(authMiddleware)` -> a `@Step({ provides: 'user', needs: ['req'] })` that handlers `@needs('user')`, or a plugin step with `provides: []` for every route.
@@ -305,7 +307,7 @@ matcha explain /users/:id --json  # one route's chain, in execution order
 matcha graph --format json        # the raw GraphView
 ```
 
-Run `matcha tokens` before adding `@needs('x')`: if nothing provides `x`, you must add the provider or step too. Request tokens (`req`, `params`, `body`, ...) are listed as coming from the request. Other generators: `matcha new`, `matcha create controller|step|provider|module|plugin <Name>` (wires the class into its module), `matcha add sse|stream|buffer`.
+Run `matcha tokens` before adding `@needs('x')`: if nothing provides `x`, you must add the provider or step too. Request tokens (`req`, `params`, `body`, ...) are listed as coming from the request. Other generators: `matcha new`, `matcha create controller|step|provider|module|transformer <Name>` (wires the class into its module), `matcha create plugin` (in-app, or `--package` for its own package), `matcha add sse|stream|buffer|ws|upload|cookie`.
 
 ## Stability
 
