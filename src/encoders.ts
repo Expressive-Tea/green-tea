@@ -1,3 +1,5 @@
+import { isHttpError } from './signals';
+
 /**
  * Serializes stream items into wire frames for a streaming transport (SSE, NDJSON).
  * `headers` is written once before the first frame; `ping` (if present) is sent periodically to keep the connection alive.
@@ -9,7 +11,13 @@ export interface StreamEncoder {
   ping?(): string;
 }
 
-const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+/**
+ * The text a stream's error frame may show its client: an `HttpError`'s message, which the app wrote
+ * for the client, and a generic one for anything else, exactly as a buffered route's 500 does. A raw
+ * `err.message` can hold a connection string or a host (GHSA-235j-fx64-w9p9); the full error still
+ * goes to the `stream:error` event.
+ */
+const messageOf = (error: unknown): string => (isHttpError(error) ? error.message : 'Internal Server Error');
 
 // Registered globally rather than module-local: this package ships twice — a bundle on npm and raw
 // source on JSR — so two copies in one dependency tree is a real shape, and a marker that stopped

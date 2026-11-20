@@ -85,7 +85,9 @@ describe('http streaming', () => {
     const text = await res.text();
     expect(text).toContain('data: {"ok":true}\n\n');
     expect(text).toContain('event: error');
-    expect(text).toContain('kaboom');
+    // masked like a buffered 500 (GHSA-235j-fx64-w9p9)
+    expect(text).toContain('Internal Server Error');
+    expect(text).not.toContain('kaboom');
     server.close();
   });
 

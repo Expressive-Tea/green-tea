@@ -22,6 +22,12 @@ npm treats versions as semver and semver forbids leading zeros.
   sends the real message only for an `HttpError` or a status below 500, and keeps the full error in
   its `mesh:rpc:error` event. The "cannot transport" diagnostic is still delivered. No wire change.
 
+- **A stream's error frame no longer shows the raw error message** (GHSA-235j-fx64-w9p9). When an
+  SSE or ndjson source threw mid-stream, the client received `err.message` verbatim, while the same
+  throw on a buffered route renders `Internal Server Error`. The frame now carries an `HttpError`'s
+  message and `Internal Server Error` for anything else; `stream:error` still gets the full error.
+  **Behaviour change** for clients that read the text of a non-HTTP error frame. No API change.
+
 - **WebSocket upgrades from another site are refused with `403`** (GHSA-p697-fpqx-pgf3), on Node,
   Deno, Bun and the edge. No adapter checked `Origin`, so a page on any site could open a WebSocket
   with the signed-in user's cookies and read what the handler streamed (cross-site WebSocket
