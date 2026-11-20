@@ -93,6 +93,10 @@ npm treats versions as semver and semver forbids leading zeros.
   (GHSA-g86h-3r98-qm66), as Node always has. Behind a TLS-terminating proxy they reported
   `ctx.protocol === 'http'` and never sent HSTS. No API change.
 
+- **The README says that a decoded route param can hold `/` and `..`** (GHSA-g86h-3r98-qm66).
+  `/files/..%2F..%2Fetc` gives `name = "../../etc"`, as in Express. Nothing changes in routing; a
+  handler that builds a filesystem path from a param must contain it, or constrain the param.
+
 - **WebSocket upgrades from another site are refused with `403`** (GHSA-p697-fpqx-pgf3), on Node,
   Deno, Bun and the edge. No adapter checked `Origin`, so a page on any site could open a WebSocket
   with the signed-in user's cookies and read what the handler streamed (cross-site WebSocket

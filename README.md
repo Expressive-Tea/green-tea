@@ -274,6 +274,8 @@ Patterns match by segment: static, constrained params such as `:id(\d+)`, plain 
 @Get('/files/:path*')   //  /files/img/2026/logo.png  →  params.path = "img/2026/logo.png"
 ```
 
+**Params arrive decoded, and a decoded param can hold `/` and `..`.** The path is split into segments first and each segment decoded after, so `/files/..%2F..%2Fetc` matches `:name` with `name = "../../etc"`, and a catch-all can hold `a/../../etc/passwd`. That is what Express does too, and it is correct for an id or a slug. It matters the moment a param becomes a filesystem path: resolve it against its base directory and check the result is still inside, the way `static` does, or constrain it (`:name([\w-]+)`).
+
 `@Head` and `@Options` provide explicit handlers. Otherwise a buffered GET can serve HEAD without a body, and OPTIONS on an existing path returns `204` with canonical `Allow`; other method mismatches return `405`. `/path` and `/path/` are equivalent, while repeated slashes and malformed encoding return `400` rather than being normalized ambiguously. Constraints use a deliberately safe regex subset. See the full [routing guide](https://green-tea.expressive-tea.io/docs/guides/routing/).
 
 Because that subset is linear, constraints are also compared at boot. Two routes that branch at the same segment, under the same prefix and method, fail `createApp`:
