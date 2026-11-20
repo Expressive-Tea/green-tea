@@ -106,6 +106,14 @@ npm treats versions as semver and semver forbids leading zeros.
   secret. **Behaviour change:** a browser client served from another origin, or an app behind a proxy
   that rewrites `Host`, now needs that origin in `cors.origins`. No API change.
 
+### Changed
+
+- **`channel()` buffers 1024 values per subscriber by default, dropping the oldest** (#82). The
+  default was unbounded, so a slow SSE or WebSocket client on a busy channel or room grew server
+  memory without limit. Pass `channel({ buffer: Infinity })` for the old behaviour. **Behaviour
+  change** for a subscriber that falls more than 1024 values behind. WebSocket inbound queues are
+  unchanged (bounded per frame by `limits`). No API change.
+
 ### Fixed
 
 - **A long-lived SSE or ndjson stream no longer grows the heap with every event** (found by the soak

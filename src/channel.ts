@@ -85,6 +85,12 @@ export interface TappableChannel<T> extends Channel<T> {
   [CHANNEL_TAP](sink: ChannelSink<T>): () => void;
 }
 
+/**
+ * Internal: the per-subscriber cap when `channel()` is given none (#82). Unbounded before, so a slow SSE
+ * client on a busy channel grew server memory without limit. Not exported from the package.
+ */
+export const DEFAULT_CHANNEL_BUFFER = 1024;
+
 interface Sub<T> {
   iterator: AsyncIterator<T>;
   push(value: T, cap: number): void;
@@ -153,10 +159,12 @@ function newSub<T>(onReturn: () => void): Sub<T> {
 
 /**
  * Creates a fan-out {@link Channel}. Values pushed are delivered to every active subscriber.
- * @param opts.buffer Per-subscriber queue cap; drops oldest when exceeded (default: unbounded).
+ * @param opts.buffer Per-subscriber queue cap; drops the oldest value when exceeded (default:
+ *   {@link DEFAULT_CHANNEL_BUFFER}). Pass `Infinity` to never drop, at the cost of unbounded memory
+ *   for a subscriber that stops reading.
  */
 export function channel<T>(opts: { buffer?: number } = {}): Channel<T> {
-  const cap = opts.buffer ?? Infinity;
+  const cap = opts.buffer ?? DEFAULT_CHANNEL_BUFFER;
   const subs = new Set<Omit<Sub<T>, 'iterator'>>();
   let done = false;
   let closedFlag = false;

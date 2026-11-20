@@ -142,7 +142,7 @@ function nodeWsRequest(req: http.IncomingMessage): WsRequest {
 export const WS_PING_MS = 30_000;
 
 export function nodeSocket(ws: any): WsSocket {
-  const inbound = channel<unknown>();
+  const inbound = channel<unknown>({ buffer: Infinity }); // ponytail: bounded per frame by boundInbound (#107), never by drop-oldest
   const ac = new AbortController();
   // `drained` callers waiting for the send buffer to fall to the mark (#41). Released by a send
   // callback, which `ws` runs once that frame is written to the TCP socket, or by the close.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { channel, isAsyncIterable, raceUntil } from '../src/channel';
+import { channel, DEFAULT_CHANNEL_BUFFER, isAsyncIterable, raceUntil } from '../src/channel';
 
 const collect = async <T>(it: AsyncIterable<T>, n: number): Promise<T[]> => {
   const out: T[] = [];
@@ -59,6 +59,14 @@ describe('channel', () => {
     expect((await it.next()).value).toBe(2);
     expect((await it.next()).value).toBe(3);
     expect((await it.next()).done).toBe(true);
+  });
+
+  it('buffers at most DEFAULT_CHANNEL_BUFFER per subscriber by default (#82)', async () => {
+    const ch = channel<number>();
+    const it = ch[Symbol.asyncIterator]();
+    for (let i = 0; i <= DEFAULT_CHANNEL_BUFFER; i++) ch.push(i); // one past the cap: 0 is dropped
+    ch.close();
+    expect((await it.next()).value).toBe(1);
   });
 
   it('.return() on one subscriber does not affect the other', async () => {

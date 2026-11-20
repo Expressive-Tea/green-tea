@@ -62,7 +62,7 @@ export interface EventfulSocket {
  * than the socket, so it builds its own {@link WsSocket} over state stashed on `ws.data`.
  */
 export function eventSocket(host: EventfulSocket): WsSocket {
-  const inbound = channel<unknown>();
+  const inbound = channel<unknown>({ buffer: Infinity }); // ponytail: bounded per frame by boundInbound (#107), never by drop-oldest
   const ac = new AbortController();
 
   host.addEventListener('message', (event) => {

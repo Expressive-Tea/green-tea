@@ -133,7 +133,7 @@ export async function serveBun(app: App, options?: BunServeOptions): Promise<Bun
         const refused = refuseWsOrigin(app, request);
         if (refused) return refused;
 
-        const inbound = channel();
+        const inbound = channel({ buffer: Infinity }); // ponytail: bounded per frame by boundInbound (#107), never by drop-oldest
         const ac = new AbortController();
         const wsReq = toWsRequest(request, server.requestIP(request)?.address ?? '');
         const data: BunConnData = { wsReq, inbound, ac, drainWaiters: [] };

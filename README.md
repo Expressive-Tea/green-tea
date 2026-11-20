@@ -108,7 +108,7 @@ The primitive never changes — it's always an `AsyncIterable`. What changes is 
 
 **Your wire contract is what you declared, never what you happened to return.** A buffered route that returns an iterable, or a streaming route that returns a plain value, fails loudly with a `TransportMismatchError` — green-tea will not quietly switch a route's transport because of a return type. Refactoring a handler's internals can't change how it talks to the client.
 
-Fan-out is a primitive too: `channel()` is a **multicast** `AsyncIterable` (bounded, drop-oldest) so one source feeds many subscribers, and `rooms` are named broadcast hubs — publish once, every connection in the room receives it.
+Fan-out is a primitive too: `channel()` is a **multicast** `AsyncIterable` (bounded, drop-oldest: 1024 values per subscriber unless you pass `channel({ buffer })`) so one source feeds many subscribers, and `rooms` are named broadcast hubs — publish once, every connection in the room receives it.
 
 ```typescript
 @Route('/live')
