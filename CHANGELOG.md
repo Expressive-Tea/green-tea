@@ -89,6 +89,10 @@ npm treats versions as semver and semver forbids leading zeros.
   `@query('constructor')` returned `Object.prototype.constructor` instead of `undefined`. No API
   change.
 
+- **Deno, Bun and `app.fetch` honour `X-Forwarded-Proto` under `trustProxy`**
+  (GHSA-g86h-3r98-qm66), as Node always has. Behind a TLS-terminating proxy they reported
+  `ctx.protocol === 'http'` and never sent HSTS. No API change.
+
 - **WebSocket upgrades from another site are refused with `403`** (GHSA-p697-fpqx-pgf3), on Node,
   Deno, Bun and the edge. No adapter checked `Origin`, so a page on any site could open a WebSocket
   with the signed-in user's cookies and read what the handler streamed (cross-site WebSocket

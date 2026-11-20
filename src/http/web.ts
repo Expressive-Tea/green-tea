@@ -245,6 +245,20 @@ function outcomeToResponse(
   return new Response(body, { status: outcome.status, headers });
 }
 
+/**
+ * Whether the client's connection was HTTPS: `x-forwarded-proto` when the proxy is trusted, else the
+ * URL's scheme. Mirrors Node's `deriveSecure`. Without it, Deno and Bun behind a TLS-terminating proxy
+ * saw `http`, so `ctx.protocol` was wrong and HSTS was never sent (GHSA-g86h-3r98-qm66).
+ */
+function fetchSecure(request: Request, url: URL, opts: HttpOptions | undefined): boolean {
+  if (opts?.trustProxy) {
+    const proto = request.headers.get('x-forwarded-proto')?.split(',')[0].trim();
+    if (proto) return proto === 'https';
+  }
+
+  return url.protocol === 'https:';
+}
+
 /** The `x-forwarded-for` hop the trusted proxy appended (the right-most), else `''`. */
 function forwardedFor(request: Request, opts: HttpOptions | undefined): string {
   if (!opts?.trustProxy) return '';
@@ -284,7 +298,7 @@ export function buildFetch(routes: RouteTable, opts: HttpOptions | undefined) {
     const headers = headersToRecord(request.headers);
     // Derived before the body is read, so a 413 rejected below still carries an identity.
     const correlation = correlateRequest(headers);
-    const secure = url.protocol === 'https:';
+    const secure = fetchSecure(request, url, opts);
     // Computed up-front from the same inputs `handle()` uses, so a preflight — the one response
     // this adapter builds itself — carries the same security/CORS headers every other one does.
     const injected = computeInjected(opts, { secure, headers });
@@ -378,7 +392,7 @@ export function answerFetchProbe(request: Request, opts: HttpOptions | undefined
   if (!probe) return undefined;
 
   const injected = computeInjected(opts, {
-    secure: url.protocol === 'https:',
+    secure: fetchSecure(request, url, opts),
     headers: headersToRecord(request.headers),
   });
   return new Response(probe.body || null, {

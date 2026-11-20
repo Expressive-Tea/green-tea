@@ -90,6 +90,9 @@ class IpCtl {
   @Get('/whoami') whoami(@ctx() c: any) {
     return { ip: c.ip };
   }
+  @Get('/proto') proto(@ctx() c: any) {
+    return { protocol: c.protocol };
+  }
 }
 @Module({ mountpoint: '/', controllers: [IpCtl] })
 class IpModule {}
@@ -398,5 +401,21 @@ describe('app.fetch bounded body reads (#105)', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({});
+  });
+});
+
+describe('app.fetch trustProxy honours x-forwarded-proto (GHSA-g86h-3r98-qm66)', () => {
+  const viaTlsProxy = () => new Request('http://x/ip/proto', { headers: { 'x-forwarded-proto': 'https' } });
+
+  it('reports https and sends HSTS behind a trusted TLS proxy, like Node', async () => {
+    const res = await createApp({ modules: [IpModule], trustProxy: true }).fetch(viaTlsProxy());
+    expect(await res.json()).toEqual({ protocol: 'https' });
+    expect(res.headers.get('strict-transport-security')).toBeTruthy();
+  });
+
+  it('ignores the header without trustProxy', async () => {
+    const res = await createApp({ modules: [IpModule] }).fetch(viaTlsProxy());
+    expect(await res.json()).toEqual({ protocol: 'http' });
+    expect(res.headers.get('strict-transport-security')).toBeNull();
   });
 });
