@@ -113,6 +113,11 @@ npm treats versions as semver and semver forbids leading zeros.
   unrelated step that threw broke every export. A call now runs the exported step's own closure of
   providers and steps, sliced once at boot like a route's. Mesh is `@experimental`; no API change.
 
+- **Deno, Bun and the edge say when they ignore a Node-only limit** (#76). `limits.maxConnections`,
+  `requestTimeoutMs`, `headersTimeoutMs` and `keepAliveTimeoutMs` apply only to Node's `listen()`,
+  and the other adapters ignored them without a word. `serveDeno`, `serveBun` and `edgeHandler`
+  now warn through the app's logger, naming each one the app set. No API change.
+
 - **A bus listener that throws is logged once** (#77). `Bus.emit` isolated a failing listener without
   a word, so a broken metrics or logger plugin produced nothing and gave no signal. The app's
   `logger` now warns the first time a listener throws or rejects, naming the event; that listener's

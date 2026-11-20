@@ -1,7 +1,7 @@
 import { channel } from './channel';
 import type { Channel } from './channel';
 import type { App } from './app/types';
-import { refuseTls, refuseWsOrigin } from './security';
+import { refuseTls, refuseWsOrigin, warnNodeOnlyLimits } from './security';
 import {
   WS_MAX_MESSAGE_BYTES,
   DEFAULT_MAX_WS_MESSAGE_BYTES,
@@ -123,6 +123,7 @@ export async function serveBun(app: App, options?: BunServeOptions): Promise<Bun
   // without ever reaching `onError`. This was documented as something the caller should remember to
   // do, which made the correct use of a core helper depend on reading a README.
   refuseTls(app, 'serveBun');
+  warnNodeOnlyLimits(app, 'serveBun');
   await app.boot();
 
   const server = Bun.serve({

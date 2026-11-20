@@ -50,6 +50,8 @@ import {
   WS_ORIGIN_CHECK,
   assertCorsOptions,
   MESH_REQUESTED,
+  NODE_ONLY_LIMITS,
+  nodeOnlyLimits,
   MESH_ON_EDGE,
   wsOriginAllowed,
   type TlsOptions,
@@ -564,6 +566,9 @@ export function createApp(opts: AppOptions): App {
 
     // `serveDeno` and `serveBun` refuse an app that asked for TLS only Node's listener can give.
     [TLS_REQUESTED]: Boolean(opts.tls),
+
+    // `serveDeno`, `serveBun` and `edgeHandler` warn that they ignore these (#76).
+    [NODE_ONLY_LIMITS]: nodeOnlyLimits(opts.limits),
 
     // `edgeHandler` refuses an app that configured mesh, which cannot run there (#87).
     [MESH_REQUESTED]: Boolean(opts.mesh),

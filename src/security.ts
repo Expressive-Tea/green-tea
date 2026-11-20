@@ -28,6 +28,34 @@ export function refuseTls(app: object, adapter: string): void {
 }
 
 /**
+ * The `limits` keys only Node's listener applies, set on the app as the ones the caller gave, so the
+ * other adapters can say they ignore them (#76) rather than ignore them silently. Symbol-keyed
+ * because it is adapter plumbing.
+ */
+export const NODE_ONLY_LIMITS: unique symbol = Symbol.for('green-tea.node-only-limits');
+
+const NODE_ONLY_LIMIT_KEYS = ['maxConnections', 'requestTimeoutMs', 'headersTimeoutMs', 'keepAliveTimeoutMs'] as const;
+
+/** The Node-only `limits` keys present in `limits`, for {@link NODE_ONLY_LIMITS}. */
+export function nodeOnlyLimits(
+  limits: { [K in (typeof NODE_ONLY_LIMIT_KEYS)[number]]?: number } | undefined,
+): string[] {
+  return NODE_ONLY_LIMIT_KEYS.filter((key) => limits?.[key] !== undefined);
+}
+
+/** Warns, once per adapter call, that `adapter` does not apply the Node-only limits the app set. */
+export function warnNodeOnlyLimits(app: object, adapter: string): void {
+  const keys = (app as { [NODE_ONLY_LIMITS]?: string[] })[NODE_ONLY_LIMITS] ?? [];
+  if (keys.length === 0) return;
+
+  (app as { logger?: Logger }).logger?.warn(
+    `${adapter} does not apply limits.${keys.join(', limits.')}: only Node's listen() does. ` +
+      "Set the equivalent on the runtime's server or at the proxy in front of it.",
+    { adapter, ignored: keys },
+  );
+}
+
+/**
  * Set on an app created with `mesh`, so `edgeHandler` can refuse it (#87). Mesh does not run on the
  * edge: the teapot's secret check needs `node:crypto`'s `timingSafeEqual`, which `nodejs_compat`
  * lacks, and a teacup's links are long-lived outbound sockets a Worker cannot hold. Without this the

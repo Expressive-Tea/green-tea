@@ -1,5 +1,5 @@
 import type { App } from './app/types';
-import { refuseTls, refuseWsOrigin } from './security';
+import { refuseTls, refuseWsOrigin, warnNodeOnlyLimits } from './security';
 import { beginDrain } from './http/health';
 import { eventSocket, toWsRequest, upgradeSafely, type EventfulSocket } from './http/ws-adapter';
 import { closeWithDeadline } from './http/shutdown';
@@ -69,6 +69,7 @@ export async function serveDeno(app: App, options?: DenoServeOptions): Promise<D
   // without ever reaching `onError`. This was documented as something the caller should remember to
   // do, which made the correct use of a core helper depend on reading a README.
   refuseTls(app, 'serveDeno');
+  warnNodeOnlyLimits(app, 'serveDeno');
   await app.boot();
 
   // Deno's only force-close lever is the abort signal it was served with, so the adapter has to

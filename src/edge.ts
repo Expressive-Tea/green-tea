@@ -2,7 +2,7 @@ import type { App } from './app/types';
 import { eventSocket, toWsRequest, upgradeSafely, type EventfulSocket } from './http/ws-adapter';
 import { setProxyClient } from './http/peer';
 import { MARK_EDGE } from './http/compression';
-import { refuseMeshOnEdge, refuseWsOrigin } from './security';
+import { refuseMeshOnEdge, refuseWsOrigin, warnNodeOnlyLimits } from './security';
 
 // Minimal ambient for the Cloudflare Workers globals we use — avoids @cloudflare/workers-types.
 // Declares only what we call; mirrors the real workerd signatures.
@@ -34,6 +34,7 @@ export function edgeHandler(
   app: App,
 ): (request: Request, env?: unknown, ctx?: EdgeCtx) => Response | Promise<Response> {
   refuseMeshOnEdge(app);
+  warnNodeOnlyLimits(app, 'edgeHandler');
   (app as { [MARK_EDGE]?: () => void })[MARK_EDGE]?.();
 
   return (request, _env, ctx) => {
