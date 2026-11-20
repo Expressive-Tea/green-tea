@@ -41,6 +41,11 @@ npm treats versions as semver and semver forbids leading zeros.
   for an app that set this combination: list the trusted origins, or write the intent as a
   predicate (`origins: () => true`) so it is visible. The option type is unchanged.
 
+- **`static` no longer serves dotfiles** (GHSA-hjcj-hr8v-rfg4). `GET /.env` returned the file, and so
+  would `/.git/config` or `/.htpasswd` in a public root. A path with any segment starting with `.` is
+  now a miss (`404`), except under `/.well-known/` (RFC 8615), where only dotfiles stay hidden.
+  **Behaviour change** for an app that served dotfiles on purpose. No API change.
+
 - **WebSocket upgrades from another site are refused with `403`** (GHSA-p697-fpqx-pgf3), on Node,
   Deno, Bun and the edge. No adapter checked `Origin`, so a page on any site could open a WebSocket
   with the signed-in user's cookies and read what the handler streamed (cross-site WebSocket

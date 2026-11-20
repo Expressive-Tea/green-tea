@@ -218,6 +218,7 @@ export function buildStaticResolver(root: string | true, cacheControl = 'no-cach
       return undefined;
     }
 
+    if (isHiddenPath(rel)) return undefined;
     if (rel === '' || rel.endsWith('/')) rel += 'index.html';
     const full = nodePath.resolve(abs, '.' + (rel.startsWith('/') ? rel : '/' + rel));
     if (full !== abs && !full.startsWith(abs + nodePath.sep)) return undefined; // traversal guard
@@ -231,6 +232,19 @@ export function buildStaticResolver(root: string | true, cacheControl = 'no-cach
       return undefined; // includes ENOENT from `realpath` on a dangling link: a miss, never a rejection
     }
   };
+}
+
+/**
+ * A path with a segment that starts with `.` (`/.env`, `/.git/config`, `/a/.htpasswd`) is never served
+ * from `static` (GHSA-hjcj-hr8v-rfg4): a dotfile in the public root is almost always there by accident,
+ * and it is a miss like any missing file. `/.well-known/` is the exception, because ACME challenges and
+ * `security.txt` live there by standard (RFC 8615); a dotfile *inside* it is still hidden.
+ */
+function isHiddenPath(rel: string): boolean {
+  const segments = rel.split('/').filter(Boolean);
+  const start = segments[0] === '.well-known' ? 1 : 0;
+
+  return segments.slice(start).some((segment) => segment.startsWith('.'));
 }
 
 /** Turns `@Html` metadata into a response transformer at boot. String mode is fs-free; path/template modes read+cache the file. */
