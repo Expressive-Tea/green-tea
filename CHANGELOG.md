@@ -53,6 +53,13 @@ npm treats versions as semver and semver forbids leading zeros.
   now runs every second, and each Node WebSocket is pinged every 30 seconds and terminated if it
   missed the previous ping. Browsers and `ws` clients answer pings on their own. No API change.
 
+- **Mesh: a `ws://` teapot off loopback fails `createApp` unless `mesh.allowInsecure`** (#86). The
+  handshake sends the teapot's secret verbatim, and a cleartext link to another machine only logged
+  a warning. Use `wss://`, or set the new `MeshConfig.allowInsecure: true` when the network already
+  encrypts the link (a service mesh with mutual TLS); such a teapot is still logged as a warning.
+  Loopback (`localhost`, `127.0.0.0/8`, `[::1]`) is unaffected. Mesh is `@experimental`: the change
+  stays within `MeshConfig` (D19).
+
 - **WebSocket upgrades from another site are refused with `403`** (GHSA-p697-fpqx-pgf3), on Node,
   Deno, Bun and the edge. No adapter checked `Origin`, so a page on any site could open a WebSocket
   with the signed-in user's cookies and read what the handler streamed (cross-site WebSocket

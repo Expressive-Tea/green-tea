@@ -304,6 +304,7 @@ export function createApp(opts: AppOptions): App {
 
   const bus = new Bus();
   const logger = opts.logger ?? createDefaultLogger();
+  assertTeapotTransport(opts.mesh, logger);
   if (opts.logRequests) logRequests(bus, logger);
   const container = new Container();
   let server: http.Server | undefined;
@@ -1150,24 +1151,45 @@ async function connectUntilDeadline(
   }
 }
 
-/**
- * Warn when a teapot's shared secret would cross a network in cleartext.
- *
- * The `hello` frame carries the secret verbatim, so `ws://` to anywhere but this machine puts it on
- * the wire for anyone in the path to read. Loopback is exempt because there is no path.
- *
- * A warning rather than a refusal: a private network behind a service mesh that already does mutual
- * TLS is a legitimate deployment, and green-tea cannot tell it apart from an exposed one.
- */
-function warnIfCleartext(url: string, logger: Logger): void {
-  if (!url.startsWith('ws://')) return;
-  const host = url.slice('ws://'.length).split('/')[0].split(':')[0];
-  if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') return;
+/** Whether `url` is a `ws://` link that leaves this machine. Loopback has no network path to read. */
+function crossesNetworkInCleartext(url: string): boolean {
+  if (!url.startsWith('ws://')) return false;
+  let host: string;
 
-  logger.warn(
-    `mesh: ${url} is not encrypted, and the shared secret is sent in the handshake — ` +
-      'use wss:// unless the link already runs inside an encrypted network.',
-  );
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return true; // not ours to parse; treat it as the case that needs an explicit opt-in
+  }
+
+  return !(host === 'localhost' || host === '[::1]' || /^127(\.\d{1,3}){3}$/.test(host));
+}
+
+/**
+ * Refuse a `ws://` teapot that is not on this machine, unless `allowInsecure` (#86).
+ *
+ * The `hello` frame carries the secret verbatim, so `ws://` to anywhere but loopback puts it on the
+ * wire for anyone in the path to read. Checked in `createApp`, before any connection, so the mistake
+ * is a boot error rather than a leak. A private network that already encrypts (a service mesh with
+ * mutual TLS) is a legitimate deployment green-tea cannot tell apart from an exposed one, so it can
+ * opt in, and is still warned about it.
+ */
+function assertTeapotTransport(mesh: MeshConfig | undefined, logger: Logger): void {
+  for (const { url } of mesh?.teapots ?? []) {
+    if (!crossesNetworkInCleartext(url)) continue;
+
+    if (!mesh?.allowInsecure) {
+      throw new Error(
+        `mesh: ${url} is not encrypted, and the shared secret is sent in the handshake. Use wss://, ` +
+          'or set `mesh.allowInsecure: true` if the link already runs inside an encrypted network.',
+      );
+    }
+
+    logger.warn(
+      `mesh: ${url} is not encrypted, and the shared secret is sent in the handshake — ` +
+        'allowed by `mesh.allowInsecure`; make sure the network encrypts it.',
+    );
+  }
 }
 
 /** A route a teapot exported, and the teapot it came from. */
@@ -1482,7 +1504,6 @@ async function spliceRemoteScopes(
 
   try {
     for (const teapot of teapots) {
-      warnIfCleartext(teapot.url, logger);
       const holder: { link?: Link } = {};
       const link = await connectUntilDeadline(mesh, bus, logger, teapot.url, () => connectTeapot(ctx, teapot, holder));
 

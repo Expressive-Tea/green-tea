@@ -194,6 +194,13 @@ export interface MeshConfig {
    * starts. To make a teapot's absence fatal, have something local `@needs` one of its tokens.
    */
   bootTimeoutMs?: number;
+  /**
+   * Allow `ws://` teapots that are not on this machine (default: `false`). The handshake sends the
+   * teapot's secret verbatim, so without this `createApp` refuses a cleartext link off loopback. Set
+   * it only when the network already encrypts the link, for example a service mesh with mutual TLS;
+   * each such teapot is still logged as a warning.
+   */
+  allowInsecure?: boolean;
 }
 
 /**

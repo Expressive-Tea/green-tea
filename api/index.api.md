@@ -567,6 +567,7 @@ export const MESH_CONTROL_PATH = "/__mesh__/control";
 
 // @public
 export interface MeshConfig {
+    allowInsecure?: boolean;
     bootTimeoutMs?: number;
     heartbeatMs?: number;
     onManifestChange?: 'refuse';
