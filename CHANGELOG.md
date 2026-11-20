@@ -60,6 +60,11 @@ npm treats versions as semver and semver forbids leading zeros.
   Loopback (`localhost`, `127.0.0.0/8`, `[::1]`) is unaffected. Mesh is `@experimental`: the change
   stays within `MeshConfig` (D19).
 
+- **Mesh on the edge fails with an error that says so** (#87). Mesh cannot run on Cloudflare
+  Workers, but an app that configured it booted there and failed later, elsewhere. `createApp` with
+  `mesh` now throws when it detects a Workers isolate, and `edgeHandler` throws for such an app
+  whatever detection saw. Mesh is `@experimental`; no API change.
+
 - **WebSocket upgrades from another site are refused with `403`** (GHSA-p697-fpqx-pgf3), on Node,
   Deno, Bun and the edge. No adapter checked `Origin`, so a page on any site could open a WebSocket
   with the signed-in user's cookies and read what the handler streamed (cross-site WebSocket

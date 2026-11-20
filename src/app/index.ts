@@ -9,7 +9,7 @@ import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } fro
 import type { HttpOptions } from '../http';
 import { trustedProxyClient } from '../http/peer';
 import { answerFetchProbe, buildFetch } from '../http/web';
-import { resolveCompression, edgeMarker, MARK_EDGE, type CompressionOptions } from '../http/compression';
+import { resolveCompression, edgeMarker, isWorkerd, MARK_EDGE, type CompressionOptions } from '../http/compression';
 import {
   boundInbound,
   controlBounds,
@@ -49,6 +49,8 @@ import {
   TLS_REQUESTED,
   WS_ORIGIN_CHECK,
   assertCorsOptions,
+  MESH_REQUESTED,
+  MESH_ON_EDGE,
   wsOriginAllowed,
   type TlsOptions,
   type SecurityOptions,
@@ -284,19 +286,29 @@ export interface AppOptions {
   warnGraphDepth?: number | false;
 }
 
+/** Throws for a `mesh` config this app cannot run: without the opt-in, or inside a Worker. */
+function assertMeshAllowed(opts: AppOptions): void {
+  if (!opts.mesh) return;
+
+  // mesh is alpha: its API and wire protocol may change. Require an explicit opt-in.
+  if (!opts.experimental) {
+    throw new Error(
+      'mesh is an alpha feature — pass `experimental: true` to createApp to enable it (its API may change between releases)',
+    );
+  }
+
+  // Detected here so a bare `export default { fetch: app.fetch }` on a Worker fails too; `edgeHandler`
+  // refuses explicitly through MESH_REQUESTED for a Worker detection cannot see (#87).
+  if (isWorkerd()) throw new Error(MESH_ON_EDGE);
+}
+
 /**
  * Build an {@link App} from the given modules and options.
  * Wires providers, steps, controllers and plugins into a dependency graph; for non-mesh apps
  * the graph is finalized eagerly, otherwise finalization is deferred to {@link App.listen}.
  */
 export function createApp(opts: AppOptions): App {
-  // mesh is alpha: its API and wire protocol may change. Require an explicit opt-in.
-  if (opts.mesh && !opts.experimental) {
-    throw new Error(
-      'mesh is an alpha feature — pass `experimental: true` to createApp to enable it (its API may change between releases)',
-    );
-  }
-
+  assertMeshAllowed(opts);
   validateWsLimits(opts.limits);
   const health = resolveHealth(opts.health, opts.shutdownTimeoutMs, opts.teardownTimeoutMs);
   assertEtagOption(opts.etag);
@@ -546,6 +558,9 @@ export function createApp(opts: AppOptions): App {
 
     // `serveDeno` and `serveBun` refuse an app that asked for TLS only Node's listener can give.
     [TLS_REQUESTED]: Boolean(opts.tls),
+
+    // `edgeHandler` refuses an app that configured mesh, which cannot run there (#87).
+    [MESH_REQUESTED]: Boolean(opts.mesh),
 
     // The fetch adapters refuse a cross-site upgrade before accepting it (GHSA-p697-fpqx-pgf3). The
     // mesh control channel is exempt: it authenticates with its secret, not with cookies.

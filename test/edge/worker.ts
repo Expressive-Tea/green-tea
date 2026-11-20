@@ -112,10 +112,21 @@ function reservedBoot(): Response {
   return new Response('booted', { status: 200 });
 }
 
+// #87: an app configured with mesh fails createApp inside workerd, with a message that says why.
+function meshBoot(): Response {
+  try {
+    createApp({ modules: [M], experimental: true, mesh: { secret: 'x' } });
+  } catch (error) {
+    return new Response((error as Error).message, { status: 500 });
+  }
+  return new Response('booted', { status: 200 });
+}
+
 export default {
   fetch: (request: Request, env?: unknown, ctx?: Parameters<ReturnType<typeof edgeHandler>>[2]) => {
     const host = new URL(request.url).hostname;
     if (host === 'reserved') return reservedBoot();
+    if (host === 'meshedge') return meshBoot();
     return (handlers[host] ?? handlers.default)(request, env, ctx);
   },
 };

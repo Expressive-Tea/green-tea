@@ -28,6 +28,24 @@ export function refuseTls(app: object, adapter: string): void {
 }
 
 /**
+ * Set on an app created with `mesh`, so `edgeHandler` can refuse it (#87). Mesh does not run on the
+ * edge: the teapot's secret check needs `node:crypto`'s `timingSafeEqual`, which `nodejs_compat`
+ * lacks, and a teacup's links are long-lived outbound sockets a Worker cannot hold. Without this the
+ * app booted and failed later, somewhere else. Symbol-keyed because it is adapter plumbing.
+ */
+export const MESH_REQUESTED: unique symbol = Symbol.for('green-tea.mesh-requested');
+
+/** The one message for mesh on the edge, from `createApp` (detected) or `edgeHandler` (explicit). */
+export const MESH_ON_EDGE =
+  'mesh does not run on the edge (Cloudflare Workers): the teapot needs node:crypto timingSafeEqual and ' +
+  'a teacup needs long-lived outbound sockets. Run mesh nodes on Node, Deno or Bun, and drop `mesh` here.';
+
+/** Throws when `app` was created with `mesh` (#87). */
+export function refuseMeshOnEdge(app: object): void {
+  if ((app as { [MESH_REQUESTED]?: boolean })[MESH_REQUESTED]) throw new Error(MESH_ON_EDGE);
+}
+
+/**
  * Set on every app to the function the fetch adapters (`serveDeno`, `serveBun`, `edgeHandler`) call
  * before they accept a WebSocket upgrade: `(origin, host, path) => allowed`. Symbol-keyed because it
  * is adapter plumbing; see {@link wsOriginAllowed} and {@link refuseWsOrigin}.
