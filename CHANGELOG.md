@@ -8,6 +8,15 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ## [Unreleased]
 
+### Added
+
+- **A runnable mesh demo: one REST API across two processes** (#88). `example/mesh/` has a billing
+  teapot (a private ledger, an exported `balance` step and REST routes) and a shop teacup whose
+  checkout `@needs('balance')` like a local step and which serves billing's routes. The walkthrough
+  is in `example/README.md`, and `test/examples/mesh.test.ts` runs it with billing in a real child
+  process that it kills and restarts: `503` with `retry-after` while billing is down, then automatic
+  recovery.
+
 ### Security
 
 - **Mesh: a teapot checks the HTTP method of a route RPC, not just its pattern**
