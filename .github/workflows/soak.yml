@@ -1,0 +1,29 @@
+name: Soak
+# Long-running stability (#80): scripts/soak.mts drives the built app with JSON load, SSE and
+# WebSocket churn and a slow SSE subscriber for SOAK_SECONDS, then closes it under load. Fails on
+# heap growth, an unhandled rejection or a close() that does not exit 0. Nightly and on demand:
+# too slow for every push, and run before a release with workflow_dispatch.
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Load duration in seconds
+        default: '300'
+
+jobs:
+  soak:
+    if: ${{ github.server_url == 'https://github.com' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm run build
+      - run: npm run soak
+        env:
+          SOAK_SECONDS: ${{ inputs.seconds || '300' }}
