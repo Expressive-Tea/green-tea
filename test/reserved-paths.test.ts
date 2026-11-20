@@ -207,9 +207,11 @@ describe('CARD-21 T7: a teapot that advertises a route on the reserved path', ()
   afterEach(() => wss?.close());
 
   /** A hand-rolled teapot: a real one refuses such a route at its own boot, so only the wire can carry it. */
-  function foreignTeapot(pattern: string): string {
-    wss = new WebSocketServer({ port: 0 });
-    wss.on('connection', (ws) => {
+  async function foreignTeapot(pattern: string): Promise<string> {
+    const server = new WebSocketServer({ port: 0 });
+    wss = server;
+    await new Promise((resolve) => server.once('listening', resolve)); // bound before reading its port (#59)
+    server.on('connection', (ws) => {
       ws.on('message', (data) => {
         const frame = decode(data.toString());
         if (frame.type === 'hello') {
@@ -224,11 +226,11 @@ describe('CARD-21 T7: a teapot that advertises a route on the reserved path', ()
         }
       });
     });
-    return `ws://127.0.0.1:${(wss.address() as AddressInfo).port}/__mesh__/control`;
+    return `ws://127.0.0.1:${(server.address() as AddressInfo).port}/__mesh__/control`;
   }
 
   it('the teacup splice fails and names the teapot', async () => {
-    const url = foreignTeapot('/__mesh__/:x');
+    const url = await foreignTeapot('/__mesh__/:x');
     const teacup = createApp({
       modules: [moduleWith([[Get, '/ok']])],
       experimental: true,

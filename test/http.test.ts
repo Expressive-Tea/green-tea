@@ -187,7 +187,7 @@ describe('request hardening', () => {
       limits: { maxConnections: 1 },
     });
 
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) => server.listen(0, resolve));
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('server did not bind to a TCP port');
 
@@ -330,7 +330,7 @@ describe('request hardening', () => {
       { limits: { maxConcurrentRequests: 1 } },
     );
 
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) => server.listen(0, resolve));
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('server did not bind to a TCP port');
 

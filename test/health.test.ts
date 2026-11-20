@@ -263,6 +263,7 @@ describe('CARD-17: health option validation and reserved paths', () => {
 
   it('a teapot route at /__ready__ fails the teacup splice while health is on', async () => {
     const wss = new WebSocketServer({ port: 0 });
+    await new Promise((resolve) => wss.once('listening', resolve)); // bound before reading its port (#59)
     wss.on('connection', (ws) => {
       ws.on('message', (data) => {
         if (decode(data.toString()).type === 'hello') {

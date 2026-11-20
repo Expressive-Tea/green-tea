@@ -97,6 +97,7 @@ describe('envelopeFrom', () => {
 describe('mesh rpc errors', () => {
   it('reports the token that failed, not the wire id', async () => {
     const wss = new WebSocketServer({ port: 0 });
+    await new Promise((resolve) => wss.once('listening', resolve)); // bound before reading its port (#59)
     wss.on('connection', (ws) => {
       let authed = false;
       ws.on('message', (data) => {
