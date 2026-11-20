@@ -113,6 +113,11 @@ npm treats versions as semver and semver forbids leading zeros.
   unrelated step that threw broke every export. A call now runs the exported step's own closure of
   providers and steps, sliced once at boot like a route's. Mesh is `@experimental`; no API change.
 
+- **A bus listener that throws is logged once** (#77). `Bus.emit` isolated a failing listener without
+  a word, so a broken metrics or logger plugin produced nothing and gave no signal. The app's
+  `logger` now warns the first time a listener throws or rejects, naming the event; that listener's
+  later failures stay quiet. The `Bus` type is unchanged.
+
 - **An async bus listener that rejects no longer exits the Node process** (#70). `Bus.emit` isolated
   a listener that threw, but an `async` listener fails by rejecting, and that rejection went
   unhandled, so a plugin's `on('request:end', async () => { throw … })` killed the process on the

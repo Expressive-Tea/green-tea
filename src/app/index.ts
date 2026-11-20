@@ -1,5 +1,5 @@
 import type http from 'http';
-import { Bus, type Events } from '../bus';
+import { Bus, reportListenerErrors, type Events } from '../bus';
 import { createDefaultLogger, logRequests, type Logger } from '../logger';
 import { Container } from '../container';
 import { topoSort, topoLevels, subgraphFor, GraphNode, nearest } from '../graph';
@@ -316,6 +316,12 @@ export function createApp(opts: AppOptions): App {
 
   const bus = new Bus();
   const logger = opts.logger ?? createDefaultLogger();
+  reportListenerErrors(bus, (event, error) =>
+    logger.warn(`a listener on '${event}' threw and was skipped; further failures of that listener are not logged`, {
+      event,
+      err: error instanceof Error ? error.message : String(error),
+    }),
+  );
   assertTeapotTransport(opts.mesh, logger);
   if (opts.logRequests) logRequests(bus, logger);
   const container = new Container();

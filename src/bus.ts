@@ -162,6 +162,20 @@ export interface Events {
   on: Bus['on'];
 }
 
+/**
+ * Where a bus reports a listener that failed. Kept outside the class, so the exported `Bus` type is
+ * unchanged under the API freeze; `createApp` registers its logger here for the bus it builds.
+ */
+const listenerErrorReporters = new WeakMap<Bus, (event: LifecycleEvent, error: unknown) => void>();
+
+/** Listeners already reported, so a broken one logs once rather than on every event (#77). */
+const reportedListeners = new WeakSet<(p: EventPayload) => void>();
+
+/** Internal: route listener failures on `bus` to `report`, once per listener. Not in the public barrel. */
+export function reportListenerErrors(bus: Bus, report: (event: LifecycleEvent, error: unknown) => void): void {
+  listenerErrorReporters.set(bus, report);
+}
+
 /** In-process pub/sub for framework lifecycle events; observer failures are swallowed so they never break the pipeline. */
 export class Bus {
   private readonly listeners = new Map<LifecycleEvent, Set<(p: EventPayload) => void>>();
@@ -189,6 +203,19 @@ export class Bus {
     return listenerSet !== undefined && listenerSet.size > 0;
   }
 
+  private reportFailure(event: LifecycleEvent, listener: (p: EventPayload) => void, error: unknown): void {
+    const report = listenerErrorReporters.get(this);
+    if (!report || reportedListeners.has(listener)) return;
+
+    reportedListeners.add(listener);
+
+    try {
+      report(event, error);
+    } catch {
+      /* a broken logger must not break the pipeline either */
+    }
+  }
+
   /** Dispatch `payload` to every listener of `event`; a throwing listener is isolated and does not affect the others. */
   emit(event: LifecycleEvent, payload: EventPayload): void {
     for (const listener of this.listeners.get(event) ?? []) {
@@ -198,10 +225,13 @@ export class Bus {
         const result: unknown = listener(payload);
 
         if (typeof (result as PromiseLike<unknown> | undefined)?.then === 'function') {
-          (result as PromiseLike<unknown>).then(undefined, () => {});
+          (result as PromiseLike<unknown>).then(undefined, (error: unknown) =>
+            this.reportFailure(event, listener, error),
+          );
         }
-      } catch {
-        /* observers must never break the pipeline */
+      } catch (error) {
+        // observers must never break the pipeline, but a silent failure hides a broken plugin (#77)
+        this.reportFailure(event, listener, error);
       }
     }
   }
