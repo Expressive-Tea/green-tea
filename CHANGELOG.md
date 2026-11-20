@@ -22,6 +22,11 @@ npm treats versions as semver and semver forbids leading zeros.
   unhandled, so a plugin's `on('request:end', async () => { throw … })` killed the process on the
   first request. A rejection is now swallowed like a throw.
 
+- **Bun no longer drops an SSE or ndjson stream that goes quiet for 10 seconds** (#71). `Bun.serve`
+  cuts a request idle for `idleTimeout` (10s by default), which is shorter than the 15s keep-alive
+  ping, so the client got `ECONNRESET`. `serveBun` now lifts the idle timeout for stream responses
+  only; buffered requests keep it.
+
 ## [26.11.0-rc.1] - 2026-11-17
 
 ### Breaking

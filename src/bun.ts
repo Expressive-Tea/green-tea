@@ -68,6 +68,9 @@ export interface BunServeOptions {
 }
 declare const Bun: { serve(options: BunNativeServeOptions): BunServer };
 
+/** Responses that stay open between writes: SSE and ndjson streams. */
+const STREAM_CONTENT_TYPE = /^(text\/event-stream|application\/x-ndjson)/;
+
 /** Per-connection state stashed on ws.data between fetch (upgrade) and the open/message/close callbacks. */
 interface BunConnData {
   wsReq: WsRequest;
@@ -137,7 +140,16 @@ export async function serveBun(app: App, options?: BunServeOptions): Promise<Bun
       // The same object goes to `app.fetch`, which is what lets it find the peer again. The server,
       // not its answer: `requestIP` runs only if something reads `ctx.ip` (see `peer.ts`).
       setPeer(request, server);
-      return app.fetch(request);
+      return app.fetch(request).then((response) => {
+        // Bun cuts a request idle for `idleTimeout` (default 10s), shorter than the SSE keep-alive
+        // ping, so a quiet stream was dropped (#71). Lift it for streams only: buffered requests keep
+        // Bun's idle protection. `timeout` is cast locally so the exported `BunServer` type stays as is.
+        if (STREAM_CONTENT_TYPE.test(response.headers.get('content-type') ?? '')) {
+          (server as BunServer & { timeout?(request: Request, seconds: number): void }).timeout?.(request, 0);
+        }
+
+        return response;
+      });
     },
     websocket: {
       // The pre-buffer half of `limits.maxWsMessageBytes`: Bun refuses an oversized frame before
