@@ -76,6 +76,21 @@ export function refuseWsOrigin(app: object, request: Request): Response | undefi
   return new Response('Forbidden', { status: 403 });
 }
 
+/**
+ * Refuses `cors: { origins: '*', credentials: true }` at boot (GHSA-fccm-q62j-48hr). The spec forbids
+ * `*` with credentials, so the only way to honour both was to echo every origin, `null` included, with
+ * `Access-Control-Allow-Credentials: true`: any site could then make credentialed reads. An app that
+ * really means that writes it as a predicate, where it is visible.
+ */
+export function assertCorsOptions(cors: CorsOptions | undefined): void {
+  if (cors?.origins === '*' && cors.credentials) {
+    throw new Error(
+      "cors: { origins: '*', credentials: true } would let every site make credentialed requests. " +
+        'List the origins you trust, or pass a predicate such as `origins: (origin) => origin.endsWith(".example.com")`.',
+    );
+  }
+}
+
 /** CORS policy. `origins` may be a literal, list, `'*'`, or a predicate. */
 export interface CorsOptions {
   origins: string | string[] | '*' | ((origin: string) => boolean);

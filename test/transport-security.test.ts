@@ -187,10 +187,18 @@ describe('CORS', () => {
     expect(pre.headers.get('x-content-type-options')).toBe('nosniff'); // security headers on preflight too
   });
 
+  it("refuses origins '*' with credentials at boot (GHSA-fccm-q62j-48hr)", () => {
+    @Route('/') class C { @Get('/x') x() { return { ok: 1 }; } }
+    @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
+    expect(() => createApp({ modules: [CMod], cors: { origins: '*', credentials: true } })).toThrow(
+      /credentialed requests[\s\S]*predicate/,
+    );
+  });
+
   it('credentials never returns *; echoes concrete origin', async () => {
     @Route('/') class C { @Get('/x') x() { return { ok: 1 }; } }
     @Module({ mountpoint: '/', controllers: [C] }) class CMod {}
-    app = createApp({ modules: [CMod], cors: { origins: '*', credentials: true } });
+    app = createApp({ modules: [CMod], cors: { origins: () => true, credentials: true } });
     const server = await app.listen(0);
     const port = (server.address() as any).port;
     const r = await fetch(`http://127.0.0.1:${port}/x`, { headers: { origin: 'https://a.com' } });

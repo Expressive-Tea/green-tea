@@ -35,6 +35,12 @@ npm treats versions as semver and semver forbids leading zeros.
   `ctx.ip` is now the address the last one saw; `cf-connecting-ip` on the edge is unchanged. No API
   change.
 
+- **`cors: { origins: '*', credentials: true }` fails `createApp`** (GHSA-fccm-q62j-48hr). The spec
+  forbids `*` with credentials, so core echoed every request origin, `null` included, with
+  `Access-Control-Allow-Credentials: true`, and any site could make credentialed reads. **Breaking**
+  for an app that set this combination: list the trusted origins, or write the intent as a
+  predicate (`origins: () => true`) so it is visible. The option type is unchanged.
+
 - **WebSocket upgrades from another site are refused with `403`** (GHSA-p697-fpqx-pgf3), on Node,
   Deno, Bun and the edge. No adapter checked `Origin`, so a page on any site could open a WebSocket
   with the signed-in user's cookies and read what the handler streamed (cross-site WebSocket

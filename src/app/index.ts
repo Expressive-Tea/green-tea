@@ -48,6 +48,7 @@ import { Rooms } from '../rooms';
 import {
   TLS_REQUESTED,
   WS_ORIGIN_CHECK,
+  assertCorsOptions,
   wsOriginAllowed,
   type TlsOptions,
   type SecurityOptions,
@@ -299,6 +300,7 @@ export function createApp(opts: AppOptions): App {
   validateWsLimits(opts.limits);
   const health = resolveHealth(opts.health, opts.shutdownTimeoutMs, opts.teardownTimeoutMs);
   assertEtagOption(opts.etag);
+  assertCorsOptions(opts.cors);
 
   const bus = new Bus();
   const logger = opts.logger ?? createDefaultLogger();
