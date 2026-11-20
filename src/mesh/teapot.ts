@@ -178,7 +178,10 @@ function resolveRpc(
     return deps.resolveScope(name, ctx);
   }
 
-  if (![...exportedRoutes].some((key) => key.endsWith(` ${name}`))) throw notExported(name);
+  // Method and pattern, both: the route is run for the method the peer sends, so gating on the
+  // pattern alone let an export of `GET /x` reach an unexported `DELETE /x`. A teacup sends a HEAD
+  // on a remote GET as that GET (D16), so no HEAD mapping is needed here.
+  if (!exportedRoutes.has(`${ctx?.method} ${name}`)) throw notExported(name);
 
   return deps.resolveRoute(name, ctx);
 }

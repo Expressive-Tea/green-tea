@@ -8,6 +8,13 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ## [Unreleased]
 
+### Security
+
+- **Mesh: a teapot checks the HTTP method of a route RPC, not just its pattern**
+  (GHSA-4q43-x4fp-c273). Exporting `GET /items/:id` let an authenticated teacup run an unexported
+  `DELETE /items/:id`, because the gate matched the pattern and the route ran for whatever method
+  the peer sent. Mesh is `@experimental`; no API change.
+
 ## [26.11.0-rc.1] - 2026-11-17
 
 ### Breaking

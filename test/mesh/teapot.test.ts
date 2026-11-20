@@ -134,6 +134,30 @@ describe('createMeshControl', () => {
     expect(res.error.status).toBe(403);
   });
 
+  it('serves an exported route for its exported method', async () => {
+    const resolveRoute = vi.fn(async () => ({ status: 200, headers: {}, body: 'ok' }));
+    const t = fakeSocket();
+    make({ resolveRoute }).handle(t.socket);
+    await t.deliver({ type: 'hello', v: V, secret: 'good' });
+    await t.deliver({ type: 'rpc-req', id: 'r1', kind: 'route', name: '/u/:id', ctx: { method: 'GET' } });
+    expect(t.sent.find((f: any) => f.type === 'rpc-res')).toMatchObject({ id: 'r1', ok: true });
+    expect(resolveRoute).toHaveBeenCalledOnce();
+  });
+
+  it('refuses another method on an exported pattern without running it', async () => {
+    const resolveRoute = vi.fn(async () => ({ status: 200, headers: {}, body: 'ran' }));
+    const t = fakeSocket();
+    make({ resolveRoute }).handle(t.socket);
+    await t.deliver({ type: 'hello', v: V, secret: 'good' });
+    for (const method of ['DELETE', 'POST', 'get', undefined]) {
+      await t.deliver({ type: 'rpc-req', id: String(method), kind: 'route', name: '/u/:id', ctx: { method } });
+    }
+    const res = t.sent.filter((f: any) => f.type === 'rpc-res');
+    expect(res).toHaveLength(4);
+    expect(res.every((f: any) => !f.ok && f.error.status === 403)).toBe(true);
+    expect(resolveRoute).not.toHaveBeenCalled();
+  });
+
   it('propagates a thrown HttpError status in the error frame', async () => {
     const t = fakeSocket();
     make({
