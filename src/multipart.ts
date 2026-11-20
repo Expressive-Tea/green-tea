@@ -35,13 +35,27 @@ export function extractBoundary(contentType: string): string | undefined {
   return boundary || undefined;
 }
 
+/**
+ * Field and file names come from the client, and one of them may be `__proto__`. Plain reads and
+ * writes of that key hit the object's prototype: `fields.__proto__ = ['a','b']` turned the parsed
+ * body into an array-like (GHSA-g86h-3r98-qm66). These two read and write own properties only, so
+ * `__proto__` is just another field name.
+ */
+function ownValue<T>(target: Record<string, T>, key: string): T | undefined {
+  return Object.prototype.hasOwnProperty.call(target, key) ? target[key] : undefined;
+}
+
+function setOwn<T>(target: Record<string, T>, key: string, value: T): void {
+  Object.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true });
+}
+
 function addField(fields: MultipartBody['fields'], name: string, value: string, duplicates: 'array' | 'last'): void {
   if (duplicates === 'array') {
-    const existing = fields[name];
+    const existing = ownValue(fields, name);
     if (Array.isArray(existing)) existing.push(value);
-    else fields[name] = [value];
+    else setOwn(fields, name, [value]);
   } else {
-    fields[name] = value; // last-wins
+    setOwn(fields, name, value); // last-wins
   }
 }
 
@@ -59,10 +73,10 @@ export function collapseDuplicates(
 }
 
 function addFile(files: MultipartBody['files'], name: string, file: UploadedFile): void {
-  const existing = files[name];
-  if (existing === undefined) files[name] = file;
+  const existing = ownValue(files, name);
+  if (existing === undefined) setOwn(files, name, file);
   else if (Array.isArray(existing)) existing.push(file);
-  else files[name] = [existing, file];
+  else setOwn(files, name, [existing, file]);
 }
 
 /** Lazily loads the optional `busboy` peer dependency, or null when it is not installed. */

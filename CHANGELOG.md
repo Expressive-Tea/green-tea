@@ -79,6 +79,11 @@ npm treats versions as semver and semver forbids leading zeros.
   rendered the hash. Both forms are now matched in one pass, and keys resolve to own properties only,
   so `{{ constructor }}` renders empty instead of a function's source. No API change.
 
+- **A form field or file named `__proto__` is an ordinary key** (GHSA-g86h-3r98-qm66). With
+  `bodyDuplicates: 'array'`, `__proto__=a&__proto__=b` replaced the parsed body's prototype, and a
+  multipart file part with that name did the same to `body.files`. Fields and files are now read and
+  written as own properties. The effect never reached `Object.prototype`. No API change.
+
 - **WebSocket upgrades from another site are refused with `403`** (GHSA-p697-fpqx-pgf3), on Node,
   Deno, Bun and the edge. No adapter checked `Origin`, so a page on any site could open a WebSocket
   with the signed-in user's cookies and read what the handler streamed (cross-site WebSocket
