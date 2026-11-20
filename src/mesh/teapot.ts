@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import type { Bus } from '../bus';
 import { HELLO_FRAME_BYTES, sendWhenDrained, widenInbound, type WsSocket } from '../http/ws-core';
 import type { ResponseShape } from '../pipeline';
-import { isHttpError } from '../signals';
+import { HttpError, isHttpError } from '../signals';
 import {
   encode,
   decode,
@@ -211,21 +211,27 @@ async function handleRpc(
     const offender = untransportable(result);
 
     if (offender) {
-      const error: any = new Error(
+      // An HttpError so its text crosses the hop: it is the framework's own diagnostic for a
+      // developer mistake and carries nothing from the application.
+      throw new HttpError(
+        500,
         `mesh cannot transport '${name}': ${offender.path} is ${offender.what}. ` +
           'The wire is JSON, so a mesh export carries data, never behaviour — export what the ' +
           'handle produces rather than the handle.',
       );
-      error.status = 500;
-      throw error;
     }
 
     await reply(socket, { type: 'rpc-res', id, ok: true, result });
   } catch (err) {
     const status = isHttpError(err) ? err.status : ((err as any)?.status ?? 500);
+    // The teacup renders this message to its client, so only text meant for a client crosses: an
+    // HttpError's, or a status below 500 (e.g. `not exported`). Anything else is an internal error
+    // whose message may hold a connection string or a host, and is masked exactly as a local
+    // `errorToResponse` masks it. The full error stays on this side, in the event below.
+    const message = isHttpError(err) || status < 500 ? (err as Error).message : 'Internal Server Error';
 
     deps.bus?.emit('mesh:rpc:error', { name, error: err });
-    await reply(socket, { type: 'rpc-res', id, ok: false, error: { message: (err as Error).message, status } });
+    await reply(socket, { type: 'rpc-res', id, ok: false, error: { message, status } });
   }
 }
 

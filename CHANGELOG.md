@@ -15,6 +15,13 @@ npm treats versions as semver and semver forbids leading zeros.
   `DELETE /items/:id`, because the gate matched the pattern and the route ran for whatever method
   the peer sent. Mesh is `@experimental`; no API change.
 
+- **Mesh: an internal error on a teapot no longer reaches the teacup's client verbatim**
+  (GHSA-gm9h-7577-x57w). A remote step that threw a plain `Error` sent its message across the hop,
+  and the teacup rendered it in a `500`, so a message holding a connection string or a host reached
+  the end client; the same throw handled locally renders `Internal Server Error`. The teapot now
+  sends the real message only for an `HttpError` or a status below 500, and keeps the full error in
+  its `mesh:rpc:error` event. The "cannot transport" diagnostic is still delivered. No wire change.
+
 - **WebSocket upgrades from another site are refused with `403`** (GHSA-p697-fpqx-pgf3), on Node,
   Deno, Bun and the edge. No adapter checked `Origin`, so a page on any site could open a WebSocket
   with the signed-in user's cookies and read what the handler streamed (cross-site WebSocket

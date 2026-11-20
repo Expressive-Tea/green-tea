@@ -171,6 +171,24 @@ describe('createMeshControl', () => {
     expect(res).toMatchObject({ id: '9', ok: false, error: { message: 'nope', status: 401 } });
   });
 
+  it('masks an internal error message instead of sending it to the teacup (GHSA-gm9h-7577-x57w)', async () => {
+    const seen: unknown[] = [];
+    const bus = { emit: (e: string, p: { error: unknown }) => e === 'mesh:rpc:error' && seen.push(p.error) } as never;
+    const t = fakeSocket();
+    make({
+      bus,
+      resolveScope: async () => {
+        throw new Error('pg: password authentication failed for user admin@10.0.0.5');
+      },
+    }).handle(t.socket);
+    await t.deliver({ type: 'hello', v: V, secret: 'good' });
+    await t.deliver({ type: 'rpc-req', id: '10', kind: 'scope', name: 'config', ctx: {} });
+    const res: any = t.sent.find((f: any) => f.type === 'rpc-res');
+    expect(res).toMatchObject({ id: '10', ok: false, error: { message: 'Internal Server Error', status: 500 } });
+    // the teapot keeps the real error for its own observers
+    expect((seen[0] as Error).message).toMatch(/password authentication failed/);
+  });
+
   it('serves overlapping RPCs concurrently rather than head-of-line blocking', async () => {
     // the loop must not await handleRpc: a slow call would otherwise stall every later one.
     // fast is delivered second but resolves first, which can only happen if they overlap.

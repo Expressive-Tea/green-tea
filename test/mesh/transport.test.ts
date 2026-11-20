@@ -91,3 +91,48 @@ describe('exporting a handle over the mesh', () => {
     }
   });
 });
+
+// GHSA-gm9h-7577-x57w: an internal error on the teapot reached the teacup's client verbatim.
+@Step({ provides: 'billing', needs: [], export: true })
+class FailingBilling {
+  run(): never {
+    throw new Error('pg: password authentication failed for user admin@10.0.0.5');
+  }
+}
+@Module({ mountpoint: '/api', steps: [FailingBilling] })
+class FailingTeapot {}
+
+@Route('/local')
+class BillingCtl {
+  @Get('/bill')
+  bill(@needs('billing') billing: unknown) {
+    return { billing };
+  }
+}
+@Module({ mountpoint: '/api', controllers: [BillingCtl] })
+class BillingTeacup {}
+
+describe('an internal error on the teapot', () => {
+  it('reaches the client as a generic 500, the way it would locally', async () => {
+    const teapot = createApp({ modules: [FailingTeapot], experimental: true, mesh: { secret: 'x' } });
+    const server = await teapot.listen(0);
+    const port = (server.address() as { port: number }).port;
+    const teacup = createApp({
+      modules: [BillingTeacup],
+      experimental: true,
+      mesh: { teapots: [{ url: `ws://127.0.0.1:${port}/__mesh__/control`, secret: 'x' }] },
+    });
+
+    try {
+      const res = await teacup.fetch(new Request('http://x/api/local/bill'));
+      expect(res.status).toBe(500);
+      const text = await res.text();
+      expect(text).not.toMatch(/password|10\.0\.0\.5/);
+      expect(text).toMatch(/Internal Server Error/);
+    } finally {
+      await teacup.close();
+      await teapot.close();
+      server.close();
+    }
+  });
+});
