@@ -124,6 +124,11 @@ npm treats versions as semver and semver forbids leading zeros.
   altered CDN copy of Cytoscape or dagre is refused by the browser instead of running on the dev
   graph page. No API change.
 
+### Documentation
+
+- **README: Kubernetes `preStop` drain** (#81), **a BREACH note for `compression`** and the
+  corrected matcha release line (#84).
+
 ### Fixed
 
 - **A long-lived SSE or ndjson stream no longer grows the heap with every event** (found by the soak
