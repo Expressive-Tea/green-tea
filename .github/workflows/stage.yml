@@ -32,20 +32,14 @@ jobs:
         continue-on-error: true
       - name: Validate release candidate
         run: npm run prepublishOnly
-      - name: Publish prerelease to Verdaccio
+      - name: Publish to Verdaccio
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH }}
         run: |
           npm config set //npm.svc.zoit.services/:_authToken "$NODE_AUTH_TOKEN"
           VER=$(node -p "require('./package.json').version")
-          # Staging overwrites the version it publishes, and a stable number that changes
-          # under an internal consumer is worse than no staging at all. This will need
-          # revisiting at the first stable release, which is exactly the one most worth
-          # staging: the answer is probably to stage it under a suffixed version rather
-          # than to drop the guard.
-          case "$VER" in
-            *-*) ;;
-            *) echo "Refusing to stage non-prerelease version: $VER" >&2; exit 1 ;;
-          esac
+          # Stable versions are staged too (#72). Verdaccio is a private staging registry used
+          # only to try a release before the public one, with no consumers that depend on a
+          # version staying put, so overwriting a stable number there costs nothing.
           npm unpublish "@green-tea/core@$VER" --registry https://npm.svc.zoit.services --force 2>/dev/null || true
           npm publish --ignore-scripts --registry https://npm.svc.zoit.services --tag stg
