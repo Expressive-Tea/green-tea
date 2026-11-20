@@ -1696,14 +1696,32 @@ function buildMeshControl(
   const { bus, providedSeed, planSteps, onError, logger } = deps.deps;
   const manifest = buildManifest({ steps: exportedSteps, routes: exportedRoutes });
 
+  // Each exported step runs with only what it needs: its own closure of providers and steps, sliced
+  // once here like a route's. Running every step on every call (#85) fired unexported side effects
+  // per RPC and let any unrelated step that threw break every export. Unlike a route, no always-on
+  // observer step is added: the teacup's own request already ran its observers.
+  const ordered = [...orderedProviders, ...orderedSteps];
+  const slices = new Map(
+    exportedSteps.map((token) => {
+      const closure = new Set(subgraphFor([token], ordered));
+      const providers = orderedProviders.filter((node) => closure.has(node));
+      const steps = orderedSteps
+        .filter((node) => closure.has(node))
+        .map((step) => ({ name: step.name, origin: step.origin, run: runners.get(step.name)! }));
+
+      return [token, { providers, steps }] as const;
+    }),
+  );
+
   const resolveScope = async (name: string, env: RequestEnvelope): Promise<unknown> => {
     // context is intentionally `any`: providers and steps merge arbitrary keys into it
     const seed: any = { req: env, params: env.params, query: env.query, body: env.body, headers: env.headers };
+    // The teapot gates names before this runs, so an exported token always has a slice.
+    const { providers, steps } = slices.get(name)!;
 
-    for (const provider of orderedProviders)
+    for (const provider of providers)
       if (container.has(provider.name)) Object.assign(seed, await container.resolve(provider.name));
 
-    const steps = orderedSteps.map((step) => ({ name: step.name, origin: step.origin, run: runners.get(step.name)! }));
     // The caller's identity, adopted rather than replaced — the same rule an incoming
     // `x-request-id` gets, applied at the process boundary where it matters most. No `route`:
     // resolving a scope is not a route, and inventing one would put a token in a route label.

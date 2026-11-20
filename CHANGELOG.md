@@ -64,6 +64,11 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Fixed
 
+- **Mesh: a remote step call runs only that step and what it needs** (#85). The teapot ran every one
+  of its steps on each call, so an unexported step's side effects fired once per RPC, and any
+  unrelated step that threw broke every export. A call now runs the exported step's own closure of
+  providers and steps, sliced once at boot like a route's. Mesh is `@experimental`; no API change.
+
 - **An async bus listener that rejects no longer exits the Node process** (#70). `Bus.emit` isolated
   a listener that threw, but an `async` listener fails by rejecting, and that rejection went
   unhandled, so a plugin's `on('request:end', async () => { throw … })` killed the process on the
