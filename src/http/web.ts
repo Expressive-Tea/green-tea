@@ -12,6 +12,7 @@ import {
 } from './core';
 import { mergeInjectedHeaders, toWebHeaders } from './headers';
 import { peerOf, trustedProxyClient } from './peer';
+import { lastForwardedHop } from './request';
 import { declaresOverLimit, type BodyFailure, type BodyReader, type MaybePromise } from './body';
 import { HttpError } from '../signals';
 import { renderError, type ErrorRequest } from '../transformers';
@@ -244,17 +245,17 @@ function outcomeToResponse(
   return new Response(body, { status: outcome.status, headers });
 }
 
-/** The first `x-forwarded-for` hop when the proxy is trusted, else `''`. */
+/** The `x-forwarded-for` hop the trusted proxy appended (the right-most), else `''`. */
 function forwardedFor(request: Request, opts: HttpOptions | undefined): string {
   if (!opts?.trustProxy) return '';
 
-  return (request.headers.get('x-forwarded-for') ?? '').split(',')[0].trim();
+  return lastForwardedHop(request.headers.get('x-forwarded-for')) ?? '';
 }
 
 /**
  * `ctx.ip` on the fetch path, for `NeutralRequest.resolveIp`. Mirrors Node's `deriveIp`
- * (src/http/request.ts): only trust `x-forwarded-for` when the proxy is trusted, and take its first
- * hop, because an untrusted XFF is client-spoofable. Otherwise the socket peer, which only the Deno
+ * (src/http/request.ts): only trust `x-forwarded-for` when the proxy is trusted, and take the hop
+ * that proxy appended (the right-most), because an untrusted XFF is client-spoofable. Otherwise the socket peer, which only the Deno
  * and Bun adapters can supply; a bare `app.fetch` has none, so there the answer is still ''. Ahead of
  * both, under `trustProxy` only: the address the edge adapter read from `cf-connecting-ip`.
  * Cloudflare sets that header itself, while XFF can carry hops the client supplied, so on the edge

@@ -59,8 +59,8 @@ Deno.test({
   },
 });
 
-Deno.test('T4 serveDeno: trustProxy takes the first x-forwarded-for hop', async () => {
-  const ip = await ipVia('127.0.0.1', { trustProxy: true, headers: { 'x-forwarded-for': '203.0.113.7, 10.0.0.1' } });
+Deno.test('T4 serveDeno: trustProxy takes the x-forwarded-for hop the proxy appended', async () => {
+  const ip = await ipVia('127.0.0.1', { trustProxy: true, headers: { 'x-forwarded-for': '6.6.6.6, 203.0.113.7' } });
   assertEquals(ip, '203.0.113.7');
 });
 

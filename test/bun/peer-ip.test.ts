@@ -49,8 +49,8 @@ test.skipIf(!ipv6Available)('T3 serveBun: an IPv6 peer is passed through as Bun 
   expect(await ipVia('::1')).toBe('::1');
 });
 
-test('T4 serveBun: trustProxy takes the first x-forwarded-for hop', async () => {
-  const ip = await ipVia('127.0.0.1', { trustProxy: true, headers: { 'x-forwarded-for': '203.0.113.7, 10.0.0.1' } });
+test('T4 serveBun: trustProxy takes the x-forwarded-for hop the proxy appended', async () => {
+  const ip = await ipVia('127.0.0.1', { trustProxy: true, headers: { 'x-forwarded-for': '6.6.6.6, 203.0.113.7' } });
   expect(ip).toBe('203.0.113.7');
 });
 

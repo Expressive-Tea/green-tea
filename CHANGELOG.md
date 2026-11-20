@@ -28,6 +28,13 @@ npm treats versions as semver and semver forbids leading zeros.
   message and `Internal Server Error` for anything else; `stream:error` still gets the full error.
   **Behaviour change** for clients that read the text of a non-HTTP error frame. No API change.
 
+- **With `trustProxy`, `ctx.ip` is the right-most `X-Forwarded-For` entry** (GHSA-53g8-83jp-gvw4), on
+  every adapter. It was the left-most, which the client writes: a proxy appends the real address, so
+  a client that sent `X-Forwarded-For: 6.6.6.6` got `ctx.ip === '6.6.6.6'`, defeating per-IP rate
+  limits, allowlists and audit logs. **Behaviour change** behind a chain of several proxies, where
+  `ctx.ip` is now the address the last one saw; `cf-connecting-ip` on the edge is unchanged. No API
+  change.
+
 - **WebSocket upgrades from another site are refused with `403`** (GHSA-p697-fpqx-pgf3), on Node,
   Deno, Bun and the edge. No adapter checked `Origin`, so a page on any site could open a WebSocket
   with the signed-in user's cookies and read what the handler streamed (cross-site WebSocket

@@ -3,6 +3,7 @@ import https from 'https';
 import WebSocket from 'ws';
 import { createApp, Route, Get, Sse, Ws, Module, Transformer, inbound, channel, ctx } from '../src';
 import { selfSignedTls } from './helpers/tls';
+import { lastForwardedHop } from '../src/http/request';
 
 @Route('/')
 class Api {
@@ -58,6 +59,16 @@ describe('trustProxy', () => {
     const r = await fetch(`http://127.0.0.1:${port}/who`, {
       headers: { 'x-forwarded-proto': 'https', 'x-forwarded-for': '9.9.9.9' } });
     expect(await r.json()).toEqual({ proto: 'https', ip: '9.9.9.9' });
+  });
+  it('trustProxy takes the x-forwarded-for hop the proxy appended, not what the client wrote', async () => {
+    @Route('/') class P { @Get('/who') who(@ctx() c: any) { return { ip: c.ip }; } }
+    @Module({ mountpoint: '/', controllers: [P] }) class PMod {}
+    app = createApp({ modules: [PMod], trustProxy: true });
+    const server = await app.listen(0);
+    const port = (server.address() as any).port;
+    // GHSA-53g8-83jp-gvw4: the client sent `6.6.6.6`; the proxy appended the real `203.0.113.7`.
+    const r = await fetch(`http://127.0.0.1:${port}/who`, { headers: { 'x-forwarded-for': '6.6.6.6, 203.0.113.7' } });
+    expect(await r.json()).toEqual({ ip: '203.0.113.7' });
   });
   it('without trustProxy, forwarded headers are ignored', async () => {
     @Route('/') class P { @Get('/who') who(@ctx() c: any) { return { proto: c.protocol }; } }
@@ -216,5 +227,16 @@ describe('CORS', () => {
     const vary = r.headers.get('vary');
     expect(vary).toContain('Accept-Encoding');
     expect(vary).toContain('Origin');
+  });
+});
+
+describe('lastForwardedHop', () => {
+  it('takes the right-most entry, across repeated headers, and ignores blanks', () => {
+    expect(lastForwardedHop('1.1.1.1, 2.2.2.2')).toBe('2.2.2.2');
+    expect(lastForwardedHop(['1.1.1.1', '2.2.2.2, 3.3.3.3'])).toBe('3.3.3.3');
+    expect(lastForwardedHop(' 4.4.4.4 ')).toBe('4.4.4.4');
+    expect(lastForwardedHop('')).toBeUndefined();
+    expect(lastForwardedHop(undefined)).toBeUndefined();
+    expect(lastForwardedHop('1.1.1.1, ')).toBeUndefined();
   });
 });

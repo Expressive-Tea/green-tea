@@ -136,7 +136,7 @@ Same `@Route`, same handler shape, same `AsyncIterable` — real-time is not a s
 The parts a real API needs, owned by the framework rather than assembled in your application — and
 without growing the runtime dependency tree past `reflect-metadata`:
 
-- **TLS → https/wss** natively, plus proxy-aware `trustProxy` (`X-Forwarded-*` → `ctx.protocol`/`ctx.ip`).
+- **TLS → https/wss** natively, plus proxy-aware `trustProxy` (`X-Forwarded-*` → `ctx.protocol`/`ctx.ip`). `ctx.ip` is the right-most `X-Forwarded-For` entry, the one your proxy appended: everything left of it came from the client. `trustProxy` assumes one proxy in front of the app; behind a chain (a CDN, then a load balancer), make the outermost hop set a header the app can trust, as Cloudflare does with `cf-connecting-ip`.
 - **Secure by default.** `nosniff`, `X-Frame-Options`, `Referrer-Policy`, HSTS-when-secure — on every response, opt-out with one flag.
 - **CORS** with a guarded preflight and the credentials-never-`*` rule enforced for you.
 - **WebSocket upgrades from another site are refused** with `403`. A browser sends cookies with any page's upgrade and CORS does not cover WebSockets, so an upgrade carrying an `Origin` must come from the same host or from an origin `cors.origins` allows. Clients that send no `Origin` (servers, CLIs) are unaffected. Behind a proxy that rewrites `Host`, list your public origin in `cors.origins`.

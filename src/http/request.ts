@@ -72,6 +72,16 @@ function firstToken(value: string | string[] | undefined): string | undefined {
   return first?.split(',')[0].trim();
 }
 
+/**
+ * The address the trusted proxy appended to `x-forwarded-for`: its right-most entry. Everything to
+ * its left arrived from the client, which can write any address there (GHSA-53g8-83jp-gvw4), so the
+ * left-most entry is the one value the header cannot vouch for. Shared with the fetch adapters.
+ */
+export function lastForwardedHop(value: string | string[] | null | undefined): string | undefined {
+  const joined = Array.isArray(value) ? value.join(',') : value;
+  return joined?.split(',').pop()?.trim() || undefined;
+}
+
 /** Determines whether the request arrived over HTTPS, honoring `x-forwarded-proto` when proxy is trusted. */
 export function deriveSecure(req: http.IncomingMessage, trustProxy: boolean): boolean {
   if (trustProxy) {
@@ -85,7 +95,7 @@ export function deriveSecure(req: http.IncomingMessage, trustProxy: boolean): bo
 /** Resolves the client IP, honoring `x-forwarded-for` when proxy is trusted. */
 export function deriveIp(req: http.IncomingMessage, trustProxy: boolean): string {
   if (trustProxy) {
-    const forwarded = firstToken(req.headers['x-forwarded-for']);
+    const forwarded = lastForwardedHop(req.headers['x-forwarded-for']);
     if (forwarded) return forwarded;
   }
 
