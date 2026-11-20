@@ -32,6 +32,12 @@ describe('toDOT', () => {
 });
 
 describe('graphHtml', () => {
+  it('pins every CDN script with SRI (#83)', () => {
+    const scripts = graphHtml(view).match(/<script src=[^>]*>/g) ?? [];
+    expect(scripts).toHaveLength(3);
+    for (const s of scripts) expect(s).toMatch(/integrity="sha384-[A-Za-z0-9+/=]{64}" crossorigin="anonymous"/);
+  });
+
   it('emits an interactive Cytoscape page with the graph embedded as JSON', () => {
     const html = graphHtml(view);
     expect(html).toContain('cytoscape'); // loads the viz lib from CDN

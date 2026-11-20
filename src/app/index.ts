@@ -147,7 +147,7 @@ export interface AppOptions {
    *
    * - `/__live__` answers `200 {"status":"ok"}` whenever the process answers.
    * - `/__ready__` answers `503 {"status":"booting"}` until `boot()` resolves, then
-   *   `200 {"status":"ok"}` or `200 {"status":"degraded","degraded":[…]}` (see `app.degraded()`),
+   *   `200 {"status":"ok"}` or `200 {"status":"degraded"}` (names in the boot log and `app.degraded()`),
    *   and `503 {"status":"draining"}` from the moment `close()` starts.
    *
    * Probes skip the pipeline: no step, provider, plugin or `onError` runs and no lifecycle event is

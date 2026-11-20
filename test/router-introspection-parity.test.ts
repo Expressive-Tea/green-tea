@@ -141,6 +141,8 @@ function introspect(app: App) {
 }
 
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+// The ed47836 capture predates SRI on the graph page (#83); drop those attributes so it still pins the rest.
+const htmlSha256 = (html: string) => sha256(html.replace(/ integrity="[^"]*" crossorigin="anonymous"/g, ''));
 
 interface DevSeen {
   graphHtml: { status: number; type: string | null; sha256: string };
@@ -154,7 +156,7 @@ async function devEndpoints(get: (path: string, accept?: string) => Promise<Resp
   const text = await get('/__graph__', 'text/plain');
   const doc = await get('/__openapi__');
   return {
-    graphHtml: { status: html.status, type: html.headers.get('content-type'), sha256: sha256(await html.text()) },
+    graphHtml: { status: html.status, type: html.headers.get('content-type'), sha256: htmlSha256(await html.text()) },
     graphText: { status: text.status, type: text.headers.get('content-type'), body: await text.text() },
     openapi: { status: doc.status, type: doc.headers.get('content-type'), body: JSON.parse(await doc.text()) },
   };
@@ -337,7 +339,7 @@ describe('router introspection parity (CARD-09)', () => {
     expect(dev.openapi.body).toEqual(app.openapi());
     expect(dev.graphText.body).toBe(toMermaid(app.graph()));
     expect(dev.graphText.body).toBe(app.toMermaid());
-    expect(dev.graphHtml.sha256).toBe(sha256(graphHtml(app.graph())));
+    expect(dev.graphHtml.sha256).toBe(htmlSha256(graphHtml(app.graph())));
   });
 
   it('dev endpoints agree with the direct API on a mesh teacup after ready()', async () => {
@@ -345,7 +347,7 @@ describe('router introspection parity (CARD-09)', () => {
     const anon = <T>(value: T): T => JSON.parse(anonymize(JSON.stringify(value)));
     expect(result.dev.openapi.body).toEqual(anon(teacup.openapi()));
     expect(result.dev.graphText.body).toBe(anonymize(teacup.toMermaid()));
-    expect(result.dev.graphHtml.sha256).toBe(sha256(anonymize(graphHtml(teacup.graph()))));
+    expect(result.dev.graphHtml.sha256).toBe(htmlSha256(anonymize(graphHtml(teacup.graph()))));
     // Remote HTTP routes are served but stay out of routePlans-based introspection.
     expect(result.lookup).toMatchObject({ status: 200 });
     expect(result.after.graph.routes.map((route) => route.pattern)).toEqual(['/api/local/:id', '/api/local/who']);

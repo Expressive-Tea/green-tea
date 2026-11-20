@@ -114,6 +114,16 @@ npm treats versions as semver and semver forbids leading zeros.
   change** for a subscriber that falls more than 1024 values behind. WebSocket inbound queues are
   unchanged (bounded per frame by `limits`). No API change.
 
+- **`/__ready__` no longer lists degraded provider names** (#83). The body is
+  `{"status":"degraded"}`; the names stay in the boot log and `app.degraded()`. **Behaviour
+  change** for a probe client that read `degraded`. No API change.
+
+### Security
+
+- **`/__graph__` pins its three CDN scripts with Subresource Integrity** (#83). A compromised or
+  altered CDN copy of Cytoscape or dagre is refused by the browser instead of running on the dev
+  graph page. No API change.
+
 ### Fixed
 
 - **A long-lived SSE or ndjson stream no longer grows the heap with every event** (found by the soak

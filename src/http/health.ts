@@ -54,9 +54,9 @@ function readiness(probe: HealthProbe): { status: number; body: object } {
   if (phase === 'booting') return { status: 503, body: { status: 'booting' } };
   if (phase === 'draining') return { status: 503, body: { status: 'draining' } };
 
-  const degraded = probe.degraded();
-  return degraded.length
-    ? { status: 200, body: { status: 'degraded', degraded } }
+  // The names stay off this public body (#83): boot logs them and `app.degraded()` returns them.
+  return probe.degraded().length
+    ? { status: 200, body: { status: 'degraded' } }
     : { status: 200, body: { status: 'ok' } };
 }
 
