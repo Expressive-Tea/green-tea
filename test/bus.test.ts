@@ -26,3 +26,22 @@ test('a throwing subscriber does not break emit for others', () => {
   expect(() => bus.emit('request:step:error', { name: 's' })).not.toThrow();
   expect(good).toHaveBeenCalled();
 });
+
+test('an async subscriber that rejects is isolated too (#70)', async () => {
+  const bus = new Bus();
+  const unhandled = vi.fn();
+  process.on('unhandledRejection', unhandled);
+  try {
+    const good = vi.fn();
+    bus.on('request:end', async () => {
+      throw new Error('boom');
+    });
+    bus.on('request:end', good);
+    expect(() => bus.emit('request:end', { name: 'r' })).not.toThrow();
+    expect(good).toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(unhandled).not.toHaveBeenCalled();
+  } finally {
+    process.off('unhandledRejection', unhandled);
+  }
+});

@@ -15,6 +15,13 @@ npm treats versions as semver and semver forbids leading zeros.
   `DELETE /items/:id`, because the gate matched the pattern and the route ran for whatever method
   the peer sent. Mesh is `@experimental`; no API change.
 
+### Fixed
+
+- **An async bus listener that rejects no longer exits the Node process** (#70). `Bus.emit` isolated
+  a listener that threw, but an `async` listener fails by rejecting, and that rejection went
+  unhandled, so a plugin's `on('request:end', async () => { throw … })` killed the process on the
+  first request. A rejection is now swallowed like a throw.
+
 ## [26.11.0-rc.1] - 2026-11-17
 
 ### Breaking

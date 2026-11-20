@@ -193,7 +193,13 @@ export class Bus {
   emit(event: LifecycleEvent, payload: EventPayload): void {
     for (const listener of this.listeners.get(event) ?? []) {
       try {
-        listener(payload);
+        // An async listener's failure arrives as a rejection, not a throw. Unhandled, it exits Node
+        // (#70), so it gets the same isolation as a sync throw.
+        const result: unknown = listener(payload);
+
+        if (typeof (result as PromiseLike<unknown> | undefined)?.then === 'function') {
+          (result as PromiseLike<unknown>).then(undefined, () => {});
+        }
       } catch {
         /* observers must never break the pipeline */
       }
