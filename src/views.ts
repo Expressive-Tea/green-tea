@@ -20,11 +20,22 @@ function stringify(v: unknown): string {
  * `{{ a.b }}` walks nested keys, a missing key renders empty. No loops/conditionals/partials.
  */
 export function render(source: string, data: unknown): string {
+  // Own keys only, so `{{ constructor }}` renders empty rather than a function's source.
   const lookup = (key: string): unknown =>
-    key.split('.').reduce<any>((obj, k) => (obj === null || obj === undefined ? undefined : obj[k]), data);
-  return source
-    .replace(/\{\{\{\s*([\w.]+)\s*\}\}\}/g, (_, key) => stringify(lookup(key)))
-    .replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => escapeHtml(stringify(lookup(key))));
+    key
+      .split('.')
+      .reduce<any>(
+        (obj, k) =>
+          obj !== null && obj !== undefined && Object.prototype.hasOwnProperty.call(obj, k) ? obj[k] : undefined,
+        data,
+      );
+
+  // One pass over the source for both forms. Two passes ran `{{ }}` again over what `{{{ }}}` had
+  // inserted, so raw content holding `{{ user.passwordHash }}` rendered the hash
+  // (GHSA-g86h-3r98-qm66). Inserted values are never scanned.
+  return source.replace(/\{\{\{\s*([\w.]+)\s*\}\}\}|\{\{\s*([\w.]+)\s*\}\}/g, (_, raw, escaped) =>
+    raw === undefined ? escapeHtml(stringify(lookup(escaped))) : stringify(lookup(raw)),
+  );
 }
 
 const CONTENT_TYPES: Record<string, string> = {
