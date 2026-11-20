@@ -21,7 +21,7 @@ import { answerProbe } from './health';
 import { currentRoutes } from './router';
 import { compressOutcome, compressWebStream } from './compression';
 import type { NeutralOutcome } from './core';
-import { releaseIterator } from '../channel';
+import { raceUntil, releaseIterator } from '../channel';
 
 /**
  * Wraps an AsyncIterable as a web ReadableStream, encoding each value. Cancels the source on stream
@@ -46,7 +46,7 @@ export function asReadableStream(
   let closed = false;
   // Settles on `cancel`, so a `pull` waiting on an idle source's `next()` stops waiting (GitHub #40).
   let cancelled!: (step: undefined) => void;
-  const gone = new Promise<undefined>((resolve) => (cancelled = resolve));
+  const untilGone = raceUntil(new Promise<undefined>((resolve) => (cancelled = resolve)));
 
   const close = (): void => {
     if (closed) return;
@@ -60,7 +60,7 @@ export function asReadableStream(
     },
     async pull(controller) {
       try {
-        const step = await Promise.race([iterator.next(), gone]);
+        const step = await untilGone(iterator.next());
         if (!step) return;
         const { value, done } = step;
 

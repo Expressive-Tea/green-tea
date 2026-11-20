@@ -29,6 +29,43 @@ export function releaseIterator(iterator: AsyncIterator<unknown> | undefined): v
 }
 
 /**
+ * Internal: races each promise it is given against one long-lived `stop`, without leaking.
+ * `Promise.race([p, stop])` leaves a reaction on `stop` per call, and they are only freed when
+ * `stop` settles, so a stream that sends for an hour kept one per event: the soak job measured
+ * ~0.4 MB/s of heap on a 1 kHz SSE stream (#80). Here `stop` holds a single reaction, which settles
+ * the call in flight. One call at a time, as the stream loops use it. Not exported from the package.
+ */
+export function raceUntil(stop: Promise<unknown>): <T>(p: Promise<T>) => Promise<T | undefined> {
+  // 0 pending, 1 resolved, 2 rejected. The resolvers of the call in flight are kept bare and passed
+  // straight to `then`, with no wrapper closure per call: this runs once per stream event.
+  let ended = 0;
+  let reason: unknown;
+  let wake: ((v: undefined) => void) | undefined;
+  let fail: ((e: unknown) => void) | undefined;
+
+  stop.then(
+    () => {
+      ended = 1;
+      wake?.(undefined);
+    },
+    (err: unknown) => {
+      ended = 2;
+      reason = err;
+      fail?.(err);
+    },
+  );
+
+  return <T>(p: Promise<T>) => {
+    if (ended) return ended === 1 ? Promise.resolve(undefined) : Promise.reject(reason);
+    return new Promise<T | undefined>((resolve, reject) => {
+      wake = resolve; // a stale resolver left here after p settles is harmless: settling twice is a no-op
+      fail = reject;
+      p.then(resolve, reject);
+    });
+  };
+}
+
+/**
  * Internal: reads a channel synchronously, inside `push`, rather than through an async iterator
  * that only drains once the event loop yields. `boundInbound` needs it to bound a WebSocket burst
  * frame by frame, before anything is queued (#107). Not exported from the package; `Symbol.for`

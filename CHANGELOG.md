@@ -108,6 +108,12 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ### Fixed
 
+- **A long-lived SSE or ndjson stream no longer grows the heap with every event** (found by the soak
+  job, #80). Each event raced the source's `next()` against the connection's close with
+  `Promise.race`, which leaves a reaction on the close promise per call until the client
+  disconnects: about 0.4 MB/s of heap on a 1 kHz stream, on Node, Deno, Bun and the edge. One
+  reaction per stream now. No API change.
+
 - **Mesh: a remote step call runs only that step and what it needs** (#85). The teapot ran every one
   of its steps on each call, so an unexported step's side effects fired once per RPC, and any
   unrelated step that threw broke every export. A call now runs the exported step's own closure of

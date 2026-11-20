@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { channel, isAsyncIterable } from '../src/channel';
+import { channel, isAsyncIterable, raceUntil } from '../src/channel';
 
 const collect = async <T>(it: AsyncIterable<T>, n: number): Promise<T[]> => {
   const out: T[] = [];
@@ -70,5 +70,30 @@ describe('channel', () => {
     ch.push(7); ch.close();
     expect((await b.next()).value).toBe(7);
     expect((await a.next()).done).toBe(true);
+  });
+});
+
+describe('raceUntil (#80)', () => {
+  it('settles with the promise while stop is pending', async () => {
+    const until = raceUntil(new Promise(() => {}));
+    expect(await until(Promise.resolve(1))).toBe(1);
+    await expect(until(Promise.reject(new Error('x')))).rejects.toThrow('x');
+  });
+
+  it('settles the call in flight, and every later one, with undefined once stop resolves', async () => {
+    let stop!: () => void;
+    const until = raceUntil(new Promise<void>((r) => (stop = r)));
+    const inFlight = until(new Promise(() => {}));
+    stop();
+    expect(await inFlight).toBeUndefined();
+    expect(await until(new Promise(() => {}))).toBeUndefined();
+  });
+
+  it('rejects with the reason stop rejects with', async () => {
+    let fail!: (e: unknown) => void;
+    const until = raceUntil(new Promise((_, r) => (fail = r)));
+    const inFlight = until(new Promise(() => {}));
+    fail(new Error('reset'));
+    await expect(inFlight).rejects.toThrow('reset');
   });
 });
