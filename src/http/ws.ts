@@ -17,6 +17,8 @@ import type { WsRouteDef, MeshControl, RequestLimits } from './types';
 import { normalizeRequestPath } from './router';
 import { nodeRequire } from '../node-require';
 import { MESH_CONTROL_DISABLED_REASON, MESH_CONTROL_PATH } from '../mesh/teapot';
+import { wsOriginAllowed, type CorsOptions } from '../security';
+import type { Logger } from '../logger';
 
 /** Lazily loads the optional `ws` peer dependency's `WebSocketServer`, or null when it is not installed. */
 function loadWss(): any | null {
@@ -177,6 +179,8 @@ export function attachWs(
   meshControl?: MeshControl,
   streams?: Set<() => void>,
   limits?: RequestLimits,
+  cors?: CorsOptions,
+  logger?: Logger,
 ): void {
   if (wsRoutes.length === 0 && !meshControl) return;
   const WebSocketServer = loadWss();
@@ -200,7 +204,7 @@ export function attachWs(
     // Nothing thrown in here may escape. This is a raw EventEmitter listener, so a throw is an
     // uncaught exception that takes the whole process down, not a 500 for one client.
     try {
-      routeUpgrade({ wss, meshWss, wsRoutes, bus, meshControl, streams, limits }, req, socket, head);
+      routeUpgrade({ wss, meshWss, wsRoutes, bus, meshControl, streams, limits, cors, logger }, req, socket, head);
     } catch {
       if (socket.writable) rejectUpgrade(socket, 500, 'Internal Server Error');
       else socket.destroy();
@@ -218,6 +222,8 @@ interface UpgradeEnv {
   meshControl?: MeshControl;
   streams?: Set<() => void>;
   limits?: RequestLimits;
+  cors?: CorsOptions;
+  logger?: Logger;
 }
 
 /** Routes one upgrade: validates the path the way HTTP does, then mesh control, then the ws route table. */
@@ -241,6 +247,15 @@ function routeUpgrade(env: UpgradeEnv, req: http.IncomingMessage, socket: any, h
   // ws route table: the boot already refuses any route that claims this path.
   if (path === MESH_CONTROL_PATH) {
     refuseMeshUpgrade(wss, req, socket, head);
+    return;
+  }
+
+  // Cross-site WebSocket hijacking guard (GHSA-p697-fpqx-pgf3), after the control channel, which
+  // authenticates with its secret rather than cookies. The fetch adapters run the same check.
+  const origin = req.headers.origin;
+
+  if (!wsOriginAllowed(origin, req.headers.host, env.cors, env.logger)) {
+    rejectUpgrade(socket, 403, 'Forbidden');
     return;
   }
 

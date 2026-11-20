@@ -15,6 +15,15 @@ npm treats versions as semver and semver forbids leading zeros.
   `DELETE /items/:id`, because the gate matched the pattern and the route ran for whatever method
   the peer sent. Mesh is `@experimental`; no API change.
 
+- **WebSocket upgrades from another site are refused with `403`** (GHSA-p697-fpqx-pgf3), on Node,
+  Deno, Bun and the edge. No adapter checked `Origin`, so a page on any site could open a WebSocket
+  with the signed-in user's cookies and read what the handler streamed (cross-site WebSocket
+  hijacking); CORS does not apply to WebSockets. An upgrade is now accepted when it carries no
+  `Origin` (not a browser), an `Origin` on the same host as the request, or one `cors.origins`
+  allows. `Origin: null` is refused. The mesh control channel is exempt: it authenticates with its
+  secret. **Behaviour change:** a browser client served from another origin, or an app behind a proxy
+  that rewrites `Host`, now needs that origin in `cors.origins`. No API change.
+
 ### Fixed
 
 - **An async bus listener that rejects no longer exits the Node process** (#70). `Bus.emit` isolated

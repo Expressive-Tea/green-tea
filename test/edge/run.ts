@@ -137,6 +137,17 @@ async function main() {
     });
     assert.equal(got, 'echo:hi');
 
+    // GHSA-p697-fpqx-pgf3: a cross-site upgrade is refused with 403 before the pair is created; a
+    // same-host Origin still upgrades.
+    const upgradeFrom = (origin: string) =>
+      mf.dispatchFetch('http://localhost/rt/echo', { headers: { Upgrade: 'websocket', Origin: origin } });
+    assert.equal((await upgradeFrom('https://evil.example')).status, 403, 'cross-site WebSocket upgrade');
+    assert.equal((await upgradeFrom('null')).status, 403, 'null-origin WebSocket upgrade');
+    const sameHost = await upgradeFrom('http://localhost');
+    assert.equal(sameHost.status, 101, 'same-host WebSocket upgrade');
+    sameHost.webSocket?.accept();
+    sameHost.webSocket?.close();
+
     // #104: a malformed escape in a param segment closes 1008 instead of 1011, and HTTP still serves.
     const badRes = await mf.dispatchFetch('http://localhost/rt/room/%E0%A4%A', {
       headers: { Upgrade: 'websocket' },

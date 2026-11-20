@@ -2,6 +2,7 @@ import type { App } from './app/types';
 import { eventSocket, toWsRequest, upgradeSafely, type EventfulSocket } from './http/ws-adapter';
 import { setProxyClient } from './http/peer';
 import { MARK_EDGE } from './http/compression';
+import { refuseWsOrigin } from './security';
 
 // Minimal ambient for the Cloudflare Workers globals we use — avoids @cloudflare/workers-types.
 // Declares only what we call; mirrors the real workerd signatures.
@@ -36,6 +37,9 @@ export function edgeHandler(
 
   return (request, _env, ctx) => {
     if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+      const refused = refuseWsOrigin(app, request);
+      if (refused) return refused;
+
       const [client, server] = Object.values(new WebSocketPair()) as [EdgeWebSocket, EdgeWebSocket];
       server.accept();
       // No peer address on the edge, so `ip` starts empty; the header only fills it under `trustProxy`.

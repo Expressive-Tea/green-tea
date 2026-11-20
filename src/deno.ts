@@ -1,5 +1,5 @@
 import type { App } from './app/types';
-import { refuseTls } from './security';
+import { refuseTls, refuseWsOrigin } from './security';
 import { beginDrain } from './http/health';
 import { eventSocket, toWsRequest, upgradeSafely, type EventfulSocket } from './http/ws-adapter';
 import { closeWithDeadline } from './http/shutdown';
@@ -79,6 +79,9 @@ export async function serveDeno(app: App, options?: DenoServeOptions): Promise<D
 
   const server = Deno.serve({ ...options, signal: ac.signal }, (request, info) => {
     if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+      const refused = refuseWsOrigin(app, request);
+      if (refused) return refused;
+
       // Deno invalidates request connection metadata as soon as the upgrade is accepted.
       const wsRequest = toWsRequest(request, info.remoteAddr.hostname);
       const { socket, response } = Deno.upgradeWebSocket(request);

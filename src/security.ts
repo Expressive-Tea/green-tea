@@ -27,6 +27,55 @@ export function refuseTls(app: object, adapter: string): void {
   }
 }
 
+/**
+ * Set on every app to the function the fetch adapters (`serveDeno`, `serveBun`, `edgeHandler`) call
+ * before they accept a WebSocket upgrade: `(origin, host, path) => allowed`. Symbol-keyed because it
+ * is adapter plumbing; see {@link wsOriginAllowed} and {@link refuseWsOrigin}.
+ */
+export const WS_ORIGIN_CHECK: unique symbol = Symbol.for('green-tea.ws-origin-check');
+
+/**
+ * Whether a WebSocket upgrade from `origin` may be accepted (GHSA-p697-fpqx-pgf3).
+ *
+ * A browser attaches the site's cookies to an upgrade started by any page, and CORS does not apply to
+ * WebSockets, so without this check a page on another site could open a socket as the signed-in user
+ * (cross-site WebSocket hijacking). Allowed: no `Origin` at all (not a browser), the same host the
+ * request was sent to, or an origin `cors.origins` allows. Everything else, `null` included, is refused.
+ */
+export function wsOriginAllowed(
+  origin: string | null | undefined,
+  host: string | null | undefined,
+  cors?: CorsOptions,
+  logger?: Logger,
+): boolean {
+  if (!origin) return true;
+  if (!isValidOrigin(origin)) return false;
+
+  try {
+    if (host && new URL(origin).host === host.toLowerCase()) return true;
+  } catch {
+    return false;
+  }
+
+  return cors ? originAllowed(cors.origins, origin, logger) : false;
+}
+
+/** For the fetch adapters: a `403` to return instead of upgrading, or `undefined` to go ahead. */
+export function refuseWsOrigin(app: object, request: Request): Response | undefined {
+  const check = (app as { [WS_ORIGIN_CHECK]?: (origin: string | null, host: string, path: string) => boolean })[
+    WS_ORIGIN_CHECK
+  ];
+  const url = new URL(request.url);
+
+  // The URL's host, not the `Host` header: Deno and Bun build the URL from that header anyway, and on
+  // the edge the URL is the one the client asked for while `Host` may name an internal hop.
+  if (!check || check(request.headers.get('origin'), url.host, url.pathname)) {
+    return undefined;
+  }
+
+  return new Response('Forbidden', { status: 403 });
+}
+
 /** CORS policy. `origins` may be a literal, list, `'*'`, or a predicate. */
 export interface CorsOptions {
   origins: string | string[] | '*' | ((origin: string) => boolean);

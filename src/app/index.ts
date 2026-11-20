@@ -45,7 +45,14 @@ import { getArgs, getHandlerNeeds, resolveArgs } from '../params';
 import { buildOpenApi, type OpenApiInfo } from '../openapi';
 import { connectLink, isPermanentRefusal, type Link } from '../mesh/link';
 import { Rooms } from '../rooms';
-import { TLS_REQUESTED, type TlsOptions, type SecurityOptions, type CorsOptions } from '../security';
+import {
+  TLS_REQUESTED,
+  WS_ORIGIN_CHECK,
+  wsOriginAllowed,
+  type TlsOptions,
+  type SecurityOptions,
+  type CorsOptions,
+} from '../security';
 import { buildRemote, type RemoteRoute as TeacupRemoteRoute } from '../mesh/teacup';
 import {
   buildManifest,
@@ -536,6 +543,11 @@ export function createApp(opts: AppOptions): App {
 
     // `serveDeno` and `serveBun` refuse an app that asked for TLS only Node's listener can give.
     [TLS_REQUESTED]: Boolean(opts.tls),
+
+    // The fetch adapters refuse a cross-site upgrade before accepting it (GHSA-p697-fpqx-pgf3). The
+    // mesh control channel is exempt: it authenticates with its secret, not with cookies.
+    [WS_ORIGIN_CHECK]: (origin: string | null, host: string, path: string): boolean =>
+      path === MESH_CONTROL_PATH || wsOriginAllowed(origin, host, opts.cors, logger),
   });
 }
 

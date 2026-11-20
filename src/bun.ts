@@ -1,7 +1,7 @@
 import { channel } from './channel';
 import type { Channel } from './channel';
 import type { App } from './app/types';
-import { refuseTls } from './security';
+import { refuseTls, refuseWsOrigin } from './security';
 import {
   WS_MAX_MESSAGE_BYTES,
   DEFAULT_MAX_WS_MESSAGE_BYTES,
@@ -129,6 +129,9 @@ export async function serveBun(app: App, options?: BunServeOptions): Promise<Bun
     ...options,
     fetch(request, server) {
       if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+        const refused = refuseWsOrigin(app, request);
+        if (refused) return refused;
+
         const inbound = channel();
         const ac = new AbortController();
         const wsReq = toWsRequest(request, server.requestIP(request)?.address ?? '');
