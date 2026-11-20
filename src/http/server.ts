@@ -66,9 +66,13 @@ export function createHttpServer(
   const nodeHttps = nodeRequire<typeof import('https')>('https');
 
   // runtime-compatible; only @types differ (https.Server lacks the http-only timeout props)
+  // Node checks for expired `headersTimeout`/`requestTimeout` only every `connectionsCheckingInterval`
+  // (30s by default), so a slow-header socket lived up to 40s and a few hundred of them filled
+  // `maxConnections` (GHSA-g96c-wq2v-87vc). A 1s check closes them close to the timeout they broke.
+  const serverOptions = { connectionsCheckingInterval: 1_000 };
   const server: http.Server = (opts?.tls
-    ? nodeHttps.createServer(opts.tls as https.ServerOptions, handler)
-    : nodeHttp.createServer(handler)) as unknown as http.Server;
+    ? nodeHttps.createServer({ ...(opts.tls as https.ServerOptions), ...serverOptions }, handler)
+    : nodeHttp.createServer(serverOptions, handler)) as unknown as http.Server;
   const maxConnections = opts?.limits?.maxConnections ?? 1000;
 
   if (maxConnections > 0) {

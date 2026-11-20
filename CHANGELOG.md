@@ -46,6 +46,13 @@ npm treats versions as semver and semver forbids leading zeros.
   now a miss (`404`), except under `/.well-known/` (RFC 8615), where only dotfiles stay hidden.
   **Behaviour change** for an app that served dotfiles on purpose. No API change.
 
+- **Node reaps slow-header sockets and dead WebSocket peers promptly** (GHSA-g96c-wq2v-87vc). Node
+  checks `headersTimeout`/`requestTimeout` only every 30 seconds by default, so a slow-header socket
+  lived up to 40 seconds, and a WebSocket peer that vanished without closing held its slot forever: a
+  few hundred of either filled the default `maxConnections` and locked everyone else out. The check
+  now runs every second, and each Node WebSocket is pinged every 30 seconds and terminated if it
+  missed the previous ping. Browsers and `ws` clients answer pings on their own. No API change.
+
 - **WebSocket upgrades from another site are refused with `403`** (GHSA-p697-fpqx-pgf3), on Node,
   Deno, Bun and the edge. No adapter checked `Origin`, so a page on any site could open a WebSocket
   with the signed-in user's cookies and read what the handler streamed (cross-site WebSocket

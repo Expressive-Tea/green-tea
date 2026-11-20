@@ -132,7 +132,16 @@ function nodeWsRequest(req: http.IncomingMessage): WsRequest {
 }
 
 /** Wraps a `ws` socket as a neutral WsSocket: inbound channel + abort on close + send/close/terminate. */
-function nodeSocket(ws: any): WsSocket {
+/**
+ * Gap between protocol pings on a Node WebSocket. A peer that has not answered the previous ping by
+ * the next one is terminated, so a half-open connection (a client that vanished without a FIN) is
+ * reaped within about two intervals instead of holding its slot under `maxConnections` forever
+ * (GHSA-g96c-wq2v-87vc). Browsers and `ws` answer pings by themselves; nothing in the app sees them.
+ * Deno, Bun and the edge manage idle sockets in the runtime.
+ */
+export const WS_PING_MS = 30_000;
+
+export function nodeSocket(ws: any): WsSocket {
   const inbound = channel<unknown>();
   const ac = new AbortController();
   // `drained` callers waiting for the send buffer to fall to the mark (#41). Released by a send
@@ -145,8 +154,29 @@ function nodeSocket(ws: any): WsSocket {
     if (!backedUp()) release();
   };
 
+  let answered = true;
+  ws.on('pong', () => {
+    answered = true;
+  });
+  const heartbeat = setInterval(() => {
+    if (!answered) {
+      (ws.terminate ?? ws.close).call(ws);
+      return;
+    }
+
+    answered = false;
+
+    try {
+      ws.ping();
+    } catch {
+      /* closing; the close handler clears this timer */
+    }
+  }, WS_PING_MS);
+  heartbeat.unref?.();
+
   ws.on('message', (data: Buffer) => inbound.push(data.toString()));
   ws.on('close', () => {
+    clearInterval(heartbeat);
     inbound.close();
     ac.abort();
     release();
