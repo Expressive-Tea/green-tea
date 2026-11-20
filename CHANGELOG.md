@@ -84,6 +84,11 @@ npm treats versions as semver and semver forbids leading zeros.
   multipart file part with that name did the same to `body.files`. Fields and files are now read and
   written as own properties. The effect never reached `Object.prototype`. No API change.
 
+- **`@query`, `@body`, `@param`, `@header` and `@cookie` read own keys only**
+  (GHSA-g86h-3r98-qm66). A key the request did not send resolved through the prototype, so
+  `@query('constructor')` returned `Object.prototype.constructor` instead of `undefined`. No API
+  change.
+
 - **WebSocket upgrades from another site are refused with `403`** (GHSA-p697-fpqx-pgf3), on Node,
   Deno, Bun and the edge. No adapter checked `Origin`, so a page on any site could open a WebSocket
   with the signed-in user's cookies and read what the handler streamed (cross-site WebSocket

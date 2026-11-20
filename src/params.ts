@@ -138,6 +138,8 @@ export async function resolveArgs(specs: ArgSpec[], context: Context): Promise<u
   return args;
 }
 
+const hasOwn = Object.prototype.hasOwnProperty;
+
 function resolveOne(spec: ArgSpec, context: Context): unknown {
   if (spec.source === 'ctx') return context;
   // `cookies` is a seed token like `headers`, but parsed on demand rather than seeded on every request.
@@ -149,7 +151,10 @@ function resolveOne(spec: ArgSpec, context: Context): unknown {
   const values = bag as Record<string, unknown>;
   // Every adapter stores header names lower-cased, so `@header('Content-Type')` looks up
   // `content-type` (GitHub #37). A picked bag keeps the names as the handler wrote them.
-  const at = spec.source === 'headers' ? (key: string) => values[key.toLowerCase()] : (key: string) => values[key];
+  // Own keys only: `@query('constructor')` on a request without that key is `undefined`, not
+  // `Object.prototype.constructor` (GHSA-g86h-3r98-qm66).
+  const own = (key: string) => (hasOwn.call(values, key) ? values[key] : undefined);
+  const at = spec.source === 'headers' ? (key: string) => own(key.toLowerCase()) : own;
 
   if (spec.keys) {
     const picked: Record<string, unknown> = {};
