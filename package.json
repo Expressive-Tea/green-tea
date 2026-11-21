@@ -142,7 +142,7 @@
     "@eslint/js": "^9.39.5",
     "@microsoft/api-extractor": "^7.59.4",
     "@nestjs/common": "^11.1.28",
-    "@nestjs/core": "^11.1.28",
+    "@nestjs/core": "^12.5.1",
     "@nestjs/platform-express": "^11.1.28",
     "@nestjs/platform-fastify": "^11.1.28",
     "@stylistic/eslint-plugin": "^5.10.0",
