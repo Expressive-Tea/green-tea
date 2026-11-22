@@ -148,6 +148,11 @@ npm audit --omit=dev   # only what ships blocks; CI reports the rest
 plus the runtime suite for whatever your change touches (see *Local setup* above). CI runs Deno,
 Bun and the edge in its `runtimes` job.
 
+`npm run coverage` is the Node suite with v8 coverage over `src/`. CI prints its summary in the
+`build` job and does not gate on it yet. Baseline (2026-11-20): statements 94.55%, branches 89.68%,
+functions 93.87%, lines 95.57%. The Deno, Bun and edge suites run outside Vitest and are not
+counted. If your change drops a number noticeably, say why in the pull request.
+
 - Write tests for new behavior (TDD welcome). We use Vitest.
 - `complexity:check` caps the cognitive complexity of every function in `src/`. What it measures is how much you have to hold in your head to follow a function from top to bottom, and it charges nesting more heavily than branching: a condition inside a closure inside a function costs several times what the same condition costs at the top level. Going over the threshold is not a verdict on your code — it means one function has grown to ask too much of whoever reads it next. The fix is nearly always to lift a nested closure out to module scope, where its branches are charged once instead of three times over. Raising `COMPLEXITY_MAX` is not the fix, even though the script suggests it.
 - Keep runtime dependencies at zero beyond `reflect-metadata`.
