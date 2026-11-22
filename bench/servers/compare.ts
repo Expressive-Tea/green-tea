@@ -2,7 +2,7 @@
 // `src/`. Adds the two paths the standard bench server does not exercise and this release changed:
 // secure-by-default headers, and a `cors.origins` predicate.
 import 'reflect-metadata';
-import { createApp, Step, Route, Get, Post, Module, needs, param, body } from '../../src/index';
+import { createApp, Step, Route, Get, Post, Sse, Module, needs, param, body } from '../../src/index';
 
 type Ctor = new (...args: any[]) => any;
 
@@ -30,6 +30,11 @@ class Bench {
   @Post('/validate') validate(@body(emailSchema) b: any) { return { email: b.email }; }
   @Get('/big') big() { return BIG; }
   @Get('/steps/5') steps5(@needs('s5') s5: number) { return { hello: 'world', s5 }; }
+  // A finite stream, so autocannon can count it as one request: the per-event loop (next(), encode,
+  // write, drain) runs 100 times per request, which is the path a stream change touches (#26).
+  @Sse('/sse') sse() {
+    return (async function* () { for (let i = 0; i < 100; i++) yield { i }; })();
+  }
   // Reads the counter without resetting it — the read itself carries no Origin, so it cannot
   // change what it reports.
   @Get('/cors-calls') corsCalls() { return { calls: corsCalls }; }
