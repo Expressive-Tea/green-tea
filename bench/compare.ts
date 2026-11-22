@@ -89,6 +89,7 @@ const CASES: Case[] = [
   { name: 'json 8KB + br', path: '/big', env: { GT_COMPRESS: '1' }, headers: { 'accept-encoding': 'br' } },
   // Streams (#26): one request is 100 SSE events, so req/s here is events/s / 100. The gzip case
   // takes the compressed frame sink, whose drain wait is a different emitter.
+  { name: 'static 2KB file', path: '/app.js', env: { GT_STATIC: '1' } },
   { name: 'sse 100 events', path: '/sse' },
   { name: 'sse 100 events + gzip', path: '/sse', env: { GT_COMPRESS: '1' }, headers: { 'accept-encoding': 'gzip' } },
 ];

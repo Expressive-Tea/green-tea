@@ -84,6 +84,8 @@ const app = createApp({
   security: process.env.GT_SECURE === '1',
   ...(cors ? { cors } : {}),
   ...(process.env.GT_COMPRESS === '1' ? { compression: true } : {}),
+  // Static serving: path checks (dotfiles, traversal) run on every request that reaches it.
+  ...(process.env.GT_STATIC === '1' ? { static: 'bench/public' } : {}),
 });
 
 // Each runtime through its own adapter, the way an app deploys there: Deno and Bun take the fetch
