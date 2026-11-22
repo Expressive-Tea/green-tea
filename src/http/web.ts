@@ -11,7 +11,7 @@ import {
   type Preflight,
 } from './core';
 import { mergeInjectedHeaders, toWebHeaders } from './headers';
-import { peerOf, trustedProxyClient } from './peer';
+import { keepStreamOpen, peerOf, trustedProxyClient } from './peer';
 import { lastForwardedHop } from './request';
 import { declaresOverLimit, type BodyFailure, type BodyReader, type MaybePromise } from './body';
 import { HttpError } from '../signals';
@@ -229,6 +229,7 @@ export function toBodyInit(body: string | Buffer): ResponseBody {
 
 /** Converts an outcome (already through `compressOutcome`) into a web `Response`, buffered or streamed. */
 function outcomeToResponse(
+  request: Request,
   outcome: NeutralOutcome,
   injected: Record<string, string>,
   bus?: Bus,
@@ -237,6 +238,7 @@ function outcomeToResponse(
   const headers = toWebHeaders(mergeInjectedHeaders(outcome.headers, injected));
 
   if (outcome.kind === 'stream') {
+    keepStreamOpen(request);
     const frames = asReadableStream(outcome.stream, outcome.encoder, bus, outcome.route, correlation);
     return new Response(outcome.encoding ? compressWebStream(frames, outcome.encoding) : frames, { headers });
   }
@@ -374,8 +376,8 @@ export function buildFetch(routes: RouteTable, opts: HttpOptions | undefined) {
 
     const decided = compressOutcome(opts?.compression, { method: request.method, headers }, result.outcome);
     return decided instanceof Promise
-      ? decided.then((outcome) => outcomeToResponse(outcome, injected, opts?.bus, correlation))
-      : outcomeToResponse(decided, injected, opts?.bus, correlation);
+      ? decided.then((outcome) => outcomeToResponse(request, outcome, injected, opts?.bus, correlation))
+      : outcomeToResponse(request, decided, injected, opts?.bus, correlation);
   };
 }
 
