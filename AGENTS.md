@@ -29,21 +29,22 @@ Run the first four before proposing anything as finished. The runtime suites sta
 
 ## Two forges
 
-Development lives on GitHub: `develop`, feature branches, pull requests, CI and new issues. A
-private Gitea instance keeps only `main` and release tags, pushed there by hand, so a release can
-be staged on the internal Verdaccio before it goes public. Issues opened on Gitea before
-2026-11-17 stay there until they close; new ones go to GitHub.
+Development and releases live on GitHub: `develop`, feature branches, pull requests, CI, new
+issues, and the `v*` tags that publish. A private Gitea instance is an archive of `main` and its
+tags, copied from GitHub after a release; nothing flows from Gitea to GitHub. Issues opened on
+Gitea before 2026-11-17 stay there until they close; new ones go to GitHub.
 
 ```
 feature/* → develop → main                     (GitHub, pull requests)
                        │
-              v* tag ──┼── GitHub: [release.yml] → npm + JSR
-                       └── Gitea, pushed by hand when staging: [stage.yml] → Verdaccio
+              v* tag ──── GitHub: [release.yml] → npm + JSR
+                       │
+                       └── Gitea: archive copy of main and tags, after the release
 ```
 
 - **`develop`** — active development, and the base of every pull request, outside contributions included.
 - **`main`** — released code, advanced only by fast-forward from `develop`.
-- **Gitea `main` and tags** — a staging copy. Nothing is developed there. A `v*` tag pushed there publishes to Verdaccio, never to a public registry.
+- **Gitea `main` and tags** — an archive. Nothing is developed, staged or released from there.
 
 Remotes: `origin` is GitHub, `gitea` is the Gitea instance.
 
