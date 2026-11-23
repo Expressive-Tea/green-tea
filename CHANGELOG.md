@@ -8,6 +8,8 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ## [Unreleased]
 
+## [26.11.0-rc.2] - 2026-11-23
+
 ### Added
 
 - **A runnable mesh demo: one REST API across two processes** (#88). `example/mesh/` has a billing
@@ -1382,7 +1384,8 @@ change before the stable release.
 - **Benchmarks** — reproducible `npm run bench` harness vs Express 5, Fastify 5,
   NestJS, and raw `http`; results in [BENCHMARKS.md](./BENCHMARKS.md).
 
-[Unreleased]: https://github.com/Expressive-Tea/green-tea/compare/v26.11.0-rc.1...HEAD
+[Unreleased]: https://github.com/Expressive-Tea/green-tea/compare/v26.11.0-rc.2...HEAD
+[26.11.0-rc.2]: https://github.com/Expressive-Tea/green-tea/compare/v26.11.0-rc.1...v26.11.0-rc.2
 [26.11.0-rc.1]: https://github.com/Expressive-Tea/green-tea/compare/v26.9.0-beta.2...v26.11.0-rc.1
 [26.9.0-beta.2]: https://github.com/Expressive-Tea/green-tea/compare/v26.9.0-beta.1...v26.9.0-beta.2
 [26.9.0-beta.1]: https://github.com/Expressive-Tea/green-tea/compare/v26.8.0-beta.1...v26.9.0-beta.1

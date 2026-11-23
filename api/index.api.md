@@ -1040,7 +1040,7 @@ export class ValidationError extends HttpError {
 }
 
 // @public
-export const VERSION = "26.11.0-rc.1";
+export const VERSION = "26.11.0-rc.2";
 
 // @public
 export function withConsoleFallback(logger: Logger): Logger;
