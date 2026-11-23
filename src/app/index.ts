@@ -1,5 +1,5 @@
 import type http from 'http';
-import { Bus, type Events } from '../bus';
+import { Bus, reportListenerErrors, type Events } from '../bus';
 import { createDefaultLogger, logRequests, type Logger } from '../logger';
 import { Container } from '../container';
 import { topoSort, topoLevels, subgraphFor, GraphNode, nearest } from '../graph';
@@ -9,7 +9,7 @@ import { createHttpServer, parseQuery, RouteDef, WsRouteDef, RequestLimits } fro
 import type { HttpOptions } from '../http';
 import { trustedProxyClient } from '../http/peer';
 import { answerFetchProbe, buildFetch } from '../http/web';
-import { resolveCompression, edgeMarker, MARK_EDGE, type CompressionOptions } from '../http/compression';
+import { resolveCompression, edgeMarker, isWorkerd, MARK_EDGE, type CompressionOptions } from '../http/compression';
 import {
   boundInbound,
   controlBounds,
@@ -45,7 +45,19 @@ import { getArgs, getHandlerNeeds, resolveArgs } from '../params';
 import { buildOpenApi, type OpenApiInfo } from '../openapi';
 import { connectLink, isPermanentRefusal, type Link } from '../mesh/link';
 import { Rooms } from '../rooms';
-import { TLS_REQUESTED, type TlsOptions, type SecurityOptions, type CorsOptions } from '../security';
+import {
+  TLS_REQUESTED,
+  WS_ORIGIN_CHECK,
+  assertCorsOptions,
+  MESH_REQUESTED,
+  NODE_ONLY_LIMITS,
+  nodeOnlyLimits,
+  MESH_ON_EDGE,
+  wsOriginAllowed,
+  type TlsOptions,
+  type SecurityOptions,
+  type CorsOptions,
+} from '../security';
 import { buildRemote, type RemoteRoute as TeacupRemoteRoute } from '../mesh/teacup';
 import {
   buildManifest,
@@ -135,7 +147,7 @@ export interface AppOptions {
    *
    * - `/__live__` answers `200 {"status":"ok"}` whenever the process answers.
    * - `/__ready__` answers `503 {"status":"booting"}` until `boot()` resolves, then
-   *   `200 {"status":"ok"}` or `200 {"status":"degraded","degraded":[…]}` (see `app.degraded()`),
+   *   `200 {"status":"ok"}` or `200 {"status":"degraded"}` (names in the boot log and `app.degraded()`),
    *   and `503 {"status":"draining"}` from the moment `close()` starts.
    *
    * Probes skip the pipeline: no step, provider, plugin or `onError` runs and no lifecycle event is
@@ -276,25 +288,43 @@ export interface AppOptions {
   warnGraphDepth?: number | false;
 }
 
+/** Throws for a `mesh` config this app cannot run: without the opt-in, or inside a Worker. */
+function assertMeshAllowed(opts: AppOptions): void {
+  if (!opts.mesh) return;
+
+  // mesh is alpha: its API and wire protocol may change. Require an explicit opt-in.
+  if (!opts.experimental) {
+    throw new Error(
+      'mesh is an alpha feature — pass `experimental: true` to createApp to enable it (its API may change between releases)',
+    );
+  }
+
+  // Detected here so a bare `export default { fetch: app.fetch }` on a Worker fails too; `edgeHandler`
+  // refuses explicitly through MESH_REQUESTED for a Worker detection cannot see (#87).
+  if (isWorkerd()) throw new Error(MESH_ON_EDGE);
+}
+
 /**
  * Build an {@link App} from the given modules and options.
  * Wires providers, steps, controllers and plugins into a dependency graph; for non-mesh apps
  * the graph is finalized eagerly, otherwise finalization is deferred to {@link App.listen}.
  */
 export function createApp(opts: AppOptions): App {
-  // mesh is alpha: its API and wire protocol may change. Require an explicit opt-in.
-  if (opts.mesh && !opts.experimental) {
-    throw new Error(
-      'mesh is an alpha feature — pass `experimental: true` to createApp to enable it (its API may change between releases)',
-    );
-  }
-
+  assertMeshAllowed(opts);
   validateWsLimits(opts.limits);
   const health = resolveHealth(opts.health, opts.shutdownTimeoutMs, opts.teardownTimeoutMs);
   assertEtagOption(opts.etag);
+  assertCorsOptions(opts.cors);
 
   const bus = new Bus();
   const logger = opts.logger ?? createDefaultLogger();
+  reportListenerErrors(bus, (event, error) =>
+    logger.warn(`a listener on '${event}' threw and was skipped; further failures of that listener are not logged`, {
+      event,
+      err: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  assertTeapotTransport(opts.mesh, logger);
   if (opts.logRequests) logRequests(bus, logger);
   const container = new Container();
   let server: http.Server | undefined;
@@ -536,6 +566,17 @@ export function createApp(opts: AppOptions): App {
 
     // `serveDeno` and `serveBun` refuse an app that asked for TLS only Node's listener can give.
     [TLS_REQUESTED]: Boolean(opts.tls),
+
+    // `serveDeno`, `serveBun` and `edgeHandler` warn that they ignore these (#76).
+    [NODE_ONLY_LIMITS]: nodeOnlyLimits(opts.limits),
+
+    // `edgeHandler` refuses an app that configured mesh, which cannot run there (#87).
+    [MESH_REQUESTED]: Boolean(opts.mesh),
+
+    // The fetch adapters refuse a cross-site upgrade before accepting it (GHSA-p697-fpqx-pgf3). The
+    // mesh control channel is exempt: it authenticates with its secret, not with cookies.
+    [WS_ORIGIN_CHECK]: (origin: string | null, host: string, path: string): boolean =>
+      path === MESH_CONTROL_PATH || wsOriginAllowed(origin, host, opts.cors, logger),
   });
 }
 
@@ -1136,24 +1177,45 @@ async function connectUntilDeadline(
   }
 }
 
-/**
- * Warn when a teapot's shared secret would cross a network in cleartext.
- *
- * The `hello` frame carries the secret verbatim, so `ws://` to anywhere but this machine puts it on
- * the wire for anyone in the path to read. Loopback is exempt because there is no path.
- *
- * A warning rather than a refusal: a private network behind a service mesh that already does mutual
- * TLS is a legitimate deployment, and green-tea cannot tell it apart from an exposed one.
- */
-function warnIfCleartext(url: string, logger: Logger): void {
-  if (!url.startsWith('ws://')) return;
-  const host = url.slice('ws://'.length).split('/')[0].split(':')[0];
-  if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') return;
+/** Whether `url` is a `ws://` link that leaves this machine. Loopback has no network path to read. */
+function crossesNetworkInCleartext(url: string): boolean {
+  if (!url.startsWith('ws://')) return false;
+  let host: string;
 
-  logger.warn(
-    `mesh: ${url} is not encrypted, and the shared secret is sent in the handshake — ` +
-      'use wss:// unless the link already runs inside an encrypted network.',
-  );
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return true; // not ours to parse; treat it as the case that needs an explicit opt-in
+  }
+
+  return !(host === 'localhost' || host === '[::1]' || /^127(\.\d{1,3}){3}$/.test(host));
+}
+
+/**
+ * Refuse a `ws://` teapot that is not on this machine, unless `allowInsecure` (#86).
+ *
+ * The `hello` frame carries the secret verbatim, so `ws://` to anywhere but loopback puts it on the
+ * wire for anyone in the path to read. Checked in `createApp`, before any connection, so the mistake
+ * is a boot error rather than a leak. A private network that already encrypts (a service mesh with
+ * mutual TLS) is a legitimate deployment green-tea cannot tell apart from an exposed one, so it can
+ * opt in, and is still warned about it.
+ */
+function assertTeapotTransport(mesh: MeshConfig | undefined, logger: Logger): void {
+  for (const { url } of mesh?.teapots ?? []) {
+    if (!crossesNetworkInCleartext(url)) continue;
+
+    if (!mesh?.allowInsecure) {
+      throw new Error(
+        `mesh: ${url} is not encrypted, and the shared secret is sent in the handshake. Use wss://, ` +
+          'or set `mesh.allowInsecure: true` if the link already runs inside an encrypted network.',
+      );
+    }
+
+    logger.warn(
+      `mesh: ${url} is not encrypted, and the shared secret is sent in the handshake — ` +
+        'allowed by `mesh.allowInsecure`; make sure the network encrypts it.',
+    );
+  }
 }
 
 /** A route a teapot exported, and the teapot it came from. */
@@ -1468,7 +1530,6 @@ async function spliceRemoteScopes(
 
   try {
     for (const teapot of teapots) {
-      warnIfCleartext(teapot.url, logger);
       const holder: { link?: Link } = {};
       const link = await connectUntilDeadline(mesh, bus, logger, teapot.url, () => connectTeapot(ctx, teapot, holder));
 
@@ -1682,14 +1743,32 @@ function buildMeshControl(
   const { bus, providedSeed, planSteps, onError, logger } = deps.deps;
   const manifest = buildManifest({ steps: exportedSteps, routes: exportedRoutes });
 
+  // Each exported step runs with only what it needs: its own closure of providers and steps, sliced
+  // once here like a route's. Running every step on every call (#85) fired unexported side effects
+  // per RPC and let any unrelated step that threw break every export. Unlike a route, no always-on
+  // observer step is added: the teacup's own request already ran its observers.
+  const ordered = [...orderedProviders, ...orderedSteps];
+  const slices = new Map(
+    exportedSteps.map((token) => {
+      const closure = new Set(subgraphFor([token], ordered));
+      const providers = orderedProviders.filter((node) => closure.has(node));
+      const steps = orderedSteps
+        .filter((node) => closure.has(node))
+        .map((step) => ({ name: step.name, origin: step.origin, run: runners.get(step.name)! }));
+
+      return [token, { providers, steps }] as const;
+    }),
+  );
+
   const resolveScope = async (name: string, env: RequestEnvelope): Promise<unknown> => {
     // context is intentionally `any`: providers and steps merge arbitrary keys into it
     const seed: any = { req: env, params: env.params, query: env.query, body: env.body, headers: env.headers };
+    // The teapot gates names before this runs, so an exported token always has a slice.
+    const { providers, steps } = slices.get(name)!;
 
-    for (const provider of orderedProviders)
+    for (const provider of providers)
       if (container.has(provider.name)) Object.assign(seed, await container.resolve(provider.name));
 
-    const steps = orderedSteps.map((step) => ({ name: step.name, origin: step.origin, run: runners.get(step.name)! }));
     // The caller's identity, adopted rather than replaced — the same rule an incoming
     // `x-request-id` gets, applied at the process boundary where it matters most. No `route`:
     // resolving a scope is not a route, and inventing one would put a token in a route label.

@@ -97,6 +97,7 @@ describe('envelopeFrom', () => {
 describe('mesh rpc errors', () => {
   it('reports the token that failed, not the wire id', async () => {
     const wss = new WebSocketServer({ port: 0 });
+    await new Promise((resolve) => wss.once('listening', resolve)); // bound before reading its port (#59)
     wss.on('connection', (ws) => {
       let authed = false;
       ws.on('message', (data) => {
@@ -222,7 +223,20 @@ describe('cleartext secret warning', () => {
     }
   });
 
-  it('warns when the secret would cross a network in cleartext', async () => {
+  it('refuses a remote ws:// teapot at createApp (#86)', () => {
+    const make = (url: string) =>
+      createApp({ modules: [TeacupModule], experimental: true, mesh: { teapots: [{ url, secret: 'good' }] } });
+
+    for (const url of ['ws://10.255.255.1:9/__mesh__/control', 'ws://billing.internal/__mesh__/control']) {
+      expect(() => make(url), url).toThrow(/not encrypted[\s\S]*allowInsecure/);
+    }
+    // loopback and wss:// boot (nothing connects until the first request)
+    for (const url of ['ws://localhost:9/x', 'ws://127.0.0.2:9/x', 'ws://[::1]:9/x', 'wss://billing.example/x']) {
+      expect(() => make(url), url).not.toThrow();
+    }
+  });
+
+  it('with mesh.allowInsecure, boots and still warns that the secret crosses in cleartext', async () => {
     const warned: string[] = [];
     const logger = { debug() {}, info() {}, warn: (m: string) => warned.push(m), error() {} };
 
@@ -230,17 +244,13 @@ describe('cleartext secret warning', () => {
       modules: [TeacupModule],
       experimental: true,
       logger,
-      // unreachable on purpose: the warning is emitted before the connection is attempted,
-      // because it is about what would be sent, not about what succeeded
-      mesh: { teapots: [{ url: 'ws://10.255.255.1:9/__mesh__/control', secret: 'good' }], timeoutMs: 300 },
+      mesh: {
+        teapots: [{ url: 'ws://10.255.255.1:9/__mesh__/control', secret: 'good' }],
+        allowInsecure: true,
+      },
     });
+    await teacup.close();
 
-    try {
-      await expect(teacup.fetch(new Request('http://x/api/local/who'))).rejects.toThrow();
-    } finally {
-      await teacup.close();
-    }
-
-    expect(warned.some((m) => m.includes('not encrypted') && m.includes('wss://'))).toBe(true);
+    expect(warned.some((m) => m.includes('not encrypted') && m.includes('allowInsecure'))).toBe(true);
   });
 });

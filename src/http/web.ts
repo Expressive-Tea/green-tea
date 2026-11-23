@@ -11,7 +11,8 @@ import {
   type Preflight,
 } from './core';
 import { mergeInjectedHeaders, toWebHeaders } from './headers';
-import { peerOf, trustedProxyClient } from './peer';
+import { keepStreamOpen, peerOf, trustedProxyClient } from './peer';
+import { lastForwardedHop } from './request';
 import { declaresOverLimit, type BodyFailure, type BodyReader, type MaybePromise } from './body';
 import { HttpError } from '../signals';
 import { renderError, type ErrorRequest } from '../transformers';
@@ -20,7 +21,7 @@ import { answerProbe } from './health';
 import { currentRoutes } from './router';
 import { compressOutcome, compressWebStream } from './compression';
 import type { NeutralOutcome } from './core';
-import { releaseIterator } from '../channel';
+import { raceUntil, releaseIterator } from '../channel';
 
 /**
  * Wraps an AsyncIterable as a web ReadableStream, encoding each value. Cancels the source on stream
@@ -45,7 +46,7 @@ export function asReadableStream(
   let closed = false;
   // Settles on `cancel`, so a `pull` waiting on an idle source's `next()` stops waiting (GitHub #40).
   let cancelled!: (step: undefined) => void;
-  const gone = new Promise<undefined>((resolve) => (cancelled = resolve));
+  const untilGone = raceUntil(new Promise<undefined>((resolve) => (cancelled = resolve)));
 
   const close = (): void => {
     if (closed) return;
@@ -59,7 +60,7 @@ export function asReadableStream(
     },
     async pull(controller) {
       try {
-        const step = await Promise.race([iterator.next(), gone]);
+        const step = await untilGone(iterator.next());
         if (!step) return;
         const { value, done } = step;
 
@@ -228,6 +229,7 @@ export function toBodyInit(body: string | Buffer): ResponseBody {
 
 /** Converts an outcome (already through `compressOutcome`) into a web `Response`, buffered or streamed. */
 function outcomeToResponse(
+  request: Request,
   outcome: NeutralOutcome,
   injected: Record<string, string>,
   bus?: Bus,
@@ -236,6 +238,7 @@ function outcomeToResponse(
   const headers = toWebHeaders(mergeInjectedHeaders(outcome.headers, injected));
 
   if (outcome.kind === 'stream') {
+    keepStreamOpen(request);
     const frames = asReadableStream(outcome.stream, outcome.encoder, bus, outcome.route, correlation);
     return new Response(outcome.encoding ? compressWebStream(frames, outcome.encoding) : frames, { headers });
   }
@@ -244,17 +247,31 @@ function outcomeToResponse(
   return new Response(body, { status: outcome.status, headers });
 }
 
-/** The first `x-forwarded-for` hop when the proxy is trusted, else `''`. */
+/**
+ * Whether the client's connection was HTTPS: `x-forwarded-proto` when the proxy is trusted, else the
+ * URL's scheme. Mirrors Node's `deriveSecure`. Without it, Deno and Bun behind a TLS-terminating proxy
+ * saw `http`, so `ctx.protocol` was wrong and HSTS was never sent (GHSA-g86h-3r98-qm66).
+ */
+function fetchSecure(request: Request, url: URL, opts: HttpOptions | undefined): boolean {
+  if (opts?.trustProxy) {
+    const proto = request.headers.get('x-forwarded-proto')?.split(',')[0].trim();
+    if (proto) return proto === 'https';
+  }
+
+  return url.protocol === 'https:';
+}
+
+/** The `x-forwarded-for` hop the trusted proxy appended (the right-most), else `''`. */
 function forwardedFor(request: Request, opts: HttpOptions | undefined): string {
   if (!opts?.trustProxy) return '';
 
-  return (request.headers.get('x-forwarded-for') ?? '').split(',')[0].trim();
+  return lastForwardedHop(request.headers.get('x-forwarded-for')) ?? '';
 }
 
 /**
  * `ctx.ip` on the fetch path, for `NeutralRequest.resolveIp`. Mirrors Node's `deriveIp`
- * (src/http/request.ts): only trust `x-forwarded-for` when the proxy is trusted, and take its first
- * hop, because an untrusted XFF is client-spoofable. Otherwise the socket peer, which only the Deno
+ * (src/http/request.ts): only trust `x-forwarded-for` when the proxy is trusted, and take the hop
+ * that proxy appended (the right-most), because an untrusted XFF is client-spoofable. Otherwise the socket peer, which only the Deno
  * and Bun adapters can supply; a bare `app.fetch` has none, so there the answer is still ''. Ahead of
  * both, under `trustProxy` only: the address the edge adapter read from `cf-connecting-ip`.
  * Cloudflare sets that header itself, while XFF can carry hops the client supplied, so on the edge
@@ -283,7 +300,7 @@ export function buildFetch(routes: RouteTable, opts: HttpOptions | undefined) {
     const headers = headersToRecord(request.headers);
     // Derived before the body is read, so a 413 rejected below still carries an identity.
     const correlation = correlateRequest(headers);
-    const secure = url.protocol === 'https:';
+    const secure = fetchSecure(request, url, opts);
     // Computed up-front from the same inputs `handle()` uses, so a preflight — the one response
     // this adapter builds itself — carries the same security/CORS headers every other one does.
     const injected = computeInjected(opts, { secure, headers });
@@ -359,8 +376,8 @@ export function buildFetch(routes: RouteTable, opts: HttpOptions | undefined) {
 
     const decided = compressOutcome(opts?.compression, { method: request.method, headers }, result.outcome);
     return decided instanceof Promise
-      ? decided.then((outcome) => outcomeToResponse(outcome, injected, opts?.bus, correlation))
-      : outcomeToResponse(decided, injected, opts?.bus, correlation);
+      ? decided.then((outcome) => outcomeToResponse(request, outcome, injected, opts?.bus, correlation))
+      : outcomeToResponse(request, decided, injected, opts?.bus, correlation);
   };
 }
 
@@ -377,7 +394,7 @@ export function answerFetchProbe(request: Request, opts: HttpOptions | undefined
   if (!probe) return undefined;
 
   const injected = computeInjected(opts, {
-    secure: url.protocol === 'https:',
+    secure: fetchSecure(request, url, opts),
     headers: headersToRecord(request.headers),
   });
   return new Response(probe.body || null, {

@@ -55,7 +55,7 @@ const servers: http.Server[] = [];
 async function start(routes: RouteDef[], opts: HttpOptions = {}, bus?: Bus): Promise<number> {
   const server = createHttpServer([ok, ...routes], [], bus, undefined, opts);
   servers.push(server);
-  server.listen(0, '127.0.0.1');
+  server.listen(0); // 127.0.0.1, via test/setup/loopback.ts (#59)
   await once(server, 'listening');
   return (server.address() as net.AddressInfo).port;
 }

@@ -567,6 +567,7 @@ export const MESH_CONTROL_PATH = "/__mesh__/control";
 
 // @public
 export interface MeshConfig {
+    allowInsecure?: boolean;
     bootTimeoutMs?: number;
     heartbeatMs?: number;
     onManifestChange?: 'refuse';
@@ -1039,7 +1040,7 @@ export class ValidationError extends HttpError {
 }
 
 // @public
-export const VERSION = "26.11.0-rc.1";
+export const VERSION = "26.11.0-rc.2";
 
 // @public
 export function withConsoleFallback(logger: Logger): Logger;

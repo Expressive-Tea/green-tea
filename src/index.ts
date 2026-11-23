@@ -14,7 +14,7 @@ import 'reflect-metadata';
  * constant drifted two releases behind while the comment explained why it could not, and the only
  * test touching it checked the CalVer shape, which a stale version satisfies perfectly.
  */
-export const VERSION = '26.11.0-rc.1';
+export const VERSION = '26.11.0-rc.2';
 
 // Application
 export { createApp } from './app';

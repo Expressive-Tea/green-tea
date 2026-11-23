@@ -9,8 +9,9 @@ const V = MESH_PROTOCOL_VERSION;
 const env = { method: 'GET', params: {}, query: {}, body: undefined, headers: {} };
 
 // teapot that validates secret 'good', returns a manifest, answers scope rpc (boom -> error)
-function startTeapot(secret = 'good') {
+async function startTeapot(secret = 'good') {
   const wss = new WebSocketServer({ port: 0 });
+  await new Promise((resolve) => wss.once('listening', resolve)); // bound before reading its port (#59)
   const names: string[] = []; // every rpc-req name received, in order
   wss.on('connection', (ws) => {
     let authed = false;
@@ -33,8 +34,9 @@ function startTeapot(secret = 'good') {
 }
 
 // teapot that completes the handshake but NEVER answers rpc-req (for timeout)
-function startSilentTeapot(secret = 'good') {
+async function startSilentTeapot(secret = 'good') {
   const wss = new WebSocketServer({ port: 0 });
+  await new Promise((resolve) => wss.once('listening', resolve)); // bound before reading its port (#59)
   wss.on('connection', (ws) => {
     ws.on('message', (d) => {
       const f = decode(d.toString());
@@ -47,8 +49,9 @@ function startSilentTeapot(secret = 'good') {
 }
 
 // teapot running a future protocol: handshakes, but answers with a skewed manifest
-function startSkewedTeapot() {
+async function startSkewedTeapot() {
   const wss = new WebSocketServer({ port: 0 });
+  await new Promise((resolve) => wss.once('listening', resolve)); // bound before reading its port (#59)
   wss.on('connection', (ws) => {
     ws.on('message', () => ws.send(encode({ type: 'manifest', v: V + 1, steps: [], routes: [] } as any)));
   });
@@ -67,7 +70,7 @@ if (platform) CTORS.push(['the platform global WebSocket', platform]);
 
 describe('WebSocket client implementations', () => {
   it.each(CTORS)('handshakes and serves RPC over %s', async (_label, Ctor) => {
-    const t = startTeapot();
+    const t = await startTeapot();
     const link = await connectLink({ url: t.url, secret: 'good', Ctor });
 
     expect(link.manifest.steps).toEqual(['auth']);
@@ -85,6 +88,7 @@ describe('connectLink', () => {
   it('sends its protocol version in the hello', async () => {
     const seen: any[] = [];
     const wss = new WebSocketServer({ port: 0 });
+    await new Promise((resolve) => wss.once('listening', resolve)); // bound before reading its port (#59)
     wss.on('connection', (ws) =>
       ws.on('message', (d) => {
         seen.push(decode(d.toString()));
@@ -99,40 +103,40 @@ describe('connectLink', () => {
   });
 
   it('refuses a teapot on a different protocol version', async () => {
-    const t = startSkewedTeapot();
+    const t = await startSkewedTeapot();
     await expect(connectLink({ url: t.url, secret: 'good', timeoutMs: 500 })).rejects.toThrow(/version/i);
     t.close();
   });
 
   it('handshakes and exposes the manifest', async () => {
-    const t = startTeapot();
+    const t = await startTeapot();
     const link = await connectLink({ url: t.url, secret: 'good' });
     expect(link.manifest.steps).toEqual(['auth']);
     link.close(); t.close();
   });
 
   it('rpc resolves a result by id', async () => {
-    const t = startTeapot();
+    const t = await startTeapot();
     const link = await connectLink({ url: t.url, secret: 'good' });
     expect(await link.rpc('scope', 'auth', env)).toEqual({ got: 'auth' });
     link.close(); t.close();
   });
 
   it('rpc rejects with an HttpError carrying the remote status', async () => {
-    const t = startTeapot();
+    const t = await startTeapot();
     const link = await connectLink({ url: t.url, secret: 'good' });
     await expect(link.rpc('scope', 'boom', env)).rejects.toMatchObject({ status: 403, message: 'denied' });
     link.close(); t.close();
   });
 
   it('rejects connect on bad secret', async () => {
-    const t = startTeapot();
+    const t = await startTeapot();
     await expect(connectLink({ url: t.url, secret: 'wrong', timeoutMs: 500 })).rejects.toThrow();
     t.close();
   });
 
   it('times out an rpc when the teapot never answers', async () => {
-    const t = startSilentTeapot();
+    const t = await startSilentTeapot();
     const link = await connectLink({ url: t.url, secret: 'good', timeoutMs: 150 });
     await expect(link.rpc('scope', 'whatever', env)).rejects.toThrow(/timeout/i);
     link.close(); t.close();
@@ -150,7 +154,7 @@ describe('connectLink', () => {
   const BackedCtor = Backed as unknown as SocketCtor;
 
   it('holds an rpc-req while the link is backed up, and sends it once it drains (#41)', async () => {
-    const t = startTeapot();
+    const t = await startTeapot();
     const link = await connectLink({ url: t.url, secret: 'good', Ctor: BackedCtor });
     stalled = true;
     let settled = false;
@@ -163,7 +167,7 @@ describe('connectLink', () => {
   });
 
   it('times out an rpc still waiting for room, and never sends it (#41)', async () => {
-    const t = startTeapot();
+    const t = await startTeapot();
     const link = await connectLink({ url: t.url, secret: 'good', timeoutMs: 100, Ctor: BackedCtor });
     stalled = true;
     await expect(link.rpc('scope', 'auth', env)).rejects.toMatchObject({ status: 504 });

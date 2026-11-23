@@ -48,7 +48,8 @@ jobs:
       - run: npm run format:check
       - run: npm run complexity:check
       - run: npm run typecheck
-      - run: npm test
+      # The suite, with v8 coverage printed in the log (#79). Reported only: no threshold gates it yet.
+      - run: npm run coverage
       - run: npm run build
       # The committed reports in api/ are the frozen surface (CARD-22, D20). A PR that changes a
       # public type fails here until it regenerates them with `npm run api`, so the change shows up

@@ -14,9 +14,9 @@ export interface RequestLimits {
   maxBodyBytes?: number; // default 1_000_000
   maxConnections?: number; // default 1000; <= 0 means unlimited (Node only)
   maxConcurrentRequests?: number; // default unlimited; <= 0 means unlimited
-  requestTimeoutMs?: number; // default 30_000
-  headersTimeoutMs?: number; // default 10_000
-  keepAliveTimeoutMs?: number; // default 5_000
+  requestTimeoutMs?: number; // default 30_000 (Node only; serveDeno/serveBun/edgeHandler warn that they ignore it)
+  headersTimeoutMs?: number; // default 10_000 (Node only, as above)
+  keepAliveTimeoutMs?: number; // default 5_000 (Node only, as above)
   maxParts?: number; // default 1000
   /**
    * Largest inbound WebSocket message, in bytes (UTF-8 bytes for text), per connection. Default

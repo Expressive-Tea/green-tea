@@ -64,7 +64,7 @@ Deno.test('CARD-17 T2: serveDeno, booted with nothing degraded → 200 ok', asyn
   }
 });
 
-Deno.test('CARD-17 T3: serveDeno, an optional provider failed → 200 degraded with its name', async () => {
+Deno.test('CARD-17 T3: serveDeno, an optional provider failed → 200 degraded, no name in the body (#83)', async () => {
   @Provider({ provides: 'x', optional: true })
   class X {
     provide(): never {
@@ -79,7 +79,7 @@ Deno.test('CARD-17 T3: serveDeno, an optional provider failed → 200 degraded w
   });
   try {
     const base = `http://127.0.0.1:${(server as unknown as { addr: { port: number } }).addr.port}`;
-    await expectProbe(await fetch(`${base}/__ready__`), 200, { status: 'degraded', degraded: ['x'] });
+    await expectProbe(await fetch(`${base}/__ready__`), 200, { status: 'degraded' });
   } finally {
     await server.close();
   }

@@ -85,7 +85,7 @@ const FAST = { initialDelayMs: 20, maxDelayMs: 60 };
 /** A port nothing listens on, that a teapot can take later. */
 async function freePort(): Promise<number> {
   const server = net.createServer();
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(0, resolve));
   const { port } = server.address() as AddressInfo;
   await new Promise<void>((resolve) => server.close(() => resolve()));
   return port;
@@ -149,7 +149,7 @@ function teacup(ports: number[], mesh: Partial<MeshConfig> = {}, extra: { health
   open.unshift(app); // closed before the teapots
   const next = (name: string) =>
     new Promise<EventPayload>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`no ${name} within 5s`)), 5000);
+      const timer = setTimeout(() => reject(new Error(`no ${name} within 12s`)), 12_000);
       waiting.set(name, [
         ...(waiting.get(name) ?? []),
         (e) => {
@@ -185,7 +185,7 @@ async function rawTeapotOn(
   routes: RouteEntry[],
   answer: unknown,
 ): Promise<{ close: () => Promise<void> }> {
-  const wss = new WebSocketServer({ port, host: '127.0.0.1' });
+  const wss = new WebSocketServer({ port });
   wss.on('connection', (ws) => {
     ws.on('message', (data) => {
       const frame = decode(data.toString());
@@ -367,7 +367,9 @@ describe('mesh: remote routes follow teapot membership (CARD-19, D15)', () => {
     expect(statuses).toContain(404);
     expect(statuses).toContain(200);
     expect((await get(cup.app, '/api/remote/ping')).status).toBe(200);
-  });
+    // 1 000 requests through the mesh is a load test by design; the default 5s ran out once in 30
+    // full-suite runs under two parallel suites (#59).
+  }, 15_000);
 
   it('with reconnect: false a teapot absent at boot is not retried (no backoff to retry with)', async () => {
     const port = await freePort();

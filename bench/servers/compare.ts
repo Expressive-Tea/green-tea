@@ -2,7 +2,7 @@
 // `src/`. Adds the two paths the standard bench server does not exercise and this release changed:
 // secure-by-default headers, and a `cors.origins` predicate.
 import 'reflect-metadata';
-import { createApp, Step, Route, Get, Post, Module, needs, param, body } from '../../src/index';
+import { createApp, Step, Route, Get, Post, Sse, Module, needs, param, body } from '../../src/index';
 
 type Ctor = new (...args: any[]) => any;
 
@@ -30,6 +30,11 @@ class Bench {
   @Post('/validate') validate(@body(emailSchema) b: any) { return { email: b.email }; }
   @Get('/big') big() { return BIG; }
   @Get('/steps/5') steps5(@needs('s5') s5: number) { return { hello: 'world', s5 }; }
+  // A finite stream, so autocannon can count it as one request: the per-event loop (next(), encode,
+  // write, drain) runs 100 times per request, which is the path a stream change touches (#26).
+  @Sse('/sse') sse() {
+    return (async function* () { for (let i = 0; i < 100; i++) yield { i }; })();
+  }
   // Reads the counter without resetting it — the read itself carries no Origin, so it cannot
   // change what it reports.
   @Get('/cors-calls') corsCalls() { return { calls: corsCalls }; }
@@ -79,13 +84,32 @@ const app = createApp({
   security: process.env.GT_SECURE === '1',
   ...(cors ? { cors } : {}),
   ...(process.env.GT_COMPRESS === '1' ? { compression: true } : {}),
+  // Static serving: path checks (dotfiles, traversal) run on every request that reaches it.
+  ...(process.env.GT_STATIC === '1' ? { static: 'bench/public' } : {}),
 });
+
+// Each runtime through its own adapter, the way an app deploys there: Deno and Bun take the fetch
+// path (`src/http/web.ts`), Node the `node:http` one. `AB_RUNTIME` in the harness picks the binary.
+async function listen(): Promise<number> {
+  const g = globalThis as { Deno?: unknown; Bun?: unknown };
+  if (g.Deno) {
+    const { serveDeno } = await import('../../src/deno');
+    return new Promise((resolve) => {
+      void serveDeno(app, { port: 0, hostname: '127.0.0.1', onListen: (a: { port: number }) => resolve(a.port) });
+    });
+  }
+  if (g.Bun) {
+    const { serveBun } = await import('../../src/bun');
+    return (await serveBun(app, { port: 0, hostname: '127.0.0.1' })).port;
+  }
+  const server = await app.listen(0);
+  server.keepAliveTimeout = 5000;
+  return (server.address() as any).port;
+}
 
 async function main() {
   try { if (app.inspect('/hello').length === 0) throw new Error('empty'); }
   catch { console.error('DECORATORS_NOT_APPLIED'); process.exit(1); }
-  const server = await app.listen(0);
-  server.keepAliveTimeout = 5000;
-  console.log(`READY ${(server.address() as any).port}`);
+  console.log(`READY ${await listen()}`);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

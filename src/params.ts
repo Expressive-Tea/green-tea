@@ -138,6 +138,19 @@ export async function resolveArgs(specs: ArgSpec[], context: Context): Promise<u
   return args;
 }
 
+const hasOwn = Object.prototype.hasOwnProperty;
+
+/**
+ * One key from a request bag, own properties only: `@query('constructor')` on a request without that
+ * key is `undefined`, not `Object.prototype.constructor` (GHSA-g86h-3r98-qm66). Every adapter stores
+ * header names lower-cased, so `@header('Content-Type')` looks up `content-type` (GitHub #37). A plain
+ * function rather than a closure per call: this runs for every decorated argument of every request.
+ */
+function ownKey(values: Record<string, unknown>, key: string, lowerCase: boolean): unknown {
+  const name = lowerCase ? key.toLowerCase() : key;
+  return hasOwn.call(values, name) ? values[name] : undefined;
+}
+
 function resolveOne(spec: ArgSpec, context: Context): unknown {
   if (spec.source === 'ctx') return context;
   // `cookies` is a seed token like `headers`, but parsed on demand rather than seeded on every request.
@@ -147,17 +160,16 @@ function resolveOne(spec: ArgSpec, context: Context): unknown {
   const bag = spec.source === 'cookies' ? cookiesOf(context) : context[spec.source];
   if (typeof bag !== 'object' || bag === null) return bag; // can't pick from a non-object; return as-is
   const values = bag as Record<string, unknown>;
-  // Every adapter stores header names lower-cased, so `@header('Content-Type')` looks up
-  // `content-type` (GitHub #37). A picked bag keeps the names as the handler wrote them.
-  const at = spec.source === 'headers' ? (key: string) => values[key.toLowerCase()] : (key: string) => values[key];
+  const lowerCase = spec.source === 'headers';
 
+  // A picked bag keeps the names as the handler wrote them.
   if (spec.keys) {
     const picked: Record<string, unknown> = {};
-    for (const key of spec.keys) picked[key] = at(key);
+    for (const key of spec.keys) picked[key] = ownKey(values, key, lowerCase);
     return picked;
   }
 
-  if (spec.key !== undefined) return at(spec.key);
+  if (spec.key !== undefined) return ownKey(values, spec.key, lowerCase);
   return values;
 }
 

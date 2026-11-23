@@ -134,6 +134,30 @@ describe('createMeshControl', () => {
     expect(res.error.status).toBe(403);
   });
 
+  it('serves an exported route for its exported method', async () => {
+    const resolveRoute = vi.fn(async () => ({ status: 200, headers: {}, body: 'ok' }));
+    const t = fakeSocket();
+    make({ resolveRoute }).handle(t.socket);
+    await t.deliver({ type: 'hello', v: V, secret: 'good' });
+    await t.deliver({ type: 'rpc-req', id: 'r1', kind: 'route', name: '/u/:id', ctx: { method: 'GET' } });
+    expect(t.sent.find((f: any) => f.type === 'rpc-res')).toMatchObject({ id: 'r1', ok: true });
+    expect(resolveRoute).toHaveBeenCalledOnce();
+  });
+
+  it('refuses another method on an exported pattern without running it', async () => {
+    const resolveRoute = vi.fn(async () => ({ status: 200, headers: {}, body: 'ran' }));
+    const t = fakeSocket();
+    make({ resolveRoute }).handle(t.socket);
+    await t.deliver({ type: 'hello', v: V, secret: 'good' });
+    for (const method of ['DELETE', 'POST', 'get', undefined]) {
+      await t.deliver({ type: 'rpc-req', id: String(method), kind: 'route', name: '/u/:id', ctx: { method } });
+    }
+    const res = t.sent.filter((f: any) => f.type === 'rpc-res');
+    expect(res).toHaveLength(4);
+    expect(res.every((f: any) => !f.ok && f.error.status === 403)).toBe(true);
+    expect(resolveRoute).not.toHaveBeenCalled();
+  });
+
   it('propagates a thrown HttpError status in the error frame', async () => {
     const t = fakeSocket();
     make({
@@ -145,6 +169,24 @@ describe('createMeshControl', () => {
     await t.deliver({ type: 'rpc-req', id: '9', kind: 'scope', name: 'config', ctx: {} });
     const res: any = t.sent.find((f: any) => f.type === 'rpc-res');
     expect(res).toMatchObject({ id: '9', ok: false, error: { message: 'nope', status: 401 } });
+  });
+
+  it('masks an internal error message instead of sending it to the teacup (GHSA-gm9h-7577-x57w)', async () => {
+    const seen: unknown[] = [];
+    const bus = { emit: (e: string, p: { error: unknown }) => e === 'mesh:rpc:error' && seen.push(p.error) } as never;
+    const t = fakeSocket();
+    make({
+      bus,
+      resolveScope: async () => {
+        throw new Error('pg: password authentication failed for user admin@10.0.0.5');
+      },
+    }).handle(t.socket);
+    await t.deliver({ type: 'hello', v: V, secret: 'good' });
+    await t.deliver({ type: 'rpc-req', id: '10', kind: 'scope', name: 'config', ctx: {} });
+    const res: any = t.sent.find((f: any) => f.type === 'rpc-res');
+    expect(res).toMatchObject({ id: '10', ok: false, error: { message: 'Internal Server Error', status: 500 } });
+    // the teapot keeps the real error for its own observers
+    expect((seen[0] as Error).message).toMatch(/password authentication failed/);
   });
 
   it('serves overlapping RPCs concurrently rather than head-of-line blocking', async () => {

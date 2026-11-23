@@ -16,7 +16,7 @@
  * not moved between the two revisions — check that first, or the comparison is measuring a
  * dependency bump.
  *
- * Env: `AB_BASE` (required), `AB_DURATION` (10), `AB_ROUNDS` (3), `AB_CONNS` (100),
+ * Env: `AB_BASE` (required), `AB_RUNTIME` (node | deno | bun), `AB_DURATION` (10), `AB_ROUNDS` (3), `AB_CONNS` (100),
  * `AB_ONLY` (comma-separated substrings of case names), `AB_OUT` (bench/compare-results.json).
  */
 import autocannon from 'autocannon';
@@ -26,6 +26,9 @@ import { writeFileSync } from 'fs';
 const DURATION = Number(process.env.AB_DURATION ?? 10);
 const ROUNDS = Number(process.env.AB_ROUNDS ?? 3);
 const CONNS = Number(process.env.AB_CONNS ?? 100);
+
+// The runtime both sides' servers run on. The harness itself always runs on Node.
+const RUNTIME = process.env.AB_RUNTIME ?? 'node';
 
 const HEAD = process.cwd();
 // Per side, so "the bundle we publish vs the source we test" is one run rather than two tables.
@@ -84,6 +87,11 @@ const CASES: Case[] = [
   { name: 'json 8KB + compression, identity', path: '/big', env: { GT_COMPRESS: '1' } },
   { name: 'json 8KB + gzip', path: '/big', env: { GT_COMPRESS: '1' }, headers: { 'accept-encoding': 'gzip' } },
   { name: 'json 8KB + br', path: '/big', env: { GT_COMPRESS: '1' }, headers: { 'accept-encoding': 'br' } },
+  // Streams (#26): one request is 100 SSE events, so req/s here is events/s / 100. The gzip case
+  // takes the compressed frame sink, whose drain wait is a different emitter.
+  { name: 'static 2KB file', path: '/app.js', env: { GT_STATIC: '1' } },
+  { name: 'sse 100 events', path: '/sse' },
+  { name: 'sse 100 events + gzip', path: '/sse', env: { GT_COMPRESS: '1' }, headers: { 'accept-encoding': 'gzip' } },
 ];
 
 const ONLY = process.env.AB_ONLY;
@@ -94,7 +102,10 @@ function log(m: string): void {
 }
 
 async function boot(cwd: string, env: Record<string, string>, server = 'compare'): Promise<{ port: number; kill: () => Promise<void> }> {
-  const child = spawn(process.execPath, ['--import', 'tsx', `bench/servers/${server}.ts`], {
+  const file = `bench/servers/${server}.ts`;
+  const [cmd, args] =
+    RUNTIME === 'deno' ? ['deno', ['run', '-A', file]] : RUNTIME === 'bun' ? ['bun', [file]] : [process.execPath, ['--import', 'tsx', file]];
+  const child = spawn(cmd, args, {
     cwd,
     env: { ...process.env, TSX_TSCONFIG_PATH: 'bench/tsconfig.json', ...env },
   });

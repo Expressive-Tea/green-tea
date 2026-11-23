@@ -68,7 +68,7 @@ test('CARD-17 T2: serveBun, booted with nothing degraded → 200 ok', async () =
   }
 });
 
-test('CARD-17 T3: serveBun, an optional provider failed → 200 degraded with its name', async () => {
+test('CARD-17 T3: serveBun, an optional provider failed → 200 degraded, no name in the body (#83)', async () => {
   @Provider({ provides: 'x', optional: true })
   class X {
     provide(): never {
@@ -81,7 +81,7 @@ test('CARD-17 T3: serveBun, an optional provider failed → 200 degraded with it
   try {
     expect(await probe(await fetch(`http://127.0.0.1:${server.port}/__ready__`))).toEqual({
       status: 200,
-      body: { status: 'degraded', degraded: ['x'] },
+      body: { status: 'degraded' },
     });
   } finally {
     await server.close();

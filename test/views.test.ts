@@ -17,6 +17,13 @@ describe('render', () => {
   it('resolves nested keys and renders missing keys as empty', () => {
     expect(render('{{ user.name }}|{{ nope }}', { user: { name: 'Diego' } })).toBe('Diego|');
   });
+  it('never re-renders what {{{ x }}} inserted (GHSA-g86h-3r98-qm66)', () => {
+    const data = { bio: 'hi {{ secret }} {{{ secret }}}', secret: 'hash' };
+    expect(render('{{{ bio }}}|{{ bio }}', data)).toBe('hi {{ secret }} {{{ secret }}}|hi {{ secret }} {{{ secret }}}');
+  });
+  it('reads own keys only, so inherited members render empty', () => {
+    expect(render('[{{ constructor }}][{{ user.toString }}][{{ name.length }}]', { user: {}, name: 'abc' })).toBe('[][][3]');
+  });
 });
 
 describe('contentTypeFor', () => {

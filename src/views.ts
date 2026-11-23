@@ -20,11 +20,22 @@ function stringify(v: unknown): string {
  * `{{ a.b }}` walks nested keys, a missing key renders empty. No loops/conditionals/partials.
  */
 export function render(source: string, data: unknown): string {
+  // Own keys only, so `{{ constructor }}` renders empty rather than a function's source.
   const lookup = (key: string): unknown =>
-    key.split('.').reduce<any>((obj, k) => (obj === null || obj === undefined ? undefined : obj[k]), data);
-  return source
-    .replace(/\{\{\{\s*([\w.]+)\s*\}\}\}/g, (_, key) => stringify(lookup(key)))
-    .replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => escapeHtml(stringify(lookup(key))));
+    key
+      .split('.')
+      .reduce<any>(
+        (obj, k) =>
+          obj !== null && obj !== undefined && Object.prototype.hasOwnProperty.call(obj, k) ? obj[k] : undefined,
+        data,
+      );
+
+  // One pass over the source for both forms. Two passes ran `{{ }}` again over what `{{{ }}}` had
+  // inserted, so raw content holding `{{ user.passwordHash }}` rendered the hash
+  // (GHSA-g86h-3r98-qm66). Inserted values are never scanned.
+  return source.replace(/\{\{\{\s*([\w.]+)\s*\}\}\}|\{\{\s*([\w.]+)\s*\}\}/g, (_, raw, escaped) =>
+    raw === undefined ? escapeHtml(stringify(lookup(escaped))) : stringify(lookup(raw)),
+  );
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -218,6 +229,7 @@ export function buildStaticResolver(root: string | true, cacheControl = 'no-cach
       return undefined;
     }
 
+    if (isHiddenPath(rel)) return undefined;
     if (rel === '' || rel.endsWith('/')) rel += 'index.html';
     const full = nodePath.resolve(abs, '.' + (rel.startsWith('/') ? rel : '/' + rel));
     if (full !== abs && !full.startsWith(abs + nodePath.sep)) return undefined; // traversal guard
@@ -231,6 +243,19 @@ export function buildStaticResolver(root: string | true, cacheControl = 'no-cach
       return undefined; // includes ENOENT from `realpath` on a dangling link: a miss, never a rejection
     }
   };
+}
+
+/**
+ * A path with a segment that starts with `.` (`/.env`, `/.git/config`, `/a/.htpasswd`) is never served
+ * from `static` (GHSA-hjcj-hr8v-rfg4): a dotfile in the public root is almost always there by accident,
+ * and it is a miss like any missing file. `/.well-known/` is the exception, because ACME challenges and
+ * `security.txt` live there by standard (RFC 8615); a dotfile *inside* it is still hidden.
+ */
+function isHiddenPath(rel: string): boolean {
+  const segments = rel.split('/').filter(Boolean);
+  const start = segments[0] === '.well-known' ? 1 : 0;
+
+  return segments.slice(start).some((segment) => segment.startsWith('.'));
 }
 
 /** Turns `@Html` metadata into a response transformer at boot. String mode is fs-free; path/template modes read+cache the file. */

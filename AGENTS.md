@@ -29,21 +29,22 @@ Run the first four before proposing anything as finished. The runtime suites sta
 
 ## Two forges
 
-Development lives on GitHub: `develop`, feature branches, pull requests, CI and new issues. A
-private Gitea instance keeps only `main` and release tags, pushed there by hand, so a release can
-be staged on the internal Verdaccio before it goes public. Issues opened on Gitea before
-2026-11-17 stay there until they close; new ones go to GitHub.
+Development and releases live on GitHub: `develop`, feature branches, pull requests, CI, new
+issues, and the `v*` tags that publish. A private Gitea instance is an archive of `main` and its
+tags, copied from GitHub after a release; nothing flows from Gitea to GitHub. Issues opened on
+Gitea before 2026-11-17 stay there until they close; new ones go to GitHub.
 
 ```
 feature/* → develop → main                     (GitHub, pull requests)
                        │
-              v* tag ──┼── GitHub: [release.yml] → npm + JSR
-                       └── Gitea, pushed by hand when staging: [stage.yml] → Verdaccio
+              v* tag ──── GitHub: [release.yml] → npm + JSR
+                       │
+                       └── Gitea: archive copy of main and tags, after the release
 ```
 
 - **`develop`** — active development, and the base of every pull request, outside contributions included.
 - **`main`** — released code, advanced only by fast-forward from `develop`.
-- **Gitea `main` and tags** — a staging copy. Nothing is developed there. A `v*` tag pushed there publishes to Verdaccio, never to a public registry.
+- **Gitea `main` and tags** — an archive. Nothing is developed, staged or released from there.
 
 Remotes: `origin` is GitHub, `gitea` is the Gitea instance.
 
@@ -99,17 +100,15 @@ Bumping `package.json` and `deno.json` ahead of the tag is fine and necessary �
 *next* publish will be called, and the docs repo's `verify:release` compares the tag against them.
 A version number is a plan; a changelog heading is a receipt.
 
-**Stage on Verdaccio first when a release warrants it.** Pushing a `v*` tag to GitHub publishes it
-to npm and JSR, and JSR never gives a version number back. Pushing the same tag to Gitea first runs
-the real publish path against Verdaccio, where a mistake costs only a re-tag:
+**The tag is the publish, and JSR never gives a version number back.** Pushing a `v*` tag to
+GitHub runs `release.yml`: the CI gates, `deno publish --dry-run`, then npm, then JSR last. There is
+no staging registry any more (Verdaccio staging through Gitea ended 2026-11-22), so run
+`npm run test:all` on the exact commit you tag before you push it:
 
 ```bash
-git push gitea main v<version>   # optional: Gitea → Verdaccio, reversible
 git push origin v<version>       # GitHub → npm + JSR, permanent on JSR
+git push gitea main v<version>   # afterwards: archive copy only
 ```
-
-The split exists because a mistake caught on Verdaccio costs a re-tag, and the same mistake
-caught on JSR costs the version number forever.
 
 **After a beta release, move the channel tag by hand.** A publish sets exactly one dist-tag, and it
 is the only npm write the release workflow can make — Trusted Publishing's OIDC exchange lives inside

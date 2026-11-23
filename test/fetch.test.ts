@@ -90,17 +90,21 @@ class IpCtl {
   @Get('/whoami') whoami(@ctx() c: any) {
     return { ip: c.ip };
   }
+  @Get('/proto') proto(@ctx() c: any) {
+    return { protocol: c.protocol };
+  }
 }
 @Module({ mountpoint: '/', controllers: [IpCtl] })
 class IpModule {}
 
 describe('app.fetch trustProxy gates x-forwarded-for', () => {
-  it('honors x-forwarded-for (first hop) when trustProxy is true', async () => {
+  it('honors x-forwarded-for (the hop the proxy appended) when trustProxy is true', async () => {
     const trustingApp = createApp({ modules: [IpModule], trustProxy: true });
+    // `9.9.9.9` is what the client wrote; `1.1.1.1` is what the trusted proxy appended (GHSA-53g8-83jp-gvw4).
     const res = await trustingApp.fetch(
       new Request('http://x/ip/whoami', { headers: { 'x-forwarded-for': '9.9.9.9, 1.1.1.1' } }),
     );
-    expect(await res.json()).toEqual({ ip: '9.9.9.9' });
+    expect(await res.json()).toEqual({ ip: '1.1.1.1' });
   });
 
   it('ignores x-forwarded-for when trustProxy is off (default)', async () => {
@@ -397,5 +401,21 @@ describe('app.fetch bounded body reads (#105)', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({});
+  });
+});
+
+describe('app.fetch trustProxy honours x-forwarded-proto (GHSA-g86h-3r98-qm66)', () => {
+  const viaTlsProxy = () => new Request('http://x/ip/proto', { headers: { 'x-forwarded-proto': 'https' } });
+
+  it('reports https and sends HSTS behind a trusted TLS proxy, like Node', async () => {
+    const res = await createApp({ modules: [IpModule], trustProxy: true }).fetch(viaTlsProxy());
+    expect(await res.json()).toEqual({ protocol: 'https' });
+    expect(res.headers.get('strict-transport-security')).toBeTruthy();
+  });
+
+  it('ignores the header without trustProxy', async () => {
+    const res = await createApp({ modules: [IpModule] }).fetch(viaTlsProxy());
+    expect(await res.json()).toEqual({ protocol: 'http' });
+    expect(res.headers.get('strict-transport-security')).toBeNull();
   });
 });

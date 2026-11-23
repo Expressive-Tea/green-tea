@@ -16,6 +16,16 @@ writeFileSync(join(tmpdir(), 'gt-secret.txt'), 'TOP SECRET');
 // Bytes that no text encoding round-trips: a NUL, a lone high byte, an invalid UTF-8 sequence.
 const binary = Buffer.from([0x00, 0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe, 0x0d, 0x0a, 0x1a, 0x0a]);
 writeFileSync(join(root, 'pixel.bin'), binary);
+// GHSA-hjcj-hr8v-rfg4: dotfiles that end up in a public root by accident.
+writeFileSync(join(root, '.env'), 'SECRET=1');
+mkdirSync(join(root, '.git'), { recursive: true });
+writeFileSync(join(root, '.git', 'config'), '[core]');
+mkdirSync(join(root, 'sub', '.hidden'), { recursive: true });
+writeFileSync(join(root, 'sub', '.hidden', 'x.txt'), 'hidden');
+mkdirSync(join(root, '.well-known', 'acme-challenge'), { recursive: true });
+writeFileSync(join(root, '.well-known', 'security.txt'), 'Contact: x');
+writeFileSync(join(root, '.well-known', 'acme-challenge', 'tok'), 'tok.key');
+writeFileSync(join(root, '.well-known', '.secret'), 'no');
 
 @Route('/api')
 class Api {
@@ -53,6 +63,15 @@ describe('static serving', () => {
   });
   it('returns 404 for a missing file', async () => {
     expect((await app.fetch(new Request('http://x/nope.html'))).status).toBe(404);
+  });
+  it('never serves a dotfile or a file under a dot directory (GHSA-hjcj-hr8v-rfg4)', async () => {
+    for (const path of ['/.env', '/.git/config', '/sub/.hidden/x.txt', '/%2eenv', '/.well-known/.secret']) {
+      expect((await app.fetch(new Request(`http://x${path}`))).status, path).toBe(404);
+    }
+  });
+  it('still serves /.well-known/ (RFC 8615)', async () => {
+    expect(await (await app.fetch(new Request('http://x/.well-known/security.txt'))).text()).toBe('Contact: x');
+    expect(await (await app.fetch(new Request('http://x/.well-known/acme-challenge/tok'))).text()).toBe('tok.key');
   });
   it('rejects path traversal', async () => {
     const res = await app.fetch(new Request('http://x/../gt-secret.txt'));

@@ -219,3 +219,25 @@ describe('inheritance', () => {
     expect(getArgs(Child, 'other')).toEqual([{ index: 0, source: 'params', key: 'id' }]);
   });
 });
+
+test('a missing key resolves to undefined, never an inherited member (GHSA-g86h-3r98-qm66)', async () => {
+  class Inherited {
+    handler(
+      @query('constructor') _q: unknown,
+      @body('toString') _b: unknown,
+      @param('hasOwnProperty') _p: unknown,
+      @header('constructor') _h: unknown,
+      @query(['constructor', 'a']) _picked: unknown,
+    ) {
+      return null;
+    }
+  }
+  const args = await resolveArgs(getArgs(Inherited, 'handler'), {
+    query: { a: '1' },
+    body: {},
+    params: {},
+    headers: {},
+  });
+  expect(args.slice(0, 4)).toEqual([undefined, undefined, undefined, undefined]);
+  expect(args[4]).toEqual({ constructor: undefined, a: '1' });
+});

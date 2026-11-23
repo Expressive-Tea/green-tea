@@ -112,7 +112,7 @@ describe('CARD-17: health probes through app.fetch', () => {
     expect(await probe(app, '/__ready__')).toMatchObject({ status: 200, body: { status: 'ok' } });
   });
 
-  it('T3: an optional provider failed → 200 degraded with its name', async () => {
+  it('T3: an optional provider failed → 200 degraded, its name kept off the body (#83)', async () => {
     @Provider({ provides: 'x', optional: true })
     class X {
       provide(): never {
@@ -124,10 +124,10 @@ describe('CARD-17: health probes through app.fetch', () => {
 
     const app = createApp({ modules: [D], health: true, logger: silentLogger() });
     await app.boot();
-    expect(await probe(app, '/__ready__')).toMatchObject({
-      status: 200,
-      body: { status: 'degraded', degraded: ['x'] },
-    });
+    const res = await probe(app, '/__ready__');
+    expect(res).toMatchObject({ status: 200 });
+    expect(res.body).toEqual({ status: 'degraded' });
+    expect(app.degraded()).toEqual(['x']);
   });
 
   it('T7: POST /__ready__ → 405 with Allow: GET, HEAD; HEAD answers with no body', async () => {
@@ -263,6 +263,7 @@ describe('CARD-17: health option validation and reserved paths', () => {
 
   it('a teapot route at /__ready__ fails the teacup splice while health is on', async () => {
     const wss = new WebSocketServer({ port: 0 });
+    await new Promise((resolve) => wss.once('listening', resolve)); // bound before reading its port (#59)
     wss.on('connection', (ws) => {
       ws.on('message', (data) => {
         if (decode(data.toString()).type === 'hello') {

@@ -5,7 +5,7 @@ import type { Transport } from '../metadata';
 import type { Bus, Correlation } from '../bus';
 import type { NeutralOutcome } from './core';
 import { frameSink } from './compression';
-import { releaseIterator } from '../channel';
+import { raceUntil, releaseIterator } from '../channel';
 
 const PING_MS = 15_000;
 
@@ -81,16 +81,16 @@ export async function pipeStream(
   const onClose = once(res, 'close');
   // `next()` is raced against the disconnect (GitHub #40): an idle source's may never settle, and
   // waiting on it kept this loop and its closer alive long after the client had gone.
-  const gone = onClose.then(() => undefined);
+  const untilGone = raceUntil(onClose);
 
   try {
     while (true) {
-      const step = await Promise.race([iterator.next(), gone]);
+      const step = await untilGone(iterator.next());
       if (!step || step.done) break;
       const { value } = step;
 
       if (!sink.write(encoder.encode(value))) {
-        await Promise.race([once(sink.drains, 'drain'), onClose]);
+        await untilGone(once(sink.drains, 'drain'));
         if (res.destroyed) break; // let finally clean up
       }
     }

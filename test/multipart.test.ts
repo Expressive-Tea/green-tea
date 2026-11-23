@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseMultipart, extractBoundary } from '../src/multipart';
+import { parseMultipart, extractBoundary, collapseDuplicates } from '../src/multipart';
 
 const B = 'X-BOUND';
 function body(parts: string[]): Buffer {
@@ -95,5 +95,32 @@ describe('parseMultipart', () => {
 
   it('malformed input with no matching boundary → rejects', async () => {
     await expect(parseMultipart(Buffer.from('garbage'), B, opts)).rejects.toThrow();
+  });
+});
+
+describe('a field or file named __proto__ (GHSA-g86h-3r98-qm66)', () => {
+  it('is an own key of the urlencoded body, and never its prototype', () => {
+    const pairs = new URLSearchParams('__proto__=a&__proto__=b&x=1');
+    const arrays = collapseDuplicates(pairs, 'array');
+    expect(Object.getPrototypeOf(arrays)).toBe(Object.prototype);
+    expect(Object.prototype.hasOwnProperty.call(arrays, '__proto__')).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(arrays, '__proto__')?.value).toEqual(['a', 'b']);
+    expect((arrays as any).length).toBeUndefined();
+
+    const last = collapseDuplicates(new URLSearchParams('__proto__=a'), 'last');
+    expect(Object.getPrototypeOf(last)).toBe(Object.prototype);
+    expect(Object.getOwnPropertyDescriptor(last, '__proto__')?.value).toBe('a');
+  });
+
+  it('does the same for multipart fields and files', async () => {
+    const r = await parseMultipart(
+      body([field('__proto__', 'x'), field('__proto__', 'y'), file('__proto__', 'a', 'text/plain', 'A'), file('__proto__', 'b', 'text/plain', 'B')]),
+      B,
+      { maxParts: 1000, duplicates: 'array' },
+    );
+    expect(Object.getPrototypeOf(r.fields)).toBe(Object.prototype);
+    expect(Object.getPrototypeOf(r.files)).toBe(Object.prototype);
+    expect(Object.getOwnPropertyDescriptor(r.fields, '__proto__')?.value).toEqual(['x', 'y']);
+    expect((Object.getOwnPropertyDescriptor(r.files, '__proto__')?.value as unknown[]).length).toBe(2);
   });
 });

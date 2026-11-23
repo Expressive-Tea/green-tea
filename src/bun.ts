@@ -1,7 +1,7 @@
 import { channel } from './channel';
 import type { Channel } from './channel';
 import type { App } from './app/types';
-import { refuseTls } from './security';
+import { refuseTls, refuseWsOrigin, warnNodeOnlyLimits } from './security';
 import {
   WS_MAX_MESSAGE_BYTES,
   DEFAULT_MAX_WS_MESSAGE_BYTES,
@@ -120,13 +120,17 @@ export async function serveBun(app: App, options?: BunServeOptions): Promise<Bun
   // without ever reaching `onError`. This was documented as something the caller should remember to
   // do, which made the correct use of a core helper depend on reading a README.
   refuseTls(app, 'serveBun');
+  warnNodeOnlyLimits(app, 'serveBun');
   await app.boot();
 
   const server = Bun.serve({
     ...options,
     fetch(request, server) {
       if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-        const inbound = channel();
+        const refused = refuseWsOrigin(app, request);
+        if (refused) return refused;
+
+        const inbound = channel({ buffer: Infinity }); // ponytail: bounded per frame by boundInbound (#107), never by drop-oldest
         const ac = new AbortController();
         const wsReq = toWsRequest(request, server.requestIP(request)?.address ?? '');
         const data: BunConnData = { wsReq, inbound, ac, drainWaiters: [] };
@@ -137,6 +141,7 @@ export async function serveBun(app: App, options?: BunServeOptions): Promise<Bun
       // The same object goes to `app.fetch`, which is what lets it find the peer again. The server,
       // not its answer: `requestIP` runs only if something reads `ctx.ip` (see `peer.ts`).
       setPeer(request, server);
+      // A stream lifts its own idle timeout through the recorded server (`keepStreamOpen`, #71).
       return app.fetch(request);
     },
     websocket: {

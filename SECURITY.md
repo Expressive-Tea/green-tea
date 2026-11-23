@@ -48,8 +48,21 @@ out after the work.
 
 ## Supported versions
 
-While the package is in beta, only the most recent `26.x.y-beta.N` receives fixes. There is no
-backport channel yet; when the first stable ships, this section gets the real table.
+| Version | Bug fixes | Security fixes |
+| --- | --- | --- |
+| The latest monthly release (`YY.M.x`) | Yes | Yes |
+| The monthly release before it | No | For 3 months after the latest one ships |
+| Anything older | No | No |
+| Pre-releases (`-beta.N`, `-rc.N`) | Only the latest, until the stable release that follows it | Same |
+
+A fix lands in the latest release first. A security fix is also backported, as a patch release of
+the previous month's line, while that line is inside its three months. Features are never
+backported. This is deliberately small: the project is one person, and a promise that only holds
+in a good month is worse than a short one that holds. There is no long-term support line.
+
+Breaking changes ship only in the first release of a year (see
+[Versioning](./README.md#versioning)), so moving to the latest release within a year is meant to be
+safe, and is the expected way to stay supported.
 
 ## Scope
 

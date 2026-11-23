@@ -27,6 +27,116 @@ export function refuseTls(app: object, adapter: string): void {
   }
 }
 
+/**
+ * The `limits` keys only Node's listener applies, set on the app as the ones the caller gave, so the
+ * other adapters can say they ignore them (#76) rather than ignore them silently. Symbol-keyed
+ * because it is adapter plumbing.
+ */
+export const NODE_ONLY_LIMITS: unique symbol = Symbol.for('green-tea.node-only-limits');
+
+const NODE_ONLY_LIMIT_KEYS = ['maxConnections', 'requestTimeoutMs', 'headersTimeoutMs', 'keepAliveTimeoutMs'] as const;
+
+/** The Node-only `limits` keys present in `limits`, for {@link NODE_ONLY_LIMITS}. */
+export function nodeOnlyLimits(
+  limits: { [K in (typeof NODE_ONLY_LIMIT_KEYS)[number]]?: number } | undefined,
+): string[] {
+  return NODE_ONLY_LIMIT_KEYS.filter((key) => limits?.[key] !== undefined);
+}
+
+/** Warns, once per adapter call, that `adapter` does not apply the Node-only limits the app set. */
+export function warnNodeOnlyLimits(app: object, adapter: string): void {
+  const keys = (app as { [NODE_ONLY_LIMITS]?: string[] })[NODE_ONLY_LIMITS] ?? [];
+  if (keys.length === 0) return;
+
+  (app as { logger?: Logger }).logger?.warn(
+    `${adapter} does not apply limits.${keys.join(', limits.')}: only Node's listen() does. ` +
+      "Set the equivalent on the runtime's server or at the proxy in front of it.",
+    { adapter, ignored: keys },
+  );
+}
+
+/**
+ * Set on an app created with `mesh`, so `edgeHandler` can refuse it (#87). Mesh does not run on the
+ * edge: the teapot's secret check needs `node:crypto`'s `timingSafeEqual`, which `nodejs_compat`
+ * lacks, and a teacup's links are long-lived outbound sockets a Worker cannot hold. Without this the
+ * app booted and failed later, somewhere else. Symbol-keyed because it is adapter plumbing.
+ */
+export const MESH_REQUESTED: unique symbol = Symbol.for('green-tea.mesh-requested');
+
+/** The one message for mesh on the edge, from `createApp` (detected) or `edgeHandler` (explicit). */
+export const MESH_ON_EDGE =
+  'mesh does not run on the edge (Cloudflare Workers): the teapot needs node:crypto timingSafeEqual and ' +
+  'a teacup needs long-lived outbound sockets. Run mesh nodes on Node, Deno or Bun, and drop `mesh` here.';
+
+/** Throws when `app` was created with `mesh` (#87). */
+export function refuseMeshOnEdge(app: object): void {
+  if ((app as { [MESH_REQUESTED]?: boolean })[MESH_REQUESTED]) throw new Error(MESH_ON_EDGE);
+}
+
+/**
+ * Set on every app to the function the fetch adapters (`serveDeno`, `serveBun`, `edgeHandler`) call
+ * before they accept a WebSocket upgrade: `(origin, host, path) => allowed`. Symbol-keyed because it
+ * is adapter plumbing; see {@link wsOriginAllowed} and {@link refuseWsOrigin}.
+ */
+export const WS_ORIGIN_CHECK: unique symbol = Symbol.for('green-tea.ws-origin-check');
+
+/**
+ * Whether a WebSocket upgrade from `origin` may be accepted (GHSA-p697-fpqx-pgf3).
+ *
+ * A browser attaches the site's cookies to an upgrade started by any page, and CORS does not apply to
+ * WebSockets, so without this check a page on another site could open a socket as the signed-in user
+ * (cross-site WebSocket hijacking). Allowed: no `Origin` at all (not a browser), the same host the
+ * request was sent to, or an origin `cors.origins` allows. Everything else, `null` included, is refused.
+ */
+export function wsOriginAllowed(
+  origin: string | null | undefined,
+  host: string | null | undefined,
+  cors?: CorsOptions,
+  logger?: Logger,
+): boolean {
+  if (!origin) return true;
+  if (!isValidOrigin(origin)) return false;
+
+  try {
+    if (host && new URL(origin).host === host.toLowerCase()) return true;
+  } catch {
+    return false;
+  }
+
+  return cors ? originAllowed(cors.origins, origin, logger) : false;
+}
+
+/** For the fetch adapters: a `403` to return instead of upgrading, or `undefined` to go ahead. */
+export function refuseWsOrigin(app: object, request: Request): Response | undefined {
+  const check = (app as { [WS_ORIGIN_CHECK]?: (origin: string | null, host: string, path: string) => boolean })[
+    WS_ORIGIN_CHECK
+  ];
+  const url = new URL(request.url);
+
+  // The URL's host, not the `Host` header: Deno and Bun build the URL from that header anyway, and on
+  // the edge the URL is the one the client asked for while `Host` may name an internal hop.
+  if (!check || check(request.headers.get('origin'), url.host, url.pathname)) {
+    return undefined;
+  }
+
+  return new Response('Forbidden', { status: 403 });
+}
+
+/**
+ * Refuses `cors: { origins: '*', credentials: true }` at boot (GHSA-fccm-q62j-48hr). The spec forbids
+ * `*` with credentials, so the only way to honour both was to echo every origin, `null` included, with
+ * `Access-Control-Allow-Credentials: true`: any site could then make credentialed reads. An app that
+ * really means that writes it as a predicate, where it is visible.
+ */
+export function assertCorsOptions(cors: CorsOptions | undefined): void {
+  if (cors?.origins === '*' && cors.credentials) {
+    throw new Error(
+      "cors: { origins: '*', credentials: true } would let every site make credentialed requests. " +
+        'List the origins you trust, or pass a predicate such as `origins: (origin) => origin.endsWith(".example.com")`.',
+    );
+  }
+}
+
 /** CORS policy. `origins` may be a literal, list, `'*'`, or a predicate. */
 export interface CorsOptions {
   origins: string | string[] | '*' | ((origin: string) => boolean);

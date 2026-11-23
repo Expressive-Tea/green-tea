@@ -22,6 +22,8 @@ const KEY = Symbol.for('@green-tea/core:peer');
 /** Names a request's socket peer on demand: Bun's server. */
 export interface PeerSource {
   requestIP(request: Request): { address: string } | null;
+  /** Bun's per-request idle timeout; `0` lifts it. */
+  timeout?(request: Request, seconds: number): void;
 }
 
 const registry = globalThis as { [KEY]?: WeakMap<Request, string | PeerSource> };
@@ -30,6 +32,17 @@ const peers = (registry[KEY] ??= new WeakMap<Request, string | PeerSource>());
 /** Records the peer of `request`. An empty address — a unix socket has none — is not recorded. */
 export function setPeer(request: Request, peer: string | PeerSource): void {
   if (peer) peers.set(request, peer);
+}
+
+/**
+ * Lifts the adapter's idle timeout for a request whose response is a stream. Bun cuts a request idle
+ * for `idleTimeout` (default 10 s), shorter than the SSE keep-alive ping, so a quiet stream was
+ * dropped (#71). Called from the stream branch only: doing it in `serveBun` meant a `.then`, a header
+ * read and a regex on every response, which measured 2–4% on Bun's buffered routes.
+ */
+export function keepStreamOpen(request: Request): void {
+  const peer = peers.get(request);
+  if (typeof peer === 'object') peer.timeout?.(request, 0);
 }
 
 /** The peer an adapter recorded for `request`, or `''` when none did. */

@@ -85,7 +85,9 @@ describe('http streaming', () => {
     const text = await res.text();
     expect(text).toContain('data: {"ok":true}\n\n');
     expect(text).toContain('event: error');
-    expect(text).toContain('kaboom');
+    // masked like a buffered 500 (GHSA-235j-fx64-w9p9)
+    expect(text).toContain('Internal Server Error');
+    expect(text).not.toContain('kaboom');
     server.close();
   });
 
@@ -185,7 +187,7 @@ describe('request hardening', () => {
       limits: { maxConnections: 1 },
     });
 
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) => server.listen(0, resolve));
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('server did not bind to a TCP port');
 
@@ -328,7 +330,7 @@ describe('request hardening', () => {
       { limits: { maxConcurrentRequests: 1 } },
     );
 
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) => server.listen(0, resolve));
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('server did not bind to a TCP port');
 

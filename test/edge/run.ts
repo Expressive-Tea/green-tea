@@ -137,6 +137,17 @@ async function main() {
     });
     assert.equal(got, 'echo:hi');
 
+    // GHSA-p697-fpqx-pgf3: a cross-site upgrade is refused with 403 before the pair is created; a
+    // same-host Origin still upgrades.
+    const upgradeFrom = (origin: string) =>
+      mf.dispatchFetch('http://localhost/rt/echo', { headers: { Upgrade: 'websocket', Origin: origin } });
+    assert.equal((await upgradeFrom('https://evil.example')).status, 403, 'cross-site WebSocket upgrade');
+    assert.equal((await upgradeFrom('null')).status, 403, 'null-origin WebSocket upgrade');
+    const sameHost = await upgradeFrom('http://localhost');
+    assert.equal(sameHost.status, 101, 'same-host WebSocket upgrade');
+    sameHost.webSocket?.accept();
+    sameHost.webSocket?.close();
+
     // #104: a malformed escape in a param segment closes 1008 instead of 1011, and HTTP still serves.
     const badRes = await mf.dispatchFetch('http://localhost/rt/room/%E0%A4%A', {
       headers: { Upgrade: 'websocket' },
@@ -193,6 +204,11 @@ async function main() {
       code: 1008,
       reason: 'mesh control channel not enabled: this app exports nothing, or has no mesh.secret',
     });
+    // #87: mesh is refused inside workerd at createApp, naming the edge.
+    const meshRes = await mf.dispatchFetch('http://meshedge/');
+    assert.equal(meshRes.status, 500, 'mesh on the edge fails createApp');
+    assert.match(await meshRes.text(), /^mesh does not run on the edge/);
+
     const reservedRes = await mf.dispatchFetch('http://reserved/');
     assert.equal(reservedRes.status, 500);
     assert.match(await reservedRes.text(), /^route @Ws \/__mesh__\/control at Claims\.control uses the reserved path/);
@@ -217,7 +233,7 @@ async function main() {
     assert.equal(ready.headers.get('cache-control'), 'no-store');
 
     console.log(
-      'edge (workerd via miniflare): HTTP 200 + cookies + etag/304 + body limits 413/413/200/413 + WS echo:hi + ws limits + cf-connecting-ip under trustProxy + reserved path + health — PASS',
+      'edge (workerd via miniflare): HTTP 200 + cookies + etag/304 + body limits 413/413/200/413 + WS echo:hi + ws limits + cf-connecting-ip under trustProxy + reserved path + mesh refused + health — PASS',
     );
   } finally {
     await mf.dispose();

@@ -11,8 +11,9 @@ const env = { method: 'GET', params: {}, query: {}, body: undefined, headers: {}
  * half-open link: TCP still looks alive, the peer is not. Without a heartbeat a teacup only
  * finds out when a request pays the full rpc timeout.
  */
-function startTeapot(opts: { answerPings: boolean }) {
+async function startTeapot(opts: { answerPings: boolean }) {
   const wss = new WebSocketServer({ port: 0 });
+  await new Promise((resolve) => wss.once('listening', resolve)); // bound before reading its port (#59)
   const seen: string[] = [];
 
   wss.on('connection', (ws) => {
@@ -34,7 +35,7 @@ function startTeapot(opts: { answerPings: boolean }) {
 
 describe('mesh heartbeat', () => {
   it('pings the teapot and keeps the link alive while it pongs', async () => {
-    const t = startTeapot({ answerPings: true });
+    const t = await startTeapot({ answerPings: true });
     const link = await connectLink({ url: t.url, secret: 'good', heartbeatMs: 30 });
 
     await new Promise((r) => setTimeout(r, 120));
@@ -48,7 +49,7 @@ describe('mesh heartbeat', () => {
 
   it('closes the link when the teapot stops answering pings', async () => {
     // the half-open case: the socket never errors, the peer just stops talking
-    const t = startTeapot({ answerPings: false });
+    const t = await startTeapot({ answerPings: false });
     const link = await connectLink({ url: t.url, secret: 'good', heartbeatMs: 30, timeoutMs: 10_000 });
 
     await new Promise((r) => setTimeout(r, 200));
@@ -60,7 +61,7 @@ describe('mesh heartbeat', () => {
   });
 
   it('emits mesh:disconnect when the heartbeat gives up', async () => {
-    const t = startTeapot({ answerPings: false });
+    const t = await startTeapot({ answerPings: false });
     const seen: string[] = [];
     const bus = { emit: (e: string, p: any) => seen.push(`${e}:${p.name}`), on: () => () => {} } as any;
     const link = await connectLink({ url: t.url, secret: 'good', heartbeatMs: 30, bus });
@@ -74,7 +75,7 @@ describe('mesh heartbeat', () => {
   });
 
   it('does not ping before the handshake completes', async () => {
-    const t = startTeapot({ answerPings: true });
+    const t = await startTeapot({ answerPings: true });
     const link = await connectLink({ url: t.url, secret: 'good', heartbeatMs: 30 });
 
     // hello must be first on the wire: an unauthenticated peer has no business pinging

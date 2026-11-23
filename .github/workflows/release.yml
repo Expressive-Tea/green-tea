@@ -23,8 +23,14 @@ jobs:
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
-      - run: npm install -g npm@latest # npm >= 11.5.1 is required for OIDC trusted publishing
+      # Pinned (#78): a permanent publish must not run on whatever npm shipped this morning. >= 11.5.1
+      # is required for OIDC trusted publishing. Bump it on purpose, in its own commit.
+      - run: npm install -g npm@11.21.3
       - run: npm ci
+      # The CI gates that `prepublishOnly` does not run (#78). A tag on a commit that never passed CI
+      # must not reach a registry, and `main` alone cannot promise that it did.
+      - run: npm run format:check
+      - run: npm run api:check
       # Same scoped gate as ci.yml: only what we ship blocks a publish. With `reflect-metadata`
       # as the sole runtime dependency, a blocking advisory here is rare and genuinely reaches
       # users; a build-tooling one never does. The full audit still reports.
@@ -42,6 +48,10 @@ jobs:
       # types, module analysis — and learning about them after npm has published leaves the tag
       # half-shipped. Seconds, against a failure mode with no clean recovery.
       - run: deno publish --dry-run
+      - uses: oven-sh/setup-bun@v2
+      - run: npm run test:deno
+      - run: npm run test:bun
+      - run: npm run test:edge
       # A publish sets exactly one dist-tag, and it is the only npm write this workflow can make:
       # Trusted Publishing's OIDC exchange lives inside `npm publish` and nowhere else, so the token
       # it produces is rejected by `npm dist-tag` (E401, learned on v26.8.0-beta.1). So the one tag

@@ -80,7 +80,9 @@ describe('stream lifecycle events, on every adapter', () => {
       // indistinguishable from the connection dropping.
       expect(body).toContain('data: {"t":1}\n\n');
       expect(body).toContain('event: error');
-      expect(body).toContain('source died');
+      // the client sees a generic message; the event keeps the real one (GHSA-235j-fx64-w9p9)
+      expect(body).toContain('Internal Server Error');
+      expect(body).not.toContain('source died');
 
       expect(seen).toEqual(['stream:open', 'stream:error', 'stream:close']);
       expect((errors[0] as Error).message).toBe('source died');

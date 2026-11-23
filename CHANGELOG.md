@@ -8,6 +8,162 @@ npm treats versions as semver and semver forbids leading zeros.
 
 ## [Unreleased]
 
+## [26.11.0-rc.2] - 2026-11-23
+
+### Added
+
+- **A runnable mesh demo: one REST API across two processes** (#88). `example/mesh/` has a billing
+  teapot (a private ledger, an exported `balance` step and REST routes) and a shop teacup whose
+  checkout `@needs('balance')` like a local step and which serves billing's routes. The walkthrough
+  is in `example/README.md`, and `test/examples/mesh.test.ts` runs it with billing in a real child
+  process that it kills and restarts: `503` with `retry-after` while billing is down, then automatic
+  recovery.
+
+### Security
+
+- **Mesh: a teapot checks the HTTP method of a route RPC, not just its pattern**
+  (GHSA-4q43-x4fp-c273). Exporting `GET /items/:id` let an authenticated teacup run an unexported
+  `DELETE /items/:id`, because the gate matched the pattern and the route ran for whatever method
+  the peer sent. Mesh is `@experimental`; no API change.
+
+- **Mesh: an internal error on a teapot no longer reaches the teacup's client verbatim**
+  (GHSA-gm9h-7577-x57w). A remote step that threw a plain `Error` sent its message across the hop,
+  and the teacup rendered it in a `500`, so a message holding a connection string or a host reached
+  the end client; the same throw handled locally renders `Internal Server Error`. The teapot now
+  sends the real message only for an `HttpError` or a status below 500, and keeps the full error in
+  its `mesh:rpc:error` event. The "cannot transport" diagnostic is still delivered. No wire change.
+
+- **A stream's error frame no longer shows the raw error message** (GHSA-235j-fx64-w9p9). When an
+  SSE or ndjson source threw mid-stream, the client received `err.message` verbatim, while the same
+  throw on a buffered route renders `Internal Server Error`. The frame now carries an `HttpError`'s
+  message and `Internal Server Error` for anything else; `stream:error` still gets the full error.
+  **Behaviour change** for clients that read the text of a non-HTTP error frame. No API change.
+
+- **With `trustProxy`, `ctx.ip` is the right-most `X-Forwarded-For` entry** (GHSA-53g8-83jp-gvw4), on
+  every adapter. It was the left-most, which the client writes: a proxy appends the real address, so
+  a client that sent `X-Forwarded-For: 6.6.6.6` got `ctx.ip === '6.6.6.6'`, defeating per-IP rate
+  limits, allowlists and audit logs. **Behaviour change** behind a chain of several proxies, where
+  `ctx.ip` is now the address the last one saw; `cf-connecting-ip` on the edge is unchanged. No API
+  change.
+
+- **`cors: { origins: '*', credentials: true }` fails `createApp`** (GHSA-fccm-q62j-48hr). The spec
+  forbids `*` with credentials, so core echoed every request origin, `null` included, with
+  `Access-Control-Allow-Credentials: true`, and any site could make credentialed reads. **Breaking**
+  for an app that set this combination: list the trusted origins, or write the intent as a
+  predicate (`origins: () => true`) so it is visible. The option type is unchanged.
+
+- **`static` no longer serves dotfiles** (GHSA-hjcj-hr8v-rfg4). `GET /.env` returned the file, and so
+  would `/.git/config` or `/.htpasswd` in a public root. A path with any segment starting with `.` is
+  now a miss (`404`), except under `/.well-known/` (RFC 8615), where only dotfiles stay hidden.
+  **Behaviour change** for an app that served dotfiles on purpose. No API change.
+
+- **Node reaps slow-header sockets and dead WebSocket peers promptly** (GHSA-g96c-wq2v-87vc). Node
+  checks `headersTimeout`/`requestTimeout` only every 30 seconds by default, so a slow-header socket
+  lived up to 40 seconds, and a WebSocket peer that vanished without closing held its slot forever: a
+  few hundred of either filled the default `maxConnections` and locked everyone else out. The check
+  now runs every second, and each Node WebSocket is pinged every 30 seconds and terminated if it
+  missed the previous ping. Browsers and `ws` clients answer pings on their own. No API change.
+
+- **Mesh: a `ws://` teapot off loopback fails `createApp` unless `mesh.allowInsecure`** (#86). The
+  handshake sends the teapot's secret verbatim, and a cleartext link to another machine only logged
+  a warning. Use `wss://`, or set the new `MeshConfig.allowInsecure: true` when the network already
+  encrypts the link (a service mesh with mutual TLS); such a teapot is still logged as a warning.
+  Loopback (`localhost`, `127.0.0.0/8`, `[::1]`) is unaffected. Mesh is `@experimental`: the change
+  stays within `MeshConfig` (D19).
+
+- **Mesh on the edge fails with an error that says so** (#87). Mesh cannot run on Cloudflare
+  Workers, but an app that configured it booted there and failed later, elsewhere. `createApp` with
+  `mesh` now throws when it detects a Workers isolate, and `edgeHandler` throws for such an app
+  whatever detection saw. Mesh is `@experimental`; no API change.
+
+- **The built-in template engine no longer renders what `{{{ }}}` inserted** (GHSA-g86h-3r98-qm66).
+  It ran `{{ }}` over the output of `{{{ }}}`, so raw content holding `{{ user.passwordHash }}`
+  rendered the hash. Both forms are now matched in one pass, and keys resolve to own properties only,
+  so `{{ constructor }}` renders empty instead of a function's source. No API change.
+
+- **A form field or file named `__proto__` is an ordinary key** (GHSA-g86h-3r98-qm66). With
+  `bodyDuplicates: 'array'`, `__proto__=a&__proto__=b` replaced the parsed body's prototype, and a
+  multipart file part with that name did the same to `body.files`. Fields and files are now read and
+  written as own properties. The effect never reached `Object.prototype`. No API change.
+
+- **`@query`, `@body`, `@param`, `@header` and `@cookie` read own keys only**
+  (GHSA-g86h-3r98-qm66). A key the request did not send resolved through the prototype, so
+  `@query('constructor')` returned `Object.prototype.constructor` instead of `undefined`. No API
+  change.
+
+- **Deno, Bun and `app.fetch` honour `X-Forwarded-Proto` under `trustProxy`**
+  (GHSA-g86h-3r98-qm66), as Node always has. Behind a TLS-terminating proxy they reported
+  `ctx.protocol === 'http'` and never sent HSTS. No API change.
+
+- **The README says that a decoded route param can hold `/` and `..`** (GHSA-g86h-3r98-qm66).
+  `/files/..%2F..%2Fetc` gives `name = "../../etc"`, as in Express. Nothing changes in routing; a
+  handler that builds a filesystem path from a param must contain it, or constrain the param.
+
+- **WebSocket upgrades from another site are refused with `403`** (GHSA-p697-fpqx-pgf3), on Node,
+  Deno, Bun and the edge. No adapter checked `Origin`, so a page on any site could open a WebSocket
+  with the signed-in user's cookies and read what the handler streamed (cross-site WebSocket
+  hijacking); CORS does not apply to WebSockets. An upgrade is now accepted when it carries no
+  `Origin` (not a browser), an `Origin` on the same host as the request, or one `cors.origins`
+  allows. `Origin: null` is refused. The mesh control channel is exempt: it authenticates with its
+  secret. **Behaviour change:** a browser client served from another origin, or an app behind a proxy
+  that rewrites `Host`, now needs that origin in `cors.origins`. No API change.
+
+### Changed
+
+- **`channel()` buffers 1024 values per subscriber by default, dropping the oldest** (#82). The
+  default was unbounded, so a slow SSE or WebSocket client on a busy channel or room grew server
+  memory without limit. Pass `channel({ buffer: Infinity })` for the old behaviour. **Behaviour
+  change** for a subscriber that falls more than 1024 values behind. WebSocket inbound queues are
+  unchanged (bounded per frame by `limits`). No API change.
+
+- **`/__ready__` no longer lists degraded provider names** (#83). The body is
+  `{"status":"degraded"}`; the names stay in the boot log and `app.degraded()`. **Behaviour
+  change** for a probe client that read `degraded`. No API change.
+
+### Security
+
+- **`/__graph__` pins its three CDN scripts with Subresource Integrity** (#83). A compromised or
+  altered CDN copy of Cytoscape or dagre is refused by the browser instead of running on the dev
+  graph page. No API change.
+
+### Documentation
+
+- **README: Kubernetes `preStop` drain** (#81), **a BREACH note for `compression`** and the
+  corrected matcha release line (#84).
+
+### Fixed
+
+- **A long-lived SSE or ndjson stream no longer grows the heap with every event** (found by the soak
+  job, #80). Each event raced the source's `next()` against the connection's close with
+  `Promise.race`, which leaves a reaction on the close promise per call until the client
+  disconnects: about 0.4 MB/s of heap on a 1 kHz stream, on Node, Deno, Bun and the edge. One
+  reaction per stream now. No API change.
+
+- **Mesh: a remote step call runs only that step and what it needs** (#85). The teapot ran every one
+  of its steps on each call, so an unexported step's side effects fired once per RPC, and any
+  unrelated step that threw broke every export. A call now runs the exported step's own closure of
+  providers and steps, sliced once at boot like a route's. Mesh is `@experimental`; no API change.
+
+- **Deno, Bun and the edge say when they ignore a Node-only limit** (#76). `limits.maxConnections`,
+  `requestTimeoutMs`, `headersTimeoutMs` and `keepAliveTimeoutMs` apply only to Node's `listen()`,
+  and the other adapters ignored them without a word. `serveDeno`, `serveBun` and `edgeHandler`
+  now warn through the app's logger, naming each one the app set. No API change.
+
+- **A bus listener that throws is logged once** (#77). `Bus.emit` isolated a failing listener without
+  a word, so a broken metrics or logger plugin produced nothing and gave no signal. The app's
+  `logger` now warns the first time a listener throws or rejects, naming the event; that listener's
+  later failures stay quiet. The `Bus` type is unchanged.
+
+- **An async bus listener that rejects no longer exits the Node process** (#70). `Bus.emit` isolated
+  a listener that threw, but an `async` listener fails by rejecting, and that rejection went
+  unhandled, so a plugin's `on('request:end', async () => { throw … })` killed the process on the
+  first request. A rejection is now swallowed like a throw.
+
+- **Bun no longer drops an SSE or ndjson stream that goes quiet for 10 seconds** (#71). `Bun.serve`
+  cuts a request idle for `idleTimeout` (10s by default), which is shorter than the 15s keep-alive
+  ping, so the client got `ECONNRESET`. `serveBun` now lifts the idle timeout for stream responses
+  only; buffered requests keep it.
+
 ## [26.11.0-rc.1] - 2026-11-17
 
 ### Breaking
@@ -1228,7 +1384,8 @@ change before the stable release.
 - **Benchmarks** — reproducible `npm run bench` harness vs Express 5, Fastify 5,
   NestJS, and raw `http`; results in [BENCHMARKS.md](./BENCHMARKS.md).
 
-[Unreleased]: https://github.com/Expressive-Tea/green-tea/compare/v26.11.0-rc.1...HEAD
+[Unreleased]: https://github.com/Expressive-Tea/green-tea/compare/v26.11.0-rc.2...HEAD
+[26.11.0-rc.2]: https://github.com/Expressive-Tea/green-tea/compare/v26.11.0-rc.1...v26.11.0-rc.2
 [26.11.0-rc.1]: https://github.com/Expressive-Tea/green-tea/compare/v26.9.0-beta.2...v26.11.0-rc.1
 [26.9.0-beta.2]: https://github.com/Expressive-Tea/green-tea/compare/v26.9.0-beta.1...v26.9.0-beta.2
 [26.9.0-beta.1]: https://github.com/Expressive-Tea/green-tea/compare/v26.8.0-beta.1...v26.9.0-beta.1
