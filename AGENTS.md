@@ -100,17 +100,15 @@ Bumping `package.json` and `deno.json` ahead of the tag is fine and necessary �
 *next* publish will be called, and the docs repo's `verify:release` compares the tag against them.
 A version number is a plan; a changelog heading is a receipt.
 
-**Stage on Verdaccio first when a release warrants it.** Pushing a `v*` tag to GitHub publishes it
-to npm and JSR, and JSR never gives a version number back. Pushing the same tag to Gitea first runs
-the real publish path against Verdaccio, where a mistake costs only a re-tag:
+**The tag is the publish, and JSR never gives a version number back.** Pushing a `v*` tag to
+GitHub runs `release.yml`: the CI gates, `deno publish --dry-run`, then npm, then JSR last. There is
+no staging registry any more (Verdaccio staging through Gitea ended 2026-11-22), so run
+`npm run test:all` on the exact commit you tag before you push it:
 
 ```bash
-git push gitea main v<version>   # optional: Gitea → Verdaccio, reversible
 git push origin v<version>       # GitHub → npm + JSR, permanent on JSR
+git push gitea main v<version>   # afterwards: archive copy only
 ```
-
-The split exists because a mistake caught on Verdaccio costs a re-tag, and the same mistake
-caught on JSR costs the version number forever.
 
 **After a beta release, move the channel tag by hand.** A publish sets exactly one dist-tag, and it
 is the only npm write the release workflow can make — Trusted Publishing's OIDC exchange lives inside
