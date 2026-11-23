@@ -30,6 +30,8 @@ jobs:
       # The CI gates that `prepublishOnly` does not run (#78). A tag on a commit that never passed CI
       # must not reach a registry, and `main` alone cannot promise that it did.
       - run: npm run format:check
+      # api:check reads dist/index.d.ts, so it needs a build first (ci.yml builds before it too).
+      - run: npm run build
       - run: npm run api:check
       # Same scoped gate as ci.yml: only what we ship blocks a publish. With `reflect-metadata`
       # as the sole runtime dependency, a blocking advisory here is rare and genuinely reaches
